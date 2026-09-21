@@ -1,0 +1,37 @@
+export type TraceTool = { id: string; name: string; messageId: string | null; linked: boolean };
+export type TraceAssistantStep = {
+  id: string;
+  sourceIndex: number;
+  text: string;
+  reasoning: boolean;
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  tools: TraceTool[];
+};
+export type ObservedTrace = {
+  id: string;
+  traceId: string | null;
+  sessionId: string | null;
+  turn: number;
+  sourceFile: string;
+  agent: string | null;
+  occurredAt: string | null;
+  duration: number | null;
+  feedback: string | null;
+  abnormal: boolean | null;
+  sourceMessageCount: number;
+  historyMessageCount: number;
+  currentMessageCount: number;
+  reasoningCount: number;
+  toolCount: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  compressed: boolean;
+  historySummary: string;
+  input: string;
+  output: string;
+  final: TraceAssistantStep | null;
+  steps: TraceAssistantStep[];
+  unlinkedTools: TraceTool[];
+};

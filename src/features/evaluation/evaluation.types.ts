@@ -1,4 +1,4 @@
-export type EvaluationModule = 'tasks' | 'datasets' | 'evaluators';
+export type EvaluationModule = 'tasks' | 'datasets' | 'evaluators' | 'traces';
 export type TaskTab = 'list' | 'optimize' | 'compare';
 export type TaskScreen = 'list' | 'detail' | 'create';
 export type DatasetScreen = 'list' | 'workspace' | 'upload' | 'history';

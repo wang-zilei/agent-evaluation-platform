@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type MouseEvent, type ReactNode, type SetStateAction } from 'react';
 import * as XLSX from 'xlsx';
 import {
-  ArrowLeft, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  Activity, ArrowLeft, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, ClipboardCheck, Copy, Database, Download, Eye, FileSpreadsheet, History,
   Layers3, ListChecks, Maximize2, MoreHorizontal, Plus, RefreshCw, Search, Settings2, Sparkles, Trash2, Upload,
   X, Zap,
 } from 'lucide-react';
 import { cloneEvaluationState, getDatasetById, historyConversations, statusTone } from './evaluation.mock';
+import { observedTraces } from './trace.data';
+import { TraceDetail, TraceList } from './TraceWorkspace';
 import type {
   AgentOption, CaseResult, Dataset, DatasetCase, EvaluationModule, EvaluationState,
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
@@ -21,6 +23,7 @@ type TaskScreen = 'list' | 'create' | 'detail';
 type DatasetCreateMode = '用户上传' | '智能生成' | '历史对话回流';
 type HistoryDatePreset = '3' | '5' | '7' | '30' | 'custom';
 type TaskCreateStep = 1 | 2 | 3 | 4;
+type TraceScreen = 'list' | 'detail';
 
 type ParsedFile = { name: string; format: string; columns: string[]; rows: Record<string, string>[] };
 type UploadField = { id: string; sourceColumn: string; name: string; semantic: FieldSemantic };
@@ -173,6 +176,7 @@ export default function EvaluationCenterPage() {
   const [taskScreen, setTaskScreen] = useState<TaskScreen>('list');
   const [datasetScreen, setDatasetScreen] = useState<DatasetScreen>('list');
   const [evaluatorScreen, setEvaluatorScreen] = useState<EvaluatorScreen>('list');
+  const [traceScreen, setTraceScreen] = useState<TraceScreen>('list');
   const [evaluatorMode, setEvaluatorMode] = useState<EvaluatorMode>('preset');
   const [datasetDraft, setDatasetDraft] = useState<DatasetDraft>(() => makeDatasetDraft(INITIAL_EVALUATION_STATE));
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(() => makeTaskDraft(INITIAL_EVALUATION_STATE));
@@ -180,13 +184,14 @@ export default function EvaluationCenterPage() {
   const [selectedDatasetId, setSelectedDatasetId] = useState(INITIAL_EVALUATION_STATE.datasets[0]?.id ?? '');
   const [selectedTaskId, setSelectedTaskId] = useState(INITIAL_EVALUATION_STATE.tasks[0]?.id ?? '');
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState(INITIAL_EVALUATION_STATE.evaluators[0]?.id ?? '');
-  const [search, setSearch] = useState(''); const [datasetSearch, setDatasetSearch] = useState(''); const [taskSearch, setTaskSearch] = useState(''); const [scoreFilter, setScoreFilter] = useState('全部结果类型');
+  const [search, setSearch] = useState(''); const [datasetSearch, setDatasetSearch] = useState(''); const [taskSearch, setTaskSearch] = useState(''); const [traceSearch, setTraceSearch] = useState(''); const [scoreFilter, setScoreFilter] = useState('全部结果类型');
   const [toast, setToast] = useState<Toast | null>(null); const [toastId, setToastId] = useState(0); const [casePreview, setCasePreview] = useState<CaseResult | null>(null);
   const [taskReturn, setTaskReturn] = useState(false);
+  const [selectedTraceId, setSelectedTraceId] = useState(observedTraces[0]?.id ?? '');
   const [datasetEntryFromTask, setDatasetEntryFromTask] = useState(false);
   const [editingEvaluatorId, setEditingEvaluatorId] = useState<string | null>(null);
   const notify = (message: string, tone: Toast['tone'] = 'success') => { const id = toastId + 1; setToastId(id); setToast({ id, message, tone }); window.setTimeout(() => setToast((current) => current?.id === id ? null : current), 2600); };
-  const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks') setTaskScreen('list'); };
+  const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks') setTaskScreen('list'); if (module === 'traces') setTraceScreen('list'); };
   const openDatasetCreate = (mode: DatasetCreateMode) => {
     setTaskReturn(module === 'tasks' && taskScreen === 'create');
     setDatasetEntryFromTask(module === 'tasks' && taskScreen === 'create');
@@ -312,10 +317,21 @@ export default function EvaluationCenterPage() {
   const dataset = state.datasets.find((item) => item.id === selectedDatasetId) ?? state.datasets[0];
   const task = state.tasks.find((item) => item.id === selectedTaskId) ?? state.tasks[0];
   const evaluator = state.evaluators.find((item) => item.id === selectedEvaluatorId) ?? state.evaluators[0];
+  const selectedTrace = observedTraces.find((item) => item.id === selectedTraceId) ?? observedTraces[0];
+  const selectModule = (next: EvaluationModule) => { setModule(next); if (next === 'tasks') setTaskScreen('list'); if (next === 'datasets') setDatasetScreen('list'); if (next === 'evaluators') setEvaluatorScreen('list'); if (next === 'traces') setTraceScreen('list'); };
+  const moduleGroups = [
+    { label: '评测', items: [{ id: 'tasks' as const, label: '评测任务', icon: ListChecks }, { id: 'datasets' as const, label: '评测集', icon: Database }, { id: 'evaluators' as const, label: '评估器', icon: ClipboardCheck }] },
+    { label: '观测', items: [{ id: 'traces' as const, label: 'Trace', icon: Activity }] },
+  ];
   return <div className="evaluation-app">
-    <header className="eval-app-header"><div className="eval-app-title"><div className="eval-app-mark"><span /><span /><span /></div><div><span className="eval-eyebrow">WANZHI / QUALITY WORKSPACE</span><h1>评测中心</h1></div></div><div className="eval-app-actions"><Pill>本地 Mock</Pill><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div></header>
-    <nav className="eval-module-nav" aria-label="评测中心模块">{([{ id: 'tasks', label: '评测任务', icon: ListChecks }, { id: 'datasets', label: '评测集', icon: Database }, { id: 'evaluators', label: '评估器', icon: ClipboardCheck }] as const).map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={module === item.id ? 'is-active' : ''} onClick={() => { setModule(item.id); if (item.id === 'tasks') setTaskScreen('list'); if (item.id === 'datasets') setDatasetScreen('list'); if (item.id === 'evaluators') setEvaluatorScreen('list'); }}><Icon size={16} />{item.label}</button>; })}</nav>
-    <main className="eval-content">
+    <aside className="eval-platform-sidebar">
+      <div className="eval-sidebar-brand"><div className="eval-app-mark"><span /><span /><span /></div><div><span className="eval-eyebrow">WANZHI</span><strong>评测中心</strong></div></div>
+      <nav className="eval-sidebar-nav" aria-label="平台功能模块">{moduleGroups.map((group) => <div className="eval-sidebar-group" key={group.label}><span className="eval-sidebar-label">{group.label}</span>{group.items.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={module === item.id ? 'is-active' : ''} onClick={() => selectModule(item.id)}><Icon size={17} />{item.label}</button>; })}</div>)}</nav>
+      <div className="eval-sidebar-footer"><Pill>本地 Mock</Pill></div>
+    </aside>
+    <div className="evaluation-main">
+      <header className="eval-app-header"><div className="eval-app-title"><div><span className="eval-eyebrow">QUALITY WORKSPACE</span><h1>{module === 'traces' ? '观测' : '评测中心'}</h1></div></div><div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div></header>
+      <main className="eval-content">
       {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} />}
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
@@ -327,7 +343,10 @@ export default function EvaluationCenterPage() {
       {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskScreen('detail'); }} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail task={task} state={state} onBack={showList} onOpenCase={setCasePreview} onNotify={notify} />}
-    </main>
+      {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} search={traceSearch} setSearch={setTraceSearch} onOpen={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} />}
+      {module === 'traces' && traceScreen === 'detail' && selectedTrace && <TraceDetail key={selectedTrace.id} trace={selectedTrace} onBack={showList} />}
+      </main>
+    </div>
     {casePreview && <CasePreview item={casePreview} onClose={() => setCasePreview(null)} />}
     {toast && <div className={`eval-toast eval-toast--${toast.tone}`}><CheckCircle2 size={15} />{toast.message}</div>}
   </div>;
