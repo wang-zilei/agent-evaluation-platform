@@ -1,14 +1,7 @@
-export type TraceTool = { id: string; name: string; messageId: string | null; linked: boolean };
-export type TraceAssistantStep = {
-  id: string;
-  sourceIndex: number;
-  text: string;
-  reasoning: boolean;
-  model: string | null;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  tools: TraceTool[];
-};
+export type TraceEvent =
+  | { kind: 'user'; id: string; text: string }
+  | { kind: 'assistant'; id: string; text: string; isFinal: boolean; hasReasoning: boolean }
+  | { kind: 'tool'; id: string; name: string; input: string; output: string; linked: boolean };
 export type ObservedTrace = {
   id: string;
   traceId: string | null;
@@ -31,7 +24,5 @@ export type ObservedTrace = {
   historySummary: string;
   input: string;
   output: string;
-  final: TraceAssistantStep | null;
-  steps: TraceAssistantStep[];
-  unlinkedTools: TraceTool[];
+  events: TraceEvent[];
 };

@@ -11,4 +11,4 @@ const traces = [1, 2, 3].map((turn) => normalizeTrace(JSON.parse(readFileSync(re
 const output = resolve('src/features/evaluation/trace-data');
 mkdirSync(output, { recursive: true });
 writeFileSync(resolve(output, 'traces.json'), JSON.stringify(traces, null, 2) + '\n');
-console.table(traces.map((t) => ({ file: t.sourceFile, originalMessages: t.sourceMessageCount, history: t.historyMessageCount, assistant: t.steps.length, tools: t.toolCount, reasoning: t.reasoningCount, unlinked: t.unlinkedTools.length, inputTokens: t.inputTokens, outputTokens: t.outputTokens })));
+console.table(traces.map((t) => ({ file: t.sourceFile, originalMessages: t.sourceMessageCount, history: t.historyMessageCount, events: t.events.length, tools: t.toolCount, reasoning: t.reasoningCount, inputTokens: t.inputTokens, outputTokens: t.outputTokens })));
