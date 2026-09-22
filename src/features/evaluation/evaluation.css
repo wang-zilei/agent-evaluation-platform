@@ -1654,7 +1654,7 @@
 }
 
 /* ── Task detail follow-up: empty conclusion placeholders and per-evaluator columns ── */
-.eval-task-detail-name-row h2 { font-size: 26px; }
+.eval-task-detail-name-row h2 { font-size: 22px; }
 .eval-task-detail-title p { display: none; }
 .eval-task-basic-info { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 34px; margin-bottom: 18px; border: 0; border-radius: 0; background: transparent; overflow: visible; }
 .eval-task-basic-info > div { min-height: 72px; padding: 8px 0; background: transparent; }
@@ -1876,3 +1876,21 @@
 }
 .eval-auto-binding__row select { width: 100%; min-width: 130px; height: 28px; padding: 0 8px; border: 1px solid var(--eval-border-strong); border-radius: 6px; color: var(--eval-text); background: #fff; font-size: 10px; }
 .eval-auto-binding__row > span { min-width: 0; }
+
+/* ── Header alignment pass for task, evaluator and result pages ── */
+.eval-task-detail-title--stacked { align-items: flex-start; flex-direction: column; gap: 8px; }
+.eval-task-detail-title--stacked > div { width: 100%; }
+.eval-task-detail-name-row h2 { font-size: 22px; }
+.eval-detail-hero h2,
+.eval-optimization-hero h2,
+.eval-evaluator-detail-intro h2 { font-size: 26px; }
+.eval-detail-hero__actions,
+.eval-workspace-actions,
+.eval-task-detail-actions { align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.eval-page-topline { align-items: center; }
+
+@media (max-width: 960px) {
+  .eval-detail-hero__actions,
+  .eval-workspace-actions,
+  .eval-task-detail-actions { justify-content: flex-start; }
+}

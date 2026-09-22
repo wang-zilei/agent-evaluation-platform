@@ -1,5 +1,5 @@
 export type EvaluationModule = 'tasks' | 'datasets' | 'evaluators' | 'traces';
-export type TaskTab = 'list' | 'optimize' | 'compare';
+export type TaskTab = 'list' | 'compare';
 export type TaskScreen = 'list' | 'detail' | 'create' | 'experiment' | 'comparison';
 export type DatasetScreen = 'list' | 'workspace' | 'upload' | 'history';
 export type EvaluatorMode = 'preset' | 'custom';

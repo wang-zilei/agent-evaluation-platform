@@ -203,7 +203,6 @@ export default function EvaluationCenterPage() {
     setModule('datasets');
   };
   const openTaskCreate = () => { setTaskDraft(makeTaskDraft(state)); setTaskScreen('create'); setModule('tasks'); };
-  const openExperiment = (item: OptimizeExperiment) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); setModule('tasks'); };
   const openComparison = (item: ComparisonRecord) => { setSelectedComparisonId(item.id); setTaskScreen('comparison'); setModule('tasks'); };
   const startOptimization = (caseIds: string[]) => { const target = state.experiments[0]; if (!target) return; setSelectedExperimentId(target.id); setTaskScreen('experiment'); notify(`已创建优化实验，等待 Agent Builder 处理 ${caseIds.length} 个 Badcase`); };
   const openEvaluatorCreate = () => { setTaskReturn(module === 'tasks' && taskScreen === 'create'); setEditingEvaluatorId(null); setEvaluatorDraft(makeEvaluatorDraft()); setEvaluatorScreen('create'); setModule('evaluators'); };
@@ -382,7 +381,7 @@ export default function EvaluationCenterPage() {
       {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0—1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${item.name}（自建）`, description: item.description, model: item.model, scoreType: item.scoreType, prompt: item.prompt, variables: item.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${evaluator.name}（自建）`, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft({ name: evaluator.name, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'create' && <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />}
-      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} experiments={state.experiments} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskScreen('detail'); }} onOpenExperiment={openExperiment} onOpenComparison={openComparison} />}
+      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} onBack={showList} onNotify={notify} />}
       {module === 'tasks' && taskScreen === 'comparison' && comparison && <ComparisonDetail comparison={comparison} onBack={() => { setTaskTab('compare'); setTaskScreen('list'); }} />}
@@ -965,12 +964,12 @@ function EvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }:
   );
 }
 
-function TaskList({ tasks, datasets, evaluators, experiments, comparisons, search, setSearch, tab, setTab, onCreate, onOpen, onOpenExperiment, onOpenComparison }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; experiments: OptimizeExperiment[]; comparisons: ComparisonRecord[]; search: string; setSearch: (value: string) => void; tab: TaskTab; setTab: (tab: TaskTab) => void; onCreate: () => void; onOpen: (task: EvaluationTask) => void; onOpenExperiment: (item: OptimizeExperiment) => void; onOpenComparison: (item: ComparisonRecord) => void; }) {
+function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch, tab, setTab, onCreate, onOpen, onOpenComparison }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; comparisons: ComparisonRecord[]; search: string; setSearch: (value: string) => void; tab: TaskTab; setTab: (tab: TaskTab) => void; onCreate: () => void; onOpen: (task: EvaluationTask) => void; onOpenComparison: (item: ComparisonRecord) => void; }) {
   const filtered = tasks.filter((task) => !search || `${task.name} ${task.agent}`.toLowerCase().includes(search.toLowerCase()));
   const datasetName = (id: string) => datasets.find((item) => item.id === id)?.name ?? id;
   const evaluatorNames = (task: EvaluationTask) => task.evaluatorIds.map((id) => evaluators.find((item) => item.id === id)?.name ?? id);
   return <div className="eval-list-page">
-    <div className="eval-task-tabs">{(['list', 'optimize', 'compare'] as TaskTab[]).map((item) => <button type="button" key={item} className={tab === item ? 'is-active' : ''} onClick={() => setTab(item)}>{item === 'list' ? '任务列表' : item === 'optimize' ? '优化实验' : '对比实验'}</button>)}</div>
+    <div className="eval-task-tabs">{(['list', 'compare'] as TaskTab[]).map((item) => <button type="button" key={item} className={tab === item ? 'is-active' : ''} onClick={() => setTab(item)}>{item === 'list' ? '任务列表' : '对比实验'}</button>)}</div>
     {tab === 'list' && <>
       <div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 Agent" /></label><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建评测任务</button></div>
       <section className="eval-surface table-surface">
@@ -989,18 +988,6 @@ function TaskList({ tasks, datasets, evaluators, experiments, comparisons, searc
       </section>
       {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索条件。" />}
     </>}
-    {tab === 'optimize' && <section className="eval-record-page">
-      <div className="eval-section-head"><div><span className="eval-eyebrow">OPTIMIZATION</span><h2>优化实验</h2><p>从评测任务的 Badcase 发起，查看 Agent Builder 的优化结果和分数变化。</p></div></div>
-      <section className="eval-surface table-surface">
-        <table className="eval-data-table">
-          <thead><tr><th>实验名称</th><th>来源任务</th><th>评测对象</th><th>Badcase</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
-          <tbody>{experiments.map((item) => <tr key={item.id} onClick={() => onOpenExperiment(item)}>
-            <td><strong>{item.name}</strong></td><td>{item.sourceTaskId}</td><td><div className="eval-cell-title"><strong>{item.agent}</strong><small>{item.baseVersion}</small></div></td><td>{item.selectedCaseCount} 个</td><td><Status label={item.status === '已完成' ? '已完成' : item.status === '优化中' ? '运行中' : item.status} /></td><td>{item.createdAt.slice(0, 10)}</td><td><IconButton label="查看优化结果" onClick={() => onOpenExperiment(item)}><Eye size={15} /></IconButton></td>
-          </tr>)}</tbody>
-        </table>
-      </section>
-      {experiments.length === 0 && <EmptyState title="暂无优化实验" description="在评测任务中勾选 Badcase 后发起优化。" />}
-    </section>}
     {tab === 'compare' && <section className="eval-record-page">
       <div className="eval-section-head"><div><span className="eval-eyebrow">COMPARISON</span><h2>对比实验</h2><p>以一次评测任务为基准，比较相同 Case 在不同运行条件下的评估结果。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => window.alert('演示入口：请选择两个已完成评测任务创建对比记录')}><Plus size={15} />新建对比实验</button></div>
       <section className="eval-surface table-surface">
@@ -1226,10 +1213,10 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
   });
   return <div className="eval-detail-page eval-task-detail-page">
     <header className="eval-task-detail-header">
-      <div className="eval-task-detail-title"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回任务列表</button><div><span className="eval-task-detail-id">{task.id} · {task.createdAt}</span><div className="eval-task-detail-name-row"><h2>{task.name}</h2><Status label={task.status} /></div></div></div>
+      <div className="eval-task-detail-title eval-task-detail-title--stacked"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回任务列表</button><div><span className="eval-task-detail-id">{task.id} · {task.createdAt}</span><div className="eval-task-detail-name-row"><h2>{task.name}</h2><Status label={task.status} /></div></div></div>
       <div className="eval-task-detail-actions"><button type="button" className="eval-button eval-button--primary" disabled={selectedBadCaseIds.length === 0} onClick={() => onOptimize(selectedBadCaseIds)}><Sparkles size={14} />优化 Badcase{selectedBadCaseIds.length > 0 ? `（${selectedBadCaseIds.length}）` : ''}</button><button type="button" className="eval-button eval-button--ghost" onClick={onCompare}><Layers3 size={14} />对比实验</button><button type="button" className="eval-button eval-button--ghost" onClick={() => onNotify('已创建异常 Case 重试任务')}><RefreshCw size={14} />重试异常</button></div>
     </header>
-    <section className="eval-task-basic-info"><div><span>评测对象</span><strong>{task.agent}</strong><small>{task.agentVersion}</small></div><div><span>评测集</span><strong>{dataset?.name ?? '—'}</strong><small>{task.datasetVersion}</small></div><div><span>Badcase</span><strong>{badCases.length} 个</strong><small>勾选后可发起优化</small></div><div><span>创建时间</span><strong>{task.createdAt.slice(0, 10)}</strong><small>{task.createdAt.slice(11)}</small></div></section>
+    <section className="eval-task-basic-info"><div><span>评测对象</span><strong>{task.agent}</strong><small>{task.agentVersion}</small></div><div><span>评测集</span><strong>{dataset?.name ?? '—'}</strong><small>{task.datasetVersion}</small></div><div><span>创建时间</span><strong>{task.createdAt.slice(0, 10)}</strong><small>{task.createdAt.slice(11)}</small></div></section>
     <nav className="eval-task-detail-tabs" aria-label="任务详情内容"><button type="button" className={tab === 'conclusion' ? 'is-active' : ''} onClick={() => setTab('conclusion')}>评测结论</button><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => setTab('data')}>数据明细</button><button type="button" className={tab === 'config' ? 'is-active' : ''} onClick={() => setTab('config')}>本次配置</button></nav>
     {tab === 'conclusion' && <div className="eval-task-conclusion">
       <section className="eval-conclusion-main"><span className="eval-eyebrow">TASK SUMMARY</span><h3>{task.status === '已完成' ? '评测完成' : task.status === '部分失败' ? '部分 Case 需要处理' : task.status === '失败' ? '评测失败' : '评测运行中'}</h3><p>共 {task.totalCases} 个 Case，已执行 {task.completedCases} 个，失败 {task.failedCases} 个。结果只覆盖当前任务范围。</p><div className="eval-conclusion-metrics"><div><span>可执行 Case</span><strong>{task.executableCases}</strong></div><div><span>已完成 Case</span><strong>{task.completedCases}</strong></div><div><span>失败 Case</span><strong>{task.failedCases}</strong></div><div><span>Badcase</span><strong>{badCases.length}</strong></div></div></section>
