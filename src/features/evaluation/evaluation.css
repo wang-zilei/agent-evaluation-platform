@@ -2107,3 +2107,56 @@
   .eval-task-info-grid { grid-template-columns: 1fr; }
   .eval-task-detail-actions { width: 100%; flex-wrap: wrap; }
 }
+
+/* ── Data table: borderless shell, stable horizontal scrolling, full field labels ── */
+.eval-task-data-detail {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.eval-task-detail-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 0;
+  border-radius: 0;
+  scrollbar-gutter: stable;
+}
+.eval-task-detail-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+.eval-task-detail-table th,
+.eval-task-detail-table td {
+  width: 220px;
+  min-width: 220px;
+  max-width: 320px;
+}
+.eval-task-detail-table th:first-child,
+.eval-task-detail-table td:first-child {
+  width: 170px;
+  min-width: 170px;
+}
+.eval-task-detail-table th:last-child,
+.eval-task-detail-table td:last-child {
+  width: 110px;
+  min-width: 110px;
+}
+.eval-task-detail-table th strong {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.eval-task-detail-table th small {
+  display: none;
+}
+.eval-task-detail-table .is-sticky {
+  box-shadow: none;
+}
+.eval-task-detail-table .is-sticky-right {
+  box-shadow: none;
+}
+.eval-case-select > span { gap: 0; }
