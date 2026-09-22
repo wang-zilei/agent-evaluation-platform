@@ -27,6 +27,12 @@ export function normalizeTrace(payload, turn, sessionId = null, traceId = null, 
   if (boundary < 0 && !compressed) throw new Error('Cannot reliably locate the current turn');
   const offset = boundary >= 0 ? boundary : 1;
   const current = messages.slice(offset);
+  const contextMessages = messages.slice(0, offset).map((message) => ({
+    id: message.id ?? null,
+    type: message.type ?? 'unknown',
+    name: message.name ?? null,
+    content: clean(message.content ?? ''),
+  }));
   const results = current.filter((m) => m.type === 'tool');
   const used = new Set();
   const humanMessage = current.find((m) => m.type === 'human') ?? (payload.input?.messages ?? []).find((m) => m.type === 'human');
@@ -114,5 +120,9 @@ export function normalizeTrace(payload, turn, sessionId = null, traceId = null, 
     inputTokens: tokenComplete ? inputTokens : null, outputTokens: tokenComplete ? outputTokens : null,
     compressed, historySummary: compressed ? preview(messages[0].content, 180) : '', input: preview(input, 280),
     output: preview(output, 280), events,
+    context: {
+      kind: compressed ? 'summary' : contextMessages.length ? 'conversation' : 'none',
+      messages: contextMessages,
+    },
   };
 }

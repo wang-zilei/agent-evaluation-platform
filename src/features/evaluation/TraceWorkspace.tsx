@@ -90,13 +90,13 @@ export function TraceDetail({ trace, onBack }: { trace: ObservedTrace; onBack: (
         </div>
       </section>
       <aside className="eval-trace-inspector" aria-label="节点详情">
-        {selected ? <Inspector event={selected} turn={trace.turn} onClose={() => setSelectedId(null)} /> : <div className="eval-trace-inspector__empty">点击左侧一行查看该节点详情。</div>}
+        {selected ? <Inspector event={selected} turn={trace.turn} context={trace.context} onClose={() => setSelectedId(null)} /> : <div className="eval-trace-inspector__empty">点击左侧一行查看该节点详情。</div>}
       </aside>
     </div>
   </div>;
 }
 
-function Inspector({ event, turn, onClose }: { event: TraceEvent; turn: number; onClose: () => void }) {
+function Inspector({ event, turn, context, onClose }: { event: TraceEvent; turn: number; context: ObservedTrace['context']; onClose: () => void }) {
   const title = event.kind === 'user' ? 'USER' : event.kind === 'assistant' ? 'ASSISTANT' : 'TOOL';
   const subtitle = event.kind === 'tool' ? event.name : event.kind === 'assistant' && event.isFinal ? `Turn ${turn} · 最终回复` : `Turn ${turn}`;
   return <section className="eval-inspector">
@@ -107,6 +107,7 @@ function Inspector({ event, turn, onClose }: { event: TraceEvent; turn: number; 
     {event.kind === 'user' && <>
       <Meta rows={[['来源', '用户输入'], ['消息 ID', event.messageId ?? '未采集']]} />
       <Block title="完整输入">{event.text || '空'}</Block>
+      <Block title="上下文（message.content）" code>{formatContext(context)}</Block>
     </>}
     {event.kind === 'assistant' && <>
       <Meta rows={[
@@ -136,6 +137,14 @@ function Inspector({ event, turn, onClose }: { event: TraceEvent; turn: number; 
       <Block title="返回结果" code>{event.result || event.output || '未采集'}</Block>
     </>}
   </section>;
+}
+
+function formatContext(context: ObservedTrace['context']) {
+  if (context.kind === 'none') return '无前置上下文';
+  return context.messages.map((message, index) => {
+    const label = message.name ? `${message.type} · ${message.name}` : message.type;
+    return `消息 ${index + 1} · ${label}\n${message.content || '空'}`;
+  }).join('\n\n');
 }
 
 function Meta({ rows }: { rows: [string, string][] }) {

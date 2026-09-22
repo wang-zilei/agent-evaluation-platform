@@ -30,6 +30,19 @@ export type TraceEvent =
       args: Record<string, unknown> | null;
       result: string;
     };
+
+export type TraceContextMessage = {
+  id: string | null;
+  type: string;
+  name: string | null;
+  content: string;
+};
+
+export type TraceContext = {
+  kind: 'none' | 'conversation' | 'summary';
+  messages: TraceContextMessage[];
+};
+
 export type ObservedTrace = {
   id: string;
   traceId: string | null;
@@ -52,5 +65,6 @@ export type ObservedTrace = {
   historySummary: string;
   input: string;
   output: string;
+  context: TraceContext;
   events: TraceEvent[];
 };
