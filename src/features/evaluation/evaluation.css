@@ -1750,6 +1750,28 @@
 .eval-dsh-row p, .eval-dsh-io { margin: 2px 0 0; overflow: hidden; color: #3f3f46; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .eval-dsh-row--tool strong { color: #18181b; font: 650 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .eval-dsh-io { color: #71717a; }
+.eval-dsh-row { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.eval-dsh-row.is-active { background: #f7f5ff; }
+.eval-trace-split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .8fr); gap: 24px; align-items: start; }
+.eval-trace-inspector { position: sticky; top: 16px; min-height: 420px; border: 1px solid var(--eval-border); border-radius: 10px; background: #fff; overflow: hidden; }
+.eval-trace-inspector__empty { min-height: 420px; display: grid; place-items: center; padding: 24px; color: var(--eval-muted); font-size: 13px; }
+.eval-inspector { display: flex; flex-direction: column; max-height: calc(100vh - 160px); overflow: auto; }
+.eval-inspector__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--eval-border); }
+.eval-inspector__head > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.eval-inspector__head span { font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+.eval-inspector__head strong { overflow: hidden; color: var(--eval-ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.eval-inspector__head--user span { color: #3d5a80; }
+.eval-inspector__head--assistant span { color: #5b4b86; }
+.eval-inspector__head--tool span { color: #8a5a16; }
+.eval-inspector__meta { display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 0; margin: 0; padding: 8px 16px; border-bottom: 1px solid var(--eval-border); }
+.eval-inspector__meta > div { display: contents; }
+.eval-inspector__meta dt, .eval-inspector__meta dd { margin: 0; padding: 7px 0; border-bottom: 1px solid #f3f3f5; font-size: 12px; }
+.eval-inspector__meta dt { color: var(--eval-muted); }
+.eval-inspector__meta dd { overflow: hidden; color: var(--eval-ink); text-overflow: ellipsis; white-space: nowrap; }
+.eval-inspector__block { padding: 14px 16px; border-bottom: 1px solid var(--eval-border); }
+.eval-inspector__block span { display: block; margin-bottom: 8px; color: var(--eval-muted); font-size: 11px; font-weight: 700; }
+.eval-inspector__block p, .eval-inspector__block pre { margin: 0; color: var(--eval-text); font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+.eval-inspector__block pre { max-height: 280px; overflow: auto; padding: 10px 12px; border-radius: 6px; background: #fafafa; }
 
 @media (max-width: 820px) {
   .evaluation-app { display: block; }
@@ -1770,6 +1792,8 @@
   .eval-dsh-row, .eval-dsh-row--tool { grid-template-columns: 84px minmax(0, 1fr); }
   .eval-dsh-row--tool strong { grid-column: 2; }
   .eval-dsh-io { grid-column: 2; }
+  .eval-trace-split { grid-template-columns: 1fr; }
+  .eval-trace-inspector { position: static; }
 }
 
 /* Variable picker is an in-editor suggestion menu, not a dark code panel. */

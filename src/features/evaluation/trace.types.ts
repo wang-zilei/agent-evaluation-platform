@@ -1,7 +1,35 @@
 export type TraceEvent =
-  | { kind: 'user'; id: string; text: string }
-  | { kind: 'assistant'; id: string; text: string; isFinal: boolean; hasReasoning: boolean }
-  | { kind: 'tool'; id: string; name: string; input: string; output: string; linked: boolean };
+  | { kind: 'user'; id: string; text: string; messageId: string | null }
+  | {
+      kind: 'assistant';
+      id: string;
+      text: string;
+      isFinal: boolean;
+      hasReasoning: boolean;
+      reasoning: string;
+      content: string;
+      model: string | null;
+      provider: string | null;
+      finishReason: string | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      totalTokens: number | null;
+      cacheReadTokens: number | null;
+      reasoningTokens: number | null;
+      toolNames: string[];
+    }
+  | {
+      kind: 'tool';
+      id: string;
+      name: string;
+      input: string;
+      output: string;
+      linked: boolean;
+      brief: string;
+      status: string | null;
+      args: Record<string, unknown> | null;
+      result: string;
+    };
 export type ObservedTrace = {
   id: string;
   traceId: string | null;

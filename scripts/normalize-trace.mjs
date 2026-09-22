@@ -14,6 +14,7 @@ const compactArgs = (args) => {
   delete rest.user;
   return JSON.stringify(rest);
 };
+const clean = (value) => text(value).replace(/\u001b\[[0-9;]*m/g, '');
 
 // This adapter consumes exported message payloads, not Langfuse Observations.
 export function normalizeTrace(payload, turn, sessionId = null, traceId = null) {
@@ -28,7 +29,8 @@ export function normalizeTrace(payload, turn, sessionId = null, traceId = null) 
   const current = messages.slice(offset);
   const results = current.filter((m) => m.type === 'tool');
   const used = new Set();
-  const events = [{ kind: 'user', id: `turn${turn}-user`, text: preview(input, 280) }];
+  const humanMessage = current.find((m) => m.type === 'human') ?? (payload.input?.messages ?? []).find((m) => m.type === 'human');
+  const events = [{ kind: 'user', id: `turn${turn}-user`, text: input.trim(), messageId: humanMessage?.id ?? null }];
   let inputTokens = 0;
   let outputTokens = 0;
   let tokenComplete = true;
@@ -53,6 +55,17 @@ export function normalizeTrace(payload, turn, sessionId = null, traceId = null) 
         text: textPreview,
         isFinal,
         hasReasoning,
+        reasoning: clean(m.additional_kwargs?.reasoning_content ?? ''),
+        content: clean(m.content ?? ''),
+        model: m.response_metadata?.model_name ?? null,
+        provider: m.response_metadata?.model_provider ?? null,
+        finishReason: m.response_metadata?.finish_reason ?? null,
+        inputTokens: inTok,
+        outputTokens: outTok,
+        totalTokens: number(m.usage_metadata?.total_tokens),
+        cacheReadTokens: number(m.usage_metadata?.input_token_details?.cache_read),
+        reasoningTokens: number(m.usage_metadata?.output_token_details?.reasoning),
+        toolNames: (m.tool_calls ?? []).map((call) => call.name).filter(Boolean),
       });
       if (isFinal) output = text(m.content);
       for (const call of m.tool_calls ?? []) {
@@ -67,6 +80,10 @@ export function normalizeTrace(payload, turn, sessionId = null, traceId = null) 
           input: preview(compactArgs(call.args), 140),
           output: preview(result?.content ?? '', 140),
           linked: Boolean(result),
+          brief: typeof call.args?.brief === 'string' ? call.args.brief : '',
+          status: result?.status ?? null,
+          args: call.args && typeof call.args === 'object' ? call.args : null,
+          result: clean(result?.content ?? ''),
         });
       }
       return;
@@ -80,6 +97,10 @@ export function normalizeTrace(payload, turn, sessionId = null, traceId = null) 
         input: '',
         output: preview(m.content ?? '', 140),
         linked: false,
+        brief: '',
+        status: m.status ?? null,
+        args: null,
+        result: clean(m.content ?? ''),
       });
     }
   });
