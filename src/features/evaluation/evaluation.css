@@ -2160,3 +2160,40 @@
   box-shadow: none;
 }
 .eval-case-select > span { gap: 0; }
+
+/* ── Latest table-density pass: stacked back action and compact selection column ── */
+.eval-task-detail-header__main {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+}
+.eval-task-detail-header__main .eval-back-button {
+  min-height: 24px;
+  padding: 0 0 0 1px;
+  border-right: 0;
+}
+.eval-task-title-line {
+  width: 100%;
+  align-items: center;
+}
+.eval-task-title-line h1 {
+  max-width: none;
+}
+.eval-task-summary-chips {
+  margin-left: 0;
+}
+.eval-task-detail-table th:first-child,
+.eval-task-detail-table td:first-child {
+  width: 136px;
+  min-width: 136px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+.eval-case-select {
+  gap: 7px;
+}
+.eval-task-detail-table th,
+.eval-task-detail-table td {
+  padding-left: 12px;
+  padding-right: 12px;
+}
