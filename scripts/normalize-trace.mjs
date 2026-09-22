@@ -17,7 +17,7 @@ const compactArgs = (args) => {
 const clean = (value) => text(value).replace(/\u001b\[[0-9;]*m/g, '');
 
 // This adapter consumes exported message payloads, not Langfuse Observations.
-export function normalizeTrace(payload, turn, sessionId = null, traceId = null) {
+export function normalizeTrace(payload, turn, sessionId = null, traceId = null, occurredAt = null) {
   const messages = payload.output?.messages;
   if (!Array.isArray(messages)) throw new Error('output.messages is required');
   const input = (payload.input?.messages ?? []).filter((m) => m.type === 'human').map((m) => text(m.content)).join('\n');
@@ -107,7 +107,8 @@ export function normalizeTrace(payload, turn, sessionId = null, traceId = null) 
 
   return {
     id: `turn${turn}`, sourceFile: `turn${turn}.json`, turn, sessionId,
-    traceId, agent: null, occurredAt: null, duration: null, feedback: null, abnormal: null,
+    traceId, agent: null, occurredAt, duration: null, feedback: null,
+    abnormal: events.some((event) => event.kind === 'tool' && event.status && event.status !== 'success'),
     sourceMessageCount: messages.length, historyMessageCount: offset, currentMessageCount: current.length,
     reasoningCount, toolCount,
     inputTokens: tokenComplete ? inputTokens : null, outputTokens: tokenComplete ? outputTokens : null,

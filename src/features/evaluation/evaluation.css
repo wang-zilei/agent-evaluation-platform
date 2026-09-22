@@ -1717,6 +1717,12 @@
 .evaluation-main .eval-app-header { padding: 0 26px; }
 .evaluation-main .eval-content { padding: 4px 26px 52px; }
 .eval-trace-page { max-width: 1180px; margin: 0 auto; }
+.eval-trace-page.eval-list-page { max-width: none; }
+.eval-obs-toolbar select { height: 38px; min-width: 132px; padding: 0 10px; border: 1px solid var(--eval-border-strong); border-radius: 8px; color: var(--eval-text); background: #fff; }
+.eval-obs-table-wrap { overflow: auto; }
+.eval-obs-table { min-width: 1180px; }
+.eval-obs-table td.is-clip { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eval-mono { font: 600 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .eval-trace-toolbar { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; }
 .eval-trace-toolbar > span { margin-left: auto; color: var(--eval-muted); font-size: 11px; }
 .eval-trace-list { display: flex; flex-direction: column; gap: 8px; }

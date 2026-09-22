@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ArrowLeft, ChevronRight, Search, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ArrowLeft, Search, X } from 'lucide-react';
 import type { ObservedTrace, TraceEvent } from './trace.types';
 
 const toolLine = (event: Extract<TraceEvent, { kind: 'tool' }>) => {
@@ -11,13 +11,62 @@ const formatJson = (value: unknown) => {
   try { return JSON.stringify(value, null, 2); } catch { return String(value); }
 };
 const formatNumber = (value: number | null) => value === null ? '未采集' : value.toLocaleString('en-US');
+const formatValue = (value: string | number | boolean | null | undefined) => {
+  if (value === null || value === undefined || value === '') return '未采集';
+  if (typeof value === 'boolean') return value ? '异常' : '正常';
+  return String(value);
+};
+const formatTime = (value: string | null) => {
+  if (!value) return '未采集';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+};
+const FILTER_NOW = Date.parse('2026-09-22T16:00:00+08:00');
 
 export function TraceList({ traces, search, setSearch, onOpen }: { traces: ObservedTrace[]; search: string; setSearch: (value: string) => void; onOpen: (trace: ObservedTrace) => void }) {
-  const filtered = traces.filter((trace) => `${trace.id} ${trace.traceId ?? ''} ${trace.agent ?? ''} ${trace.input} ${trace.sourceFile}`.toLowerCase().includes(search.toLowerCase()));
+  const [agentFilter, setAgentFilter] = useState('全部');
+  const [abnormalFilter, setAbnormalFilter] = useState('全部');
+  const [timeFilter, setTimeFilter] = useState('全部');
+  const agents = useMemo(() => ['全部', ...[...new Set(traces.map((trace) => trace.agent ?? '未采集'))]], [traces]);
+  const filtered = traces.filter((trace) => {
+    const haystack = `${trace.traceId ?? ''} ${trace.agent ?? ''} ${trace.input} ${trace.output}`.toLowerCase();
+    if (search && !haystack.includes(search.toLowerCase())) return false;
+    const agentLabel = trace.agent ?? '未采集';
+    if (agentFilter !== '全部' && agentLabel !== agentFilter) return false;
+    if (abnormalFilter === '异常' && !trace.abnormal) return false;
+    if (abnormalFilter === '正常' && trace.abnormal) return false;
+    if (timeFilter !== '全部') {
+      if (!trace.occurredAt) return false;
+      const start = FILTER_NOW - Number(timeFilter) * 24 * 60 * 60 * 1000;
+      if (new Date(trace.occurredAt).getTime() < start) return false;
+    }
+    return true;
+  });
   return <div className="eval-list-page eval-trace-page">
-    <div className="eval-section-head"><div><span className="eval-eyebrow">OBSERVATION / TRACE</span><h2>Trace</h2><p>查看已上报的 Agent 运行轨迹。当前原型展示三条真实 Trace。</p></div></div>
-    <div className="eval-trace-toolbar"><label className="eval-search"><Search size={15} /><input value={search} placeholder="搜索 Trace ID、Agent 或输入" onChange={(event) => setSearch(event.target.value)} /></label><span>{filtered.length} 条 Trace</span></div>
-    <section className="eval-trace-list" aria-label="Trace 列表">{filtered.map((trace) => <button type="button" className="eval-trace-row" key={trace.id} onClick={() => onOpen(trace)}><div className="eval-trace-row__main"><div><strong>{trace.traceId ?? trace.id}</strong><span>{trace.input}</span><small>{trace.agent ?? 'Agent 名称未采集'} · {trace.sourceFile}</small></div></div><div className="eval-trace-row__stats"><div><span>当前消息</span><strong>{trace.currentMessageCount}</strong></div><div><span>Tool</span><strong>{trace.toolCount}</strong></div><div><span>耗时</span><strong>未采集</strong></div></div><ChevronRight className="eval-trace-row__arrow" size={17} /></button>)}</section>
+    <div className="eval-section-head"><div><span className="eval-eyebrow">OBSERVATION</span><h2>Trace</h2></div></div>
+    <div className="eval-toolbar eval-obs-toolbar">
+      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索 Trace ID、Agent 或输入" /></label>
+      <select aria-label="时间筛选" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="全部">全部时间</option><option value="1">近 1 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option></select>
+      <select aria-label="Agent 筛选" value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>{agents.map((agent) => <option key={agent} value={agent}>{agent === '全部' ? '全部 Agent' : agent}</option>)}</select>
+      <select aria-label="是否异常筛选" value={abnormalFilter} onChange={(event) => setAbnormalFilter(event.target.value)}><option>全部</option><option>正常</option><option>异常</option></select>
+      <span className="eval-toolbar-count">{filtered.length} 条</span>
+    </div>
+    <section className="eval-surface table-surface eval-obs-table-wrap" aria-label="Trace 列表">
+      <table className="eval-data-table eval-obs-table">
+        <thead><tr><th>Trace ID</th><th>Agent</th><th>Input</th><th>Output</th><th>耗时</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
+        <tbody>{filtered.map((trace) => <tr key={trace.id} onClick={() => onOpen(trace)}>
+          <td><div className="eval-cell-title"><strong className="eval-mono">{trace.traceId ?? trace.id}</strong><small>{formatTime(trace.occurredAt)}</small></div></td>
+          <td>{formatValue(trace.agent)}</td>
+          <td className="is-clip" title={trace.input}>{trace.input || '未采集'}</td>
+          <td className="is-clip" title={trace.output}>{trace.output || '未采集'}</td>
+          <td>{formatValue(trace.duration)}</td>
+          <td>{formatValue(trace.feedback)}</td>
+          <td>{formatNumber(trace.inputTokens)}</td>
+          <td>{formatNumber(trace.outputTokens)}</td>
+        </tr>)}</tbody>
+      </table>
+    </section>
+    {filtered.length === 0 && <p className="eval-trace-note">没有匹配的 Trace。</p>}
   </div>;
 }
 
