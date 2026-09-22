@@ -1212,12 +1212,40 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
     const scores = values.map((result) => result?.evaluationResult).filter((value): value is number => typeof value === 'number');
     return { evaluator, valid: valid.length, passed, average: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : undefined };
   });
+  const successfulCases = Math.max(task.completedCases - task.failedCases, 0);
+  const pendingCases = Math.max(task.totalCases - task.completedCases, 0);
   return <div className="eval-detail-page eval-task-detail-page">
     <header className="eval-task-detail-header">
-      <div className="eval-task-detail-title eval-task-detail-title--stacked"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回任务列表</button><div><span className="eval-task-detail-id">{task.id} · {task.createdAt}</span><div className="eval-task-detail-name-row"><h2>{task.name}</h2><Status label={task.status} /></div><p>{task.description}</p></div></div>
-      <div className="eval-task-detail-actions"><button type="button" className="eval-button eval-button--primary" disabled={selectedBadCaseIds.length === 0} onClick={() => onOptimize(selectedBadCaseIds)}><Sparkles size={14} />优化 Badcase{selectedBadCaseIds.length > 0 ? `（${selectedBadCaseIds.length}）` : ''}</button><button type="button" className="eval-button eval-button--ghost" onClick={onCompare}><Layers3 size={14} />对比实验</button><button type="button" className="eval-button eval-button--ghost" onClick={() => onNotify('已创建异常 Case 重试任务')}><RefreshCw size={14} />重试异常</button></div>
+      <div className="eval-task-detail-header__main">
+        <button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回任务列表</button>
+        <div className="eval-task-title-line">
+          <h1>{task.name}</h1>
+          <Status label={task.status} />
+        </div>
+        <div className="eval-task-summary-chips" aria-label="任务结果摘要">
+          <span><small>总条数</small><strong>{task.totalCases}</strong></span>
+          <span><small>成功</small><strong>{successfulCases}</strong></span>
+          <span><small>失败</small><strong>{task.failedCases}</strong></span>
+          <span><small>待执行</small><strong>{pendingCases}</strong></span>
+        </div>
+      </div>
+      <div className="eval-task-detail-actions">
+        <button type="button" className="eval-button eval-button--primary" disabled={selectedBadCaseIds.length === 0} onClick={() => onOptimize(selectedBadCaseIds)}><Sparkles size={14} />优化 Badcase{selectedBadCaseIds.length > 0 ? `（${selectedBadCaseIds.length}）` : ''}</button>
+        <button type="button" className="eval-button eval-button--ghost" onClick={onCompare}><Layers3 size={14} />对比实验</button>
+        <button type="button" className="eval-button eval-button--ghost" onClick={() => onNotify('已创建异常 Case 重试任务')}><RefreshCw size={14} />重试异常</button>
+      </div>
     </header>
-    <section className="eval-task-basic-info"><div><span>评测对象</span><strong>{task.agent}</strong><small>{task.agentVersion}</small></div><div><span>评测集</span><strong>{dataset?.name ?? '—'}</strong><small>{task.datasetVersion}</small></div><div><span>创建时间</span><strong>{task.createdAt.slice(0, 10)}</strong><small>{task.createdAt.slice(11)}</small></div></section>
+    <section className="eval-task-info-panel">
+      <div className="eval-task-info-panel__heading"><strong>基础信息</strong><ChevronDown size={15} /></div>
+      <div className="eval-task-info-grid">
+        <div><span>评测对象</span><strong>{task.agent}<small>{task.agentVersion}</small></strong></div>
+        <div><span>评测集</span><strong>{dataset?.name ?? '—'}<small>{task.datasetVersion}</small></strong></div>
+        <div><span>创建时间</span><strong>{task.createdAt}</strong></div>
+        <div><span>任务 ID</span><strong className="eval-mono">{task.id}</strong></div>
+        <div><span>创建人</span><strong>{task.createdBy}</strong></div>
+        <div><span>描述</span><strong>{task.description || '—'}</strong></div>
+      </div>
+    </section>
     <nav className="eval-task-detail-tabs" aria-label="任务详情内容"><button type="button" className={tab === 'summary' ? 'is-active' : ''} onClick={() => setTab('summary')}>统计结论</button><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => setTab('data')}>数据明细</button><button type="button" className={tab === 'optimize' ? 'is-active' : ''} onClick={() => setTab('optimize')}>优化实验</button></nav>
     {tab === 'summary' && <div className="eval-task-conclusion">
       <section className="eval-conclusion-main"><div><span className="eval-eyebrow">TASK SUMMARY</span><h3>{task.status === '已完成' ? '评测完成' : task.status === '部分失败' ? '部分 Case 需要处理' : task.status === '失败' ? '评测失败' : '评测运行中'}</h3><p>共 {task.totalCases} 个 Case，已执行 {task.completedCases} 个，失败 {task.failedCases} 个。结果只覆盖当前任务范围。</p></div><div className="eval-conclusion-metrics"><div><span>可执行 Case</span><strong>{task.executableCases}</strong></div><div><span>已完成 Case</span><strong>{task.completedCases}</strong></div><div><span>失败 Case</span><strong>{task.failedCases}</strong></div><div><span>Badcase</span><strong>{badCases.length}</strong></div></div></section>
