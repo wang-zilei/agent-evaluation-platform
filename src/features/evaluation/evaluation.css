@@ -1404,7 +1404,7 @@
 .eval-evaluator-detail-intro > div:first-child { min-width: 0; }
 .eval-evaluator-detail-intro h2 { margin: 7px 0 0; color: var(--eval-ink); font-size: 30px; line-height: 1.15; letter-spacing: -.05em; }
 .eval-evaluator-detail-intro p { max-width: 720px; margin: 8px 0 0; color: var(--eval-muted); font-size: 13px; line-height: 1.6; }
-.eval-evaluator-detail-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--eval-border); border-radius: 9px; background: var(--eval-border); overflow: hidden; }
+.eval-evaluator-detail-meta { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--eval-border); border-radius: 9px; background: var(--eval-border); overflow: hidden; }
 .eval-evaluator-detail-meta > div { min-height: 70px; display: flex; flex-direction: column; justify-content: center; gap: 5px; padding: 12px 16px; background: #fff; }
 .eval-evaluator-detail-meta span { color: var(--eval-muted); font-size: 10px; }
 .eval-evaluator-detail-meta strong { color: var(--eval-ink); font-size: 13px; }
@@ -1466,6 +1466,15 @@
 .eval-task-form-row--action { grid-template-columns: minmax(0, 1.2fr) minmax(220px, .8fr) auto; }
 .eval-task-form-row .eval-field > span { color: var(--eval-ink); font-size: 14px; }
 .eval-task-form-row .eval-field select { height: 44px; font-size: 14px; }
+.eval-agent-target-list { display: flex; flex-direction: column; gap: 14px; }
+.eval-agent-target-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, .65fr) 32px; align-items: end; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--eval-border); }
+.eval-agent-target-row .eval-agent-target-description { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 7px; margin-top: -2px; }
+.eval-agent-target-description span { color: var(--eval-ink); font-size: 13px; font-weight: 700; }
+.eval-agent-target-description p { max-width: 760px; margin: 0; color: var(--eval-muted); font-size: 13px; line-height: 1.65; }
+.eval-threshold-field { grid-column: 1 / -1; }
+.eval-threshold-control { display: grid; grid-template-columns: minmax(0, 1fr) 52px; align-items: center; gap: 14px; }
+.eval-threshold-control input { width: 100%; accent-color: var(--eval-violet); }
+.eval-threshold-control strong { color: var(--eval-ink); font: 700 14px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; }
 .eval-task-selection-detail { display: flex; flex-direction: column; gap: 24px; margin-top: 28px; }
 .eval-task-selection-detail > div { display: flex; flex-direction: column; gap: 8px; }
 .eval-task-selection-detail > div > span { color: var(--eval-ink); font-size: 13px; font-weight: 700; }
@@ -1529,6 +1538,7 @@
 .eval-task-wizard-footer > div { display: flex; gap: 8px; }
 
 @media (max-width: 900px) {
+  .eval-agent-target-row { grid-template-columns: minmax(0, 1fr) minmax(150px, .7fr) 32px; gap: 12px; }
   .eval-task-stepper { padding: 0; }
   .eval-task-stepper button:not(:last-child)::after { display: none; }
   .eval-task-stepper button > strong { font-size: 12px; }

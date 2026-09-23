@@ -14,7 +14,7 @@ import type {
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
   ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationFollowUpMode, OptimizationResult, ScoreType, TaskTab,
   ComparisonCaseRow, ComparisonEvaluatorRow, ComparisonMetricCell, ComparisonRuntimeRow, ComparisonTaskRef, EvaluatorResult,
-  HumanAnnotation, HumanLabelDefinition,
+  HumanAnnotation, HumanLabelDefinition, TaskAgentTarget,
 } from './evaluation.types';
 import './evaluation.css';
 
@@ -39,9 +39,9 @@ type DatasetDraft = {
   historyFeedback: '全部' | '有反馈' | '无反馈'; historySelected: Record<string, string[]>; historyExpanded: string | null; historyPage: number;
   appendToDatasetId?: string; importMode?: '追加数据' | '全量覆盖';
 };
-type EvaluatorDraft = { name: string; description: string; model: string; scoreType: ScoreType; prompt: string; variables: Evaluator['variables'] };
+type EvaluatorDraft = { name: string; description: string; model: string; scoreType: ScoreType; passThreshold: number; prompt: string; variables: Evaluator['variables'] };
 type TaskDraft = {
-  agentId: string; agentVersion: string; datasetId: string; datasetVersion: string; evaluatorIds: string[];
+  agentTargets: TaskAgentTarget[]; datasetId: string; datasetVersion: string; evaluatorIds: string[];
   name: string; description: string; concurrency: number; timeout: number; continueOnError: boolean;
 };
 
@@ -148,13 +148,14 @@ const makeDatasetDraft = (state: EvaluationState, mode: DatasetCreateMode = '用
   };
 };
 const makeEvaluatorDraft = (): EvaluatorDraft => ({
-  name: '', description: '', model: 'Doubao-Seed-1.6', scoreType: 'numeric',
+  name: '', description: '', model: 'Doubao-Seed-1.6', scoreType: 'numeric', passThreshold: 0.7,
   prompt: '',
   variables: [],
 });
 const makeTaskDraft = (state: EvaluationState): TaskDraft => {
-  const agent = state.agents[0]; const dataset = state.datasets.find((item) => item.versions.some((version) => version.status === '已提交')) ?? state.datasets[0];
-  return { agentId: agent?.id ?? '', agentVersion: agent?.versions[0] ?? '', datasetId: dataset?.id ?? '', datasetVersion: dataset?.versions.find((version) => version.status === '已提交')?.id ?? '', evaluatorIds: [], name: '', description: '', concurrency: 2, timeout: 60, continueOnError: true };
+  const dataset = state.datasets.find((item) => item.versions.some((version) => version.status === '已提交')) ?? state.datasets[0];
+  const firstAgent = state.agents[0];
+  return { agentTargets: firstAgent ? [{ agentId: firstAgent.id, agentVersion: firstAgent.versions[0] ?? '' }] : [], datasetId: dataset?.id ?? '', datasetVersion: dataset?.versions.find((version) => version.status === '已提交')?.id ?? '', evaluatorIds: [], name: '', description: '', concurrency: 2, timeout: 60, continueOnError: true };
 };
 
 function Pill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'violet' | 'green' | 'amber' }) {
@@ -316,7 +317,7 @@ export default function EvaluationCenterPage() {
     const existing = editingEvaluatorId ? state.evaluators.find((item) => item.id === editingEvaluatorId) : undefined;
     const nextVersion = existing ? `0.0.${existing.versions.length + 1}` : '0.0.1';
     const variables = extractPromptVariables(draft.prompt);
-    const evaluator: Evaluator = { id: existing?.id ?? `custom-${state.evaluators.length + 1}`, name: draft.name.trim(), kind: '模型评估器', mode: 'custom', version: nextVersion, versions: existing ? [...existing.versions, nextVersion] : [nextVersion], description: draft.description.trim() || '用户自定义评估规则。', purpose: draft.description.trim() || '用户自定义评估规则。', category: '自建评估器', scoreType: draft.scoreType, model: draft.model, prompt: draft.prompt, variables, creator: existing?.creator ?? '演示账户', updatedAt: `${TODAY} 20:30`, runCount: existing?.runCount ?? 0 };
+    const evaluator: Evaluator = { id: existing?.id ?? `custom-${state.evaluators.length + 1}`, name: draft.name.trim(), kind: '模型评估器', mode: 'custom', version: nextVersion, versions: existing ? [...existing.versions, nextVersion] : [nextVersion], description: draft.description.trim() || '用户自定义评估规则。', purpose: draft.description.trim() || '用户自定义评估规则。', category: '自建评估器', scoreType: draft.scoreType, model: draft.model, prompt: draft.prompt, variables, passThreshold: draft.scoreType === 'numeric' ? draft.passThreshold : undefined, creator: existing?.creator ?? '演示账户', updatedAt: `${TODAY} 20:30`, runCount: existing?.runCount ?? 0 };
     setState((current) => ({ ...current, evaluators: existing ? current.evaluators.map((item) => item.id === existing.id ? evaluator : item) : [evaluator, ...current.evaluators] })); setSelectedEvaluatorId(evaluator.id); setEditingEvaluatorId(null); setEvaluatorMode('custom');
     if (taskReturn) {
       setTaskDraft((current) => ({ ...current, evaluatorIds: current.evaluatorIds.includes(evaluator.id) ? current.evaluatorIds : [...current.evaluatorIds, evaluator.id] }));
@@ -331,47 +332,78 @@ export default function EvaluationCenterPage() {
   };
 
   const createTask = () => {
-    const dataset = getDatasetById(state, taskDraft.datasetId); const version = dataset?.versions.find((item) => item.id === taskDraft.datasetVersion); const selected = state.evaluators.filter((item) => taskDraft.evaluatorIds.includes(item.id));
+    const dataset = getDatasetById(state, taskDraft.datasetId);
+    const version = dataset?.versions.find((item) => item.id === taskDraft.datasetVersion);
+    const selected = state.evaluators.filter((item) => taskDraft.evaluatorIds.includes(item.id));
     if (!taskDraft.name.trim()) { notify('请填写任务名称', 'warning'); return; }
     if (!dataset || !version || version.status !== '已提交') { notify('任务必须绑定已提交的评测集版本', 'warning'); return; }
+    if (!taskDraft.agentTargets.length || taskDraft.agentTargets.some((target) => !target.agentId || !target.agentVersion)) { notify('请选择 Agent 和版本', 'warning'); return; }
     if (!selected.length) { notify('至少选择一个评估器', 'warning'); return; }
-    const results: CaseResult[] = dataset.cases.map((item, index) => {
-      const input = item.values[dataset.fields.find((field) => field.semantic === 'Input')?.id ?? ''] ?? '未读取 Input';
-      const agentOutput = item.values[dataset.fields.find((field) => field.semantic === 'Agent Output')?.id ?? ''] ?? '';
-      const expectedOutput = item.values[dataset.fields.find((field) => field.semantic === 'Expected Output')?.id ?? ''];
-      const status = index === 1 ? '不通过' : '通过';
+
+    const tasks = taskDraft.agentTargets.map((target, targetIndex) => {
+      const agent = state.agents.find((item) => item.id === target.agentId);
+      const results: CaseResult[] = dataset.cases.map((item, index) => {
+        const input = item.values[dataset.fields.find((field) => field.semantic === 'Input')?.id ?? ''] ?? '未读取 Input';
+        const agentOutput = item.values[dataset.fields.find((field) => field.semantic === 'Agent Output')?.id ?? ''] ?? '';
+        const expectedOutput = item.values[dataset.fields.find((field) => field.semantic === 'Expected Output')?.id ?? ''];
+        const status = index === 1 ? '不通过' : '通过';
+        return {
+          caseId: item.id,
+          status,
+          duration: index === 1 ? '7.4 s' : '5.9 s',
+          input,
+          agentOutput,
+          expectedOutput,
+          trace: [{ id: `mock-${targetIndex}-${index}`, type: 'system', name: 'Mock 执行记录', status: '成功', duration: '未采集', detail: '原型数据：不调用真实 Agent。' }],
+          evaluatorResults: selected.map((evaluator) => ({
+            evaluatorId: evaluator.id,
+            evaluatorName: evaluator.name,
+            scoreType: evaluator.scoreType,
+            evaluationResult: evaluator.scoreType === 'numeric' ? (index === 1 ? 0.58 : 0.92) : status,
+            evaluationReason: index === 1 ? '模拟数据：缺少一个验收要点。' : '模拟数据：满足当前评估器要求。',
+            evaluationStatus: status,
+            traceRefs: [`mock-${targetIndex}-${index}`],
+          })),
+          agentConfiguration: `${agent?.name ?? 'Agent'} ${target.agentVersion} · Mock Configuration`,
+          runtime: {
+            runStatus: status,
+            agentDuration: index === 1 ? '7.4 s' : '5.9 s',
+            firstTokenLatency: index === 1 ? '780 ms' : '540 ms',
+            inputTokens: index === 1 ? 1820 : 2240,
+            outputTokens: index === 1 ? 420 : 510,
+            totalTokens: index === 1 ? 2240 : 2750,
+            evaluatorDuration: '2.4 s',
+          },
+        };
+      });
+      const suffix = taskDraft.agentTargets.length > 1 ? ` · ${agent?.name ?? 'Agent'} ${target.agentVersion}` : '';
       return {
-        caseId: item.id,
-        status,
-        duration: index === 1 ? '7.4 s' : '5.9 s',
-        input,
-        agentOutput,
-        expectedOutput,
-        trace: [{ id: `mock-${index}`, type: 'system', name: 'Mock 执行记录', status: '成功', duration: '未采集', detail: '原型数据：不调用真实 Agent。' }],
-        evaluatorResults: selected.map((evaluator) => ({
-          evaluatorId: evaluator.id,
-          evaluatorName: evaluator.name,
-          scoreType: evaluator.scoreType,
-          evaluationResult: evaluator.scoreType === 'numeric' ? (index === 1 ? 0.58 : 0.92) : status,
-          evaluationReason: index === 1 ? '模拟数据：缺少一个验收要点。' : '模拟数据：满足当前评估器要求。',
-          evaluationStatus: status,
-          traceRefs: [`mock-${index}`],
-        })),
-        agentConfiguration: `${state.agents.find((agent) => agent.id === taskDraft.agentId)?.name ?? 'Agent'} ${taskDraft.agentVersion} · Mock Configuration`,
-        runtime: {
-          runStatus: status,
-          agentDuration: index === 1 ? '7.4 s' : '5.9 s',
-          firstTokenLatency: index === 1 ? '780 ms' : '540 ms',
-          inputTokens: index === 1 ? 1820 : 2240,
-          outputTokens: index === 1 ? 420 : 510,
-          totalTokens: index === 1 ? 2240 : 2750,
-          evaluatorDuration: '2.4 s',
-        },
+        id: `TASK-${TODAY.replaceAll('-', '')}-${String(state.tasks.length + targetIndex + 1).padStart(3, '0')}`,
+        name: `${taskDraft.name.trim()}${suffix}`,
+        description: taskDraft.description.trim(),
+        agent: agent?.name ?? 'Agent',
+        agentVersion: target.agentVersion,
+        datasetId: dataset.id,
+        datasetVersion: version.label,
+        evaluatorIds: taskDraft.evaluatorIds,
+        status: '运行中' as const,
+        tone: 'info' as const,
+        createdBy: '演示账户',
+        createdAt: `${TODAY} 20:31`,
+        updatedAt: `${TODAY} 20:31`,
+        totalCases: results.length,
+        executableCases: results.length,
+        completedCases: 0,
+        failedCases: 0,
+        results,
+        runtime: { concurrency: taskDraft.concurrency, timeout: taskDraft.timeout, continueOnError: taskDraft.continueOnError },
       };
     });
 
-    const task: EvaluationTask = { id: `TASK-${TODAY.replaceAll('-', '')}-${String(state.tasks.length + 1).padStart(3, '0')}`, name: taskDraft.name.trim(), description: taskDraft.description.trim(), agent: state.agents.find((agent) => agent.id === taskDraft.agentId)?.name ?? 'Agent', agentVersion: taskDraft.agentVersion, datasetId: dataset.id, datasetVersion: version.label, evaluatorIds: taskDraft.evaluatorIds, status: '运行中', tone: 'info', createdBy: '演示账户', createdAt: `${TODAY} 20:31`, updatedAt: `${TODAY} 20:31`, totalCases: results.length, executableCases: results.length, completedCases: 0, failedCases: 0, results, runtime: { concurrency: taskDraft.concurrency, timeout: taskDraft.timeout, continueOnError: taskDraft.continueOnError } };
-    setState((current) => ({ ...current, tasks: [task, ...current.tasks] })); setSelectedTaskId(task.id); setTaskScreen('detail'); notify('评测任务已创建，正在模拟运行');
+    setState((current) => ({ ...current, tasks: [...tasks, ...current.tasks] }));
+    setSelectedTaskId(tasks[0].id);
+    setTaskScreen('detail');
+    notify(tasks.length > 1 ? `已创建 ${tasks.length} 个评测任务，正在模拟运行` : '评测任务已创建，正在模拟运行');
   };
 
   function historyForDraft(draft: DatasetDraft) {
@@ -409,8 +441,8 @@ export default function EvaluationCenterPage() {
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'history' && <DatasetHistoryPage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} onCopyDraft={copyDatasetAsDraft} />}
-      {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${item.name}（自建）`, description: item.description, model: item.model, scoreType: item.scoreType, prompt: item.prompt, variables: item.variables }); setEvaluatorScreen('create'); }} />}
-      {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${evaluator.name}（自建）`, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft({ name: evaluator.name, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} />}
+      {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${item.name}（自建）`, description: item.description, model: item.model, scoreType: item.scoreType, passThreshold: item.passThreshold ?? 0.7, prompt: item.prompt, variables: item.variables }); setEvaluatorScreen('create'); }} />}
+      {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${evaluator.name}（自建）`, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, passThreshold: evaluator.passThreshold ?? 0.7, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft({ name: evaluator.name, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, passThreshold: evaluator.passThreshold ?? 0.7, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'create' && <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />}
       {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('data'); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
@@ -898,12 +930,12 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
 }
 
 function EvaluatorList({ evaluators, kind, setKind, mode, setMode, search, setSearch, scoreFilter, setScoreFilter, onCreate, onOpen, onCopy }: { evaluators: Evaluator[]; kind: EvaluatorKind; setKind: (kind: EvaluatorKind) => void; mode: EvaluatorMode; setMode: (mode: EvaluatorMode) => void; search: string; setSearch: (value: string) => void; scoreFilter: string; setScoreFilter: (value: string) => void; onCreate: () => void; onOpen: (evaluator: Evaluator) => void; onCopy: (evaluator: Evaluator) => void }) {
-  return <div className="eval-list-page"><div className="eval-evaluator-tabs">{(['模型评估器', '代码评估', '人工评估'] as EvaluatorKind[]).map((item) => <button type="button" key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div><div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" /></label><select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置评估器</option><option value="custom">自建评估器</option></select><select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建自建评估器</button></div><div className="eval-evaluator-grid">{evaluators.map((evaluator) => <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}><h3>{evaluator.name}</h3><p>{evaluator.description}</p><div className="eval-evaluator-meta"><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</Pill><span>{evaluator.variables.length} 个输入语义</span></div><div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div><footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer></article>)}</div>{evaluators.length === 0 && <EmptyState title="没有匹配的评估器" description="调整筛选条件，或创建一个自建评估器。" />}</div>;
+  return <div className="eval-list-page"><div className="eval-evaluator-tabs">{(['模型评估器', '代码评估', '人工评估'] as EvaluatorKind[]).map((item) => <button type="button" key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div><div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" /></label><select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置评估器</option><option value="custom">自建评估器</option></select><select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建自建评估器</button></div><div className="eval-evaluator-grid">{evaluators.map((evaluator) => <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}><h3>{evaluator.name}</h3><p>{evaluator.description}</p><div className="eval-evaluator-meta"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</Pill><span>{evaluator.scoreType === 'numeric' ? `通过阈值 ${evaluator.passThreshold?.toFixed(2) ?? '未设置'}` : `${evaluator.variables.length} 个输入语义`}</span></div><div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div><footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer></article>)}</div>{evaluators.length === 0 && <EmptyState title="没有匹配的评估器" description="调整筛选条件，或创建一个自建评估器。" />}</div>;
 }
 
 function EvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator: Evaluator; onBack: () => void; onCopy: () => void; onEdit: () => void }) {
   const [expandedPrompt, setExpandedPrompt] = useState(false);
-  return <div className="eval-detail-page eval-evaluator-detail-page"><div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评估器</button></div><div className="eval-evaluator-detail-intro"><div><span className="eval-eyebrow">{evaluator.category}</span><h2>{evaluator.name}</h2><p>{evaluator.description}</p></div><div className="eval-detail-hero__actions">{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />复制为自建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div></div><div className="eval-evaluator-detail-meta"><div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</strong></div><div><span>评估模型</span><strong>{evaluator.model}</strong></div><div><span>累计运行</span><strong>{evaluator.runCount}</strong></div><div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div></div><section className={`eval-evaluator-prompt-card${expandedPrompt ? ' is-expanded' : ''}`}><div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">PROMPT</span><h3>评估规则</h3></div><div className="eval-prompt-actions"><IconButton label={expandedPrompt ? '收起 Prompt' : '放大 Prompt'} onClick={() => setExpandedPrompt((current) => !current)}><Maximize2 size={15} /></IconButton><IconButton label="复制 Prompt" onClick={() => { void navigator.clipboard?.writeText(evaluator.prompt); }}><Copy size={15} /></IconButton></div></div><div className="eval-prompt-system">System</div><pre className="eval-evaluator-prompt">{evaluator.prompt}</pre><div className="eval-evaluator-variables-bar"><span>Variables</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div></section></div>;
+  return <div className="eval-detail-page eval-evaluator-detail-page"><div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评估器</button></div><div className="eval-evaluator-detail-intro"><div><span className="eval-eyebrow">{evaluator.category}</span><h2>{evaluator.name}</h2><p>{evaluator.description}</p></div><div className="eval-detail-hero__actions"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />复制为自建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div></div><div className="eval-evaluator-detail-meta"><div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</strong></div><div><span>通过阈值</span><strong>{evaluator.scoreType === 'numeric' ? (evaluator.passThreshold?.toFixed(2) ?? '未设置') : '直接判断'}</strong></div><div><span>评估模型</span><strong>{evaluator.model}</strong></div><div><span>累计运行</span><strong>{evaluator.runCount}</strong></div><div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div></div><section className={`eval-evaluator-prompt-card${expandedPrompt ? ' is-expanded' : ''}`}><div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">PROMPT</span><h3>评估规则</h3></div><div className="eval-prompt-actions"><IconButton label={expandedPrompt ? '收起 Prompt' : '放大 Prompt'} onClick={() => setExpandedPrompt((current) => !current)}><Maximize2 size={15} /></IconButton><IconButton label="复制 Prompt" onClick={() => { void navigator.clipboard?.writeText(evaluator.prompt); }}><Copy size={15} /></IconButton></div></div><div className="eval-prompt-system">System</div><pre className="eval-evaluator-prompt">{evaluator.prompt}</pre><div className="eval-evaluator-variables-bar"><span>Variables</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div></section></div>;
 }
 
 function PromptEditor({ prompt, onChange }: { prompt: string; onChange: (value: string) => void }) {
@@ -980,6 +1012,7 @@ function EvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }:
         <div className="eval-form-grid eval-evaluator-option-fields">
           <label className="eval-field"><span>评估模型</span><select value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></select></label>
           <label className="eval-field"><span>结果类型</span><select value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></select></label>
+          {draft.scoreType === 'numeric' && <label className="eval-field eval-threshold-field"><span>通过阈值 <b>*</b></span><div className="eval-threshold-control"><input aria-label="通过阈值" type="range" min="0" max="1" step="0.01" value={draft.passThreshold} onChange={(event) => setDraft((current) => ({ ...current, passThreshold: Number(event.target.value) }))} /><strong>{draft.passThreshold.toFixed(2)}</strong></div><small>得分达到该值时判定为通过，阈值不写入 Prompt。</small></label>}
         </div>
         <div className="eval-create-section">
           <section className="eval-evaluator-prompt-card">
@@ -1291,7 +1324,7 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
   const [evaluatorCards, setEvaluatorCards] = useState<string[]>(() => [...new Set(config.evaluatorIds)]);
   const [customBindings, setCustomBindings] = useState<Record<string, string>>({});
   const dataset = getDatasetById(state, config.datasetId);
-  const agent = state.agents.find((item) => item.id === config.agentId) ?? state.agents[0];
+  const selectedAgents = config.agentTargets.map((target) => ({ target, agent: state.agents.find((item) => item.id === target.agentId) }));
   const selected = evaluatorCards.map((id) => state.evaluators.find((item) => item.id === id)).filter((item): item is Evaluator => Boolean(item));
   const submitted = state.datasets.filter((item) => item.versions.some((version) => version.status === '已提交'));
   const selectedVersion = dataset?.versions.find((version) => version.id === config.datasetVersion);
@@ -1310,7 +1343,7 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
   });
   const validVersion = Boolean(selectedVersion?.status === '已提交');
   const datasetReady = Boolean(dataset && validVersion && dataset.cases.length);
-  const agentReady = Boolean(config.agentId && config.agentVersion);
+  const agentReady = config.agentTargets.length > 0 && config.agentTargets.every((target) => Boolean(target.agentId && target.agentVersion));
   const evaluatorsReady = evaluatorCards.length > 0 && evaluatorCards.every(Boolean);
   const runnableEvaluatorCount = bindings.filter((item) => item.evaluator && item.missing.length === 0).length;
   const blocked = !datasetReady || !agentReady || !evaluatorsReady || !config.name.trim() || runnableEvaluatorCount === 0;
@@ -1322,9 +1355,20 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
   ];
   const canOpenStep = (target: TaskCreateStep) => target === 1 || (target === 2 && agentReady) || (target === 3 && agentReady && datasetReady) || (target === 4 && agentReady && datasetReady && evaluatorsReady);
   const currentStepReady = step === 1 ? agentReady : step === 2 ? datasetReady : step === 3 ? evaluatorsReady : !blocked;
-  const changeAgent = (id: string) => {
+  const changeAgentTarget = (index: number, id: string) => {
     const next = state.agents.find((item) => item.id === id);
-    setConfig((current) => ({ ...current, agentId: id, agentVersion: next?.versions[0] ?? '' }));
+    setConfig((current) => ({ ...current, agentTargets: current.agentTargets.map((target, targetIndex) => targetIndex === index ? { agentId: id, agentVersion: next?.versions[0] ?? '' } : target) }));
+  };
+  const changeAgentVersion = (index: number, version: string) => {
+    setConfig((current) => ({ ...current, agentTargets: current.agentTargets.map((target, targetIndex) => targetIndex === index ? { ...target, agentVersion: version } : target) }));
+  };
+  const addAgentTarget = () => {
+    const next = state.agents.find((item) => !config.agentTargets.some((target) => target.agentId === item.id)) ?? state.agents[0];
+    if (!next) return;
+    setConfig((current) => ({ ...current, agentTargets: [...current.agentTargets, { agentId: next.id, agentVersion: next.versions[0] ?? '' }] }));
+  };
+  const removeAgentTarget = (index: number) => {
+    setConfig((current) => ({ ...current, agentTargets: current.agentTargets.filter((_, targetIndex) => targetIndex !== index) }));
   };
   const changeDataset = (id: string) => {
     const next = state.datasets.find((item) => item.id === id);
@@ -1357,11 +1401,15 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
       </div>}
 
       {step === 1 && <div className="eval-task-step-content">
-        <div className="eval-task-form-row">
-          <label className="eval-field"><span>Agent <b>*</b></span><select value={config.agentId} onChange={(event) => changeAgent(event.target.value)}>{state.agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="eval-field"><span>版本 <b>*</b></span><select value={config.agentVersion} disabled={!agent} onChange={(event) => setConfig((current) => ({ ...current, agentVersion: event.target.value }))}>{(agent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</select></label>
+        <div className="eval-agent-target-list">
+          {selectedAgents.map(({ target, agent }, index) => <div className="eval-agent-target-row" key={`${target.agentId}-${index}`}>
+            <label className="eval-field"><span>Agent <b>*</b></span><select value={target.agentId} onChange={(event) => changeAgentTarget(index, event.target.value)}>{state.agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="eval-field"><span>版本 <b>*</b></span><select value={target.agentVersion} disabled={!agent} onChange={(event) => changeAgentVersion(index, event.target.value)}>{(agent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</select></label>
+            {config.agentTargets.length > 1 && <IconButton label={`移除 ${agent?.name ?? 'Agent'}`} onClick={() => removeAgentTarget(index)}><Trash2 size={15} /></IconButton>}
+            {agent && <div className="eval-agent-target-description"><span>描述</span><p>{agent.description}</p></div>}
+          </div>)}
         </div>
-        {agent && <div className="eval-task-selection-detail"><div><span>描述</span><p>{agent.description}</p></div><div><span>当前版本</span><strong>{config.agentVersion}</strong></div></div>}
+        <button type="button" className="eval-evaluator-add-trigger" onClick={addAgentTarget}><Plus size={16} />添加 Agent</button>
       </div>}
 
       {step === 3 && <div className="eval-task-step-content">
@@ -1392,7 +1440,7 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
           <label className="eval-field"><span>任务描述</span><textarea maxLength={200} rows={3} value={config.description} placeholder="记录本次验证目的" onChange={(event) => setConfig((current) => ({ ...current, description: event.target.value }))} /></label>
           <div className="eval-runtime-grid"><label className="eval-field"><span>并发数</span><input type="number" min={1} max={10} value={config.concurrency} onChange={(event) => setConfig((current) => ({ ...current, concurrency: Number(event.target.value) || 1 }))} /></label><label className="eval-field"><span>单条超时（秒）</span><input type="number" min={10} max={600} value={config.timeout} onChange={(event) => setConfig((current) => ({ ...current, timeout: Number(event.target.value) || 60 }))} /></label><label className="eval-check-card"><input type="checkbox" checked={config.continueOnError} onChange={(event) => setConfig((current) => ({ ...current, continueOnError: event.target.checked }))} /><span><strong>单条失败继续</strong><small>保留其他 Case 的运行结果</small></span></label></div>
         </div>
-        <aside className="eval-task-confirm-summary"><h3>实验配置</h3><div className="eval-confirm-item"><Database size={16} /><span><small>评测集</small><strong>{dataset?.name ?? '未选择'}</strong><em>{selectedVersion?.label ?? '未选择版本'}，{dataset?.cases.length ?? 0} 条 Case</em></span></div><div className="eval-confirm-item"><Bot size={16} /><span><small>评测对象</small><strong>{agent?.name ?? '未选择'}</strong><em>{config.agentVersion || '未选择版本'}</em></span></div><div className="eval-confirm-item"><ClipboardCheck size={16} /><span><small>评估器</small><strong>{selected.length} 个</strong><em>{runnableEvaluatorCount} 个可执行</em></span></div><div className={`eval-summary-alert${blocked ? ' is-warning' : ' is-ok'}`}>{blocked ? <><CircleAlert size={15} /><span>填写任务名称，并确保至少有一个评估器可执行。</span></> : <><CheckCircle2 size={15} /><span>配置检查通过，可以开始评测。</span></>}</div></aside>
+        <aside className="eval-task-confirm-summary"><h3>实验配置</h3><div className="eval-confirm-item"><Database size={16} /><span><small>评测集</small><strong>{dataset?.name ?? '未选择'}</strong><em>{selectedVersion?.label ?? '未选择版本'}，{dataset?.cases.length ?? 0} 条 Case</em></span></div><div className="eval-confirm-item"><Bot size={16} /><span><small>评测对象</small><strong>{selectedAgents.length ? `${selectedAgents.length} 个 Agent` : '未选择'}</strong><em>{selectedAgents.map(({ target, agent }) => `${agent?.name ?? 'Agent'} ${target.agentVersion}`).join('、') || '未选择版本'}</em></span></div><div className="eval-confirm-item"><ClipboardCheck size={16} /><span><small>评估器</small><strong>{selected.length} 个</strong><em>{runnableEvaluatorCount} 个可执行</em></span></div><div className={`eval-summary-alert${blocked ? ' is-warning' : ' is-ok'}`}>{blocked ? <><CircleAlert size={15} /><span>填写任务名称，并确保至少有一个评估器可执行。</span></> : <><CheckCircle2 size={15} /><span>配置检查通过，可以开始评测。</span></>}</div></aside>
       </div>}
     </section>
 

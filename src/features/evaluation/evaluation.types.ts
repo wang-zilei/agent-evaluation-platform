@@ -61,6 +61,11 @@ export type VariableDefinition = {
   binding?: string;
 };
 
+export type TaskAgentTarget = {
+  agentId: string;
+  agentVersion: string;
+};
+
 export type Evaluator = {
   id: string;
   name: string;
