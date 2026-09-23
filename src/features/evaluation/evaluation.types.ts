@@ -66,6 +66,16 @@ export type TaskAgentTarget = {
   agentVersion: string;
 };
 
+export type CodeEvaluatorImplementation = '内置规则' | 'Python' | 'JavaScript';
+export type CodeEvaluatorRule = { condition: string; output: string };
+export type CodeEvaluatorDiagnostic = {
+  code: string;
+  message: string;
+  path?: string;
+  expected?: string;
+  actual?: string;
+};
+
 export type Evaluator = {
   id: string;
   name: string;
@@ -84,6 +94,13 @@ export type Evaluator = {
   updatedAt: string;
   runCount: number;
   passThreshold?: number;
+  implementation?: CodeEvaluatorImplementation;
+  code?: string;
+  scope?: string;
+  notFor?: string;
+  rules?: CodeEvaluatorRule[];
+  outputExample?: string;
+  dependencies?: string;
 };
 
 export type HumanEvaluation = {
@@ -143,6 +160,9 @@ export type EvaluatorResult = {
   evaluationReason: string;
   evaluationStatus: ResultStatus;
   traceRefs: string[];
+  evaluationKind?: EvaluatorKind;
+  diagnostics?: CodeEvaluatorDiagnostic[];
+  observations?: Record<string, string | number>;
 };
 
 export type CaseResult = {

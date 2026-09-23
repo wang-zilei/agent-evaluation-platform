@@ -60,9 +60,12 @@ const result = (
   evaluatorName,
   scoreType,
   evaluationResult: scoreType === 'numeric' ? (score ?? 0) : status === '通过' ? '通过' : status,
-  evaluationReason: reason,
+  evaluationReason: evaluatorId.startsWith('code-') ? '' : reason,
   evaluationStatus: status,
   traceRefs: evidenceRefs,
+  evaluationKind: evaluatorId.startsWith('code-') ? '代码评估' : '模型评估器',
+  diagnostics: evaluatorId.startsWith('code-') ? (status === '通过' ? [] : [{ code: 'CHECK_FAILED', message: reason, path: '$.agent_output' }]) : undefined,
+  observations: evaluatorId.startsWith('code-') ? { checks: status === '通过' ? 1 : 0, failed: status === '通过' ? 0 : 1 } : undefined,
 });
 
 const runtime = (status: CaseResult['status'], duration: string, firstTokenLatency = '620 ms', inputTokens = 2400, outputTokens = 600, evaluatorDuration = '2.8 s'): CaseResult['runtime'] => ({
@@ -95,6 +98,7 @@ const refundResults: CaseResult[] = [
       result('P0-05', '检索相关性', 'numeric', '通过', '检索片段都围绕 7 天无理由和商品状态，未发现明显无关内容。', ['4 条命中片段均与退款政策相关'], ['t2'], 0.92),
       result('P0-07', '回答忠实度', 'numeric', '通过', '回答中的“商品未使用且不影响二次销售”可被检索片段直接支持。', ['售后政策片段 #refund-02'], ['t2', 't4'], 0.96),
       result('P0-12', 'Agent 轨迹质量', 'numeric', '通过', '先检索政策再查询订单，路径合理；主要问题来自回答覆盖不足。', ['无重复工具调用', 'Trace 顺序完整'], ['t1', 't2', 't3', 't4'], 0.88),
+      result('code-required-fields', '必填字段完整性', 'numeric', '不通过', '缺少 return_method 和 shipping_cost。', ['required_fields'], ['t4'], 0.5),
     ],
   },
   {
@@ -455,24 +459,101 @@ evaluators.push({
   passThreshold: 0.7,
 });
 
-evaluators.push({
-  id: 'code-schema-check',
-  name: '交付文件结构校验',
+const codeEvaluator = (
+  id: string,
+  name: string,
+  category: string,
+  description: string,
+  scope: string,
+  notFor: string,
+  scoreType: ScoreType,
+  implementation: '内置规则' | 'Python' | 'JavaScript',
+  variables: Evaluator['variables'],
+  rules: Array<{ condition: string; output: string }>,
+  outputExample: string,
+  code: string,
+  dependencies: string,
+  runCount: number,
+): Evaluator => ({
+  id,
+  name,
   kind: '代码评估',
   mode: 'preset',
   version: '0.1.0',
   versions: ['0.1.0'],
-  description: '使用规则检查交付文件是否存在、可读取，并覆盖必需工作表。',
-  purpose: '验证文件交付的结构和可读性。',
-  category: '代码评估',
-  scoreType: 'pass_fail',
+  description,
+  purpose: scope,
+  category,
+  scoreType,
   model: '规则执行器',
-  prompt: '按文件交付规则执行结构校验。',
-  variables: [{ name: 'Agent Output', semantic: 'Agent Output', required: true }, { name: 'Trace', semantic: 'Trace', required: true }],
+  prompt: '',
+  variables,
+  implementation,
+  code,
+  scope,
+  notFor,
+  rules,
+  outputExample,
+  dependencies,
   creator: '系统',
-  updatedAt: '2026-08-24 16:10',
-  runCount: 36,
+  updatedAt: '2026-09-24 10:00',
+  runCount,
 });
+
+const actualOutput = { name: 'Agent Output', semantic: 'Agent Output' as const, required: true };
+const traceInput = { name: 'Trace', semantic: 'Trace' as const, required: true };
+
+evaluators.push(
+  codeEvaluator('code-json-schema', 'JSON Schema 校验', '格式与结构', '检查结构化输出是否符合指定 Schema。', '字段、类型、枚举、必填项和嵌套结构。', '不判断字段内容是否正确或完整。', 'pass_fail', 'Python', [actualOutput, { name: 'schema', semantic: 'Custom', required: true }], [
+    { condition: '输出可解析且符合 Schema', output: '通过' },
+    { condition: '存在类型、必填项或结构错误', output: '不通过，并返回逐项路径' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "SCHEMA_TYPE_MISMATCH",\n    "path": "$.items[0].quantity",\n    "expected": "integer",\n    "actual": "string"\n  }],\n  "observations": { "valid_paths": 7, "total_paths": 8 }\n}`, 'def evaluate(ctx):\\n    errors = validate(ctx.actual_output.json(), ctx.config.schema)\\n    return EvalResult.from_errors(errors)', 'Python 标准库 + jsonschema', 126),
+  codeEvaluator('code-required-fields', '必填字段完整性', '格式与结构', '统计必填字段覆盖率并定位缺失字段。', 'JSON、工单和结构化报告的固定字段。', '不判断已有字段的内容质量。', 'numeric', '内置规则', [actualOutput, { name: 'required_fields', semantic: 'Custom', required: true }], [
+    { condition: '全部必填字段存在', output: '1.0' },
+    { condition: '部分字段缺失', output: '按存在字段数 / 必填字段数计分' },
+    { condition: '输出无法解析', output: '执行失败' },
+  ], `{\n  "check": "completed",\n  "value": 0.67,\n  "diagnostics": [{\n    "code": "MISSING_REQUIRED_FIELD",\n    "path": "$.required_fields",\n    "expected": "array",\n    "actual": "undefined"\n  }],\n  "observations": { "matched": 2, "total": 3 }\n}`, 'required = ctx.config.required_fields\\nactual = ctx.actual_output.json()\\nmissing = [key for key in required if key not in actual]\\nreturn EvalResult.ratio(len(required) - len(missing), len(required), missing)', '内置规则', 98),
+  codeEvaluator('code-json-parse', 'JSON 可解析校验', '格式与结构', '检查输出是否为可解析的合法 JSON。', '去除代码围栏后解析 JSON，并保留错误位置。', '不校验业务字段和内容语义。', 'pass_fail', '内置规则', [actualOutput], [
+    { condition: '输出可解析', output: '通过' },
+    { condition: '存在语法错误或多个顶层对象', output: '不通过，并返回行列位置' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "JSON_PARSE_ERROR",\n    "location": { "line": 4, "column": 18 },\n    "message": "Unexpected token }"\n  }]\n}`, 'text = strip_code_fence(ctx.actual_output.text)\\nreturn EvalResult.parse_json(text)', '内置规则', 74),
+  codeEvaluator('code-markdown-structure', 'Markdown 结构校验', '格式与结构', '检查标题层级、必备章节和表格结构。', '报告、方案、纪要等 Markdown 交付物。', '不判断章节内容是否正确。', 'pass_fail', 'Python', [actualOutput, { name: 'outline', semantic: 'Custom', required: true }], [
+    { condition: '必备章节齐备且标题层级连续', output: '通过' },
+    { condition: '缺章节、跳级或表格列数错误', output: '不通过，并定位块位置' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "MISSING_SECTION",\n    "location": { "line": 22 },\n    "expected": "## 风险与依赖",\n    "actual": "## 总结"\n  }]\n}`, 'doc = parse_markdown(ctx.actual_output.text)\\nmissing = diff_outline(doc.headings, ctx.config.outline)\\nreturn EvalResult.from_errors(missing)', 'Python 标准库 + markdown-it', 63),
+  codeEvaluator('code-regex-rule', '正则规则校验', '内容与约束', '按包含、排除或格式正则检查输出。', '编号、日期、订单号、固定格式和禁用模式。', '不进行同义改写或语义判断。', 'pass_fail', 'JavaScript', [actualOutput, { name: 'patterns', semantic: 'Custom', required: true }], [
+    { condition: '所有 include 规则命中且 exclude 规则未命中', output: '通过' },
+    { condition: '任一规则不满足', output: '不通过，并返回匹配片段' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "REGEX_NOT_MATCHED",\n    "pattern": "CASE-\\\\d{4}",\n    "actual": "case 2048"\n  }]\n}`, 'const failed = ctx.config.patterns.filter(rule => !matches(rule, ctx.actual_output.text))\\nreturn EvalResult.fromErrors(failed)', 'JavaScript RegExp', 85),
+  codeEvaluator('code-banned-phrases', '禁用词与敏感表述', '内容与约束', '检测禁用词、敏感词和越界承诺。', '合规词库、承诺性措辞和指定禁用表达。', '不判断上下文中的合理引用或反例。', 'pass_fail', '内置规则', [actualOutput, { name: 'banned_terms', semantic: 'Custom', required: true }], [
+    { condition: '未命中禁用表达', output: '通过' },
+    { condition: '命中任一禁用表达', output: '不通过，并记录词项与位置' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "BANNED_TERM_FOUND",\n    "term": "百分之百成功",\n    "location": { "line": 2, "column": 14 }\n  }]\n}`, 'hits = find_banned_terms(ctx.actual_output.text, ctx.config.banned_terms)\\nreturn EvalResult.from_errors(hits)', '内置词库匹配', 58),
+  codeEvaluator('code-length-boundary', '输出长度边界', '内容与约束', '检查字符、行数、Token 或文件体积限制。', '标题、摘要、表格、模型输出和上传产物。', '不判断内容是否啰嗦或冗余。', 'pass_fail', '内置规则', [actualOutput, { name: 'limits', semantic: 'Custom', required: true }], [
+    { condition: '所有指标位于配置范围', output: '通过' },
+    { condition: '任一指标越界', output: '不通过，并返回实测值' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "LIMIT_EXCEEDED",\n    "metric": "tokens",\n    "expected": "<= 800",\n    "actual": 936\n  }]\n}`, 'metrics = measure_output(ctx.actual_output, ctx.config.limits)\\nreturn EvalResult.within_limits(metrics)', '内置计数器', 47),
+  codeEvaluator('code-duplicate-content', '重复内容检测', '内容与约束', '识别重复句、循环文本和模板化段落。', '长回答、报告段落和工具生成文本。', '不判断必要的术语重复。', 'numeric', 'Python', [actualOutput], [
+    { condition: '无重复段落', output: '1.0' },
+    { condition: '出现重复或循环内容', output: '按非重复内容占比计分' },
+  ], `{\n  "check": "completed",\n  "value": 0.78,\n  "diagnostics": [{\n    "code": "DUPLICATE_BLOCK",\n    "location": { "start_line": 9, "end_line": 12 },\n    "matches": 3\n  }],\n  "observations": { "duplicate_ratio": 0.22 }\n}`, 'blocks = split_blocks(ctx.actual_output.text)\\nunique = deduplicate_by_similarity(blocks)\\nreturn EvalResult.ratio(len(unique), len(blocks))', 'Python 标准库', 41),
+  codeEvaluator('code-tool-arguments', '工具参数 Schema 校验', '工具与轨迹', '检查每次工具调用的参数结构和类型。', 'Trace 中的工具名、参数、必填项和枚举值。', '不判断工具是否适合当前任务。', 'pass_fail', 'Python', [traceInput, { name: 'tool_schemas', semantic: 'Custom', required: true }], [
+    { condition: '所有工具调用符合参数 Schema', output: '通过' },
+    { condition: '工具名或参数不符合定义', output: '不通过，并定位调用序号' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "TOOL_ARG_TYPE_MISMATCH",\n    "call_index": 2,\n    "tool": "query_order",\n    "path": "$.order_id",\n    "expected": "string",\n    "actual": "number"\n  }]\n}`, 'errors = validate_tool_calls(ctx.trace.tool_calls, ctx.config.tool_schemas)\\nreturn EvalResult.from_errors(errors)', 'Python 标准库 + jsonschema', 52),
+  codeEvaluator('code-tool-sequence', '工具调用顺序校验', '工具与轨迹', '按允许状态机检查工具调用先后关系。', '查询、确认、写入等有依赖顺序的工具链。', '不评价未定义的跨工具语义关系。', 'pass_fail', 'Python', [traceInput, { name: 'workflow', semantic: 'Custom', required: true }], [
+    { condition: '调用序列符合状态机', output: '通过' },
+    { condition: '跳步、逆序或调用未授权工具', output: '不通过，并返回违规边' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "INVALID_TOOL_TRANSITION",\n    "from": "submit_refund",\n    "to": "query_order",\n    "allowed": ["finish"]\n  }]\n}`, 'path = [call.name for call in ctx.trace.tool_calls]\\nreturn EvalResult.from_errors(check_workflow(path, ctx.config.workflow))', 'Python 标准库', 36),
+  codeEvaluator('code-sql-syntax', 'SQL 语法校验', '代码与性能', '解析 SQL 并检查语法与危险语句。', '生成 SQL、查询片段和只读数据提取语句。', '不执行 SQL，也不判断查询结果是否正确。', 'pass_fail', 'Python', [actualOutput, { name: 'dialect', semantic: 'Custom', required: true }], [
+    { condition: '语法有效且不含禁用语句', output: '通过' },
+    { condition: '解析失败或包含写操作', output: '不通过，并返回语句位置' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "SQL_WRITE_STATEMENT",\n    "statement": "UPDATE",\n    "location": { "line": 1, "column": 1 }\n  }]\n}`, 'errors = parse_sql(ctx.actual_output.sql, ctx.config.dialect)\\nreturn EvalResult.from_errors(errors)', 'Python 标准库 + sqlglot', 29),
+  codeEvaluator('code-latency-budget', '响应时延阈值', '代码与性能', '检查端到端或单节点耗时是否超阈值。', 'Trace 时延、工具耗时和流式首字耗时。', '不解释超时原因。', 'pass_fail', '内置规则', [traceInput, { name: 'thresholds', semantic: 'Custom', required: true }], [
+    { condition: '所有耗时指标未超阈值', output: '通过' },
+    { condition: '任一指标超阈值', output: '不通过，并返回预算差值' },
+  ], `{\n  "check": "failed",\n  "diagnostics": [{\n    "code": "LATENCY_BUDGET_EXCEEDED",\n    "metric": "tool.query_order.duration_ms",\n    "expected": "<= 3000",\n    "actual": 4280,\n    "over_by_ms": 1280\n  }]\n}`, 'timing = collect_timing(ctx.trace)\\nreturn EvalResult.within_limits(timing, ctx.config.thresholds)', '内置计时器', 44),
+);
 
 evaluators.push({
   id: 'human-service-review',
@@ -589,7 +670,7 @@ const tasks: EvaluationTask[] = [
   task({ id: 'TASK-20260923-004', name: '退款客服助手 V3｜结果质量对照组', description: '评估器覆盖差异场景中的对照组任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:02', updatedAt: '2026-09-23 10:11', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageControlResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260923-005', name: '退款客服助手 V4｜结果质量实验组', description: '只配置结果质量评估器的实验组任务。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:18', updatedAt: '2026-09-23 10:27', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageResultResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260923-006', name: '退款客服助手 V4｜过程质量实验组', description: '只配置检索与轨迹评估器的实验组任务。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:35', updatedAt: '2026-09-23 10:44', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageProcessResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260825-001', name: '退款客服助手 V3｜回流问题评测', description: '验证退款问答的任务完成、检索证据和完整 Trace。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '部分失败', tone: 'warning', createdBy: '王子磊', createdAt: '2026-08-25 18:12', updatedAt: '2026-08-25 18:19', totalCases: 4, executableCases: 3, completedCases: 3, failedCases: 1, results: refundResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260825-001', name: '退款客服助手 V3｜回流问题评测', description: '验证退款问答的任务完成、检索证据和完整 Trace。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12', 'code-required-fields'], status: '部分失败', tone: 'warning', createdBy: '王子磊', createdAt: '2026-08-25 18:12', updatedAt: '2026-08-25 18:19', totalCases: 4, executableCases: 3, completedCases: 3, failedCases: 1, results: refundResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260823-003', name: '退款客服助手 V2｜工具稳定性检查', description: '验证订单查询工具异常时的失败边界。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-53346', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-10', 'P0-12'], status: '失败', tone: 'danger', createdBy: '王子磊', createdAt: '2026-08-23 11:16', updatedAt: '2026-08-23 11:18', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 1, results: failureResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260824-008', name: '招标文件覆盖评测', description: '验证文件分析和最终交付文件的完整性。', agentType: '外部', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: 'DS-24610', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-04', 'P0-08', 'P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-08-24 15:34', updatedAt: '2026-08-24 16:02', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 0, results: tenderResults, runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
   task({ id: 'TASK-20260825-004', name: '退款问答回归检查', description: '基于历史对话回流验证退款回复的完整性。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-11490', datasetVersion: '草稿', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '运行中', tone: 'info', createdBy: '王子磊', createdAt: '2026-08-25 19:42', updatedAt: '2026-08-25 19:44', totalCases: 1, executableCases: 1, completedCases: 0, failedCases: 0, results: historyResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
