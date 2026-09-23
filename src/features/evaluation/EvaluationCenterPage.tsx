@@ -14,7 +14,7 @@ import type {
   AgentOption, CaseResult, Dataset, DatasetCase, EvaluationModule, EvaluationState,
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
   ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationFollowUpMode, OptimizationResult, ScoreType, TaskTab,
-  ComparisonCaseRow, ComparisonEvaluatorRow, ComparisonMetricCell, ComparisonRuntimeRow, ComparisonTaskRef, EvaluatorResult,
+  ComparisonCaseRow, ComparisonEvaluatorRow, ComparisonMetricCell, ComparisonOutputCell, ComparisonRuntimeRow, ComparisonTaskRef, EvaluatorResult,
   HumanAnnotation, HumanLabelDefinition, TaskAgentTarget,
 } from './evaluation.types';
 import './evaluation.css';
@@ -28,6 +28,7 @@ type HistoryDatePreset = '3' | '5' | '7' | '30' | 'custom';
 type TaskCreateStep = 1 | 2 | 3 | 4;
 type TraceScreen = 'list' | 'detail';
 type MetricAggregation = '均值' | '最大' | '最小';
+type OptimizationDetailTab = 'config' | 'metrics' | 'details';
 type TaskMetricRow = { name: string; display: string; passRate?: string; valid: string; range: string; threshold?: string };
 
 type ParsedFile = { name: string; format: string; columns: string[]; rows: Record<string, string>[] };
@@ -314,8 +315,8 @@ export default function EvaluationCenterPage() {
     setModule('tasks');
     notify('对比实验已创建，已生成指标统计');
   };
-  const startOptimization = (caseIds: string[], followUpMode: OptimizationFollowUpMode, agentType: '万智' | '外部') => {
-    const target = state.experiments.find((item) => item.followUpMode === followUpMode && item.agentType === agentType) ?? state.experiments[0];
+  const startOptimization = (caseIds: string[], followUpMode: OptimizationFollowUpMode, agentType: '万智' | '外部', sourceTaskId: string) => {
+    const target = state.experiments.find((item) => item.sourceTaskId === sourceTaskId && item.followUpMode === followUpMode && item.agentType === agentType) ?? state.experiments.find((item) => item.followUpMode === followUpMode && item.agentType === agentType) ?? state.experiments[0];
     if (!target) return;
     setSelectedExperimentId(target.id);
     setTaskDetailTab('optimize');
@@ -1400,21 +1401,24 @@ function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch,
 
 function ConfigCompare({ experiment }: { experiment: OptimizeExperiment }) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const labels: Record<string, string> = { system_prompt: '系统提示词', tools: '工具描述', skills: 'Skill 内容' };
-  const sections = experiment.result.changes.map((change) => ({
-    ...change,
-    label: labels[change.target] ?? change.target,
-  }));
+  const labels: Record<string, string> = { system_prompt: '系统提示词', tools: '工具描述', skills: 'Skills 内容' };
+  const sections = experiment.result.changes.map((change) => ({ ...change, label: labels[change.target] ?? change.target }));
   if (!sections.length) return <EmptyState title="没有可直接修改的配置" description="本次只展示不能自动修改的问题建议。" />;
   return <div className="eval-config-compare">
-    {sections.map((section) => <div key={section.target}>
+    <div className="eval-config-compare__legend"><span><i className="is-before" />优化前</span><span><i className="is-after" />优化后</span><em>点击行展开优化原因</em></div>
+    {sections.map((section) => <div key={`${section.target}-${section.changeType}`}>
       <section className="eval-config-compare__row">
-        <div className="eval-config-compare__label"><strong>{section.label}</strong></div>
+        <div className="eval-config-compare__label"><strong>{section.label}</strong><Pill tone={section.changeType === '新增' ? 'green' : section.changeType === '删除' ? 'amber' : 'violet'}>{section.changeType}</Pill></div>
         <div className="eval-config-compare__side"><span>优化前</span><pre>{section.before || '未采集'}</pre></div>
         <div className="eval-config-compare__side is-after"><span>优化后</span><pre>{section.after || '未采集'}</pre></div>
-        <IconButton label={expanded === section.target ? '收起修改详情' : '查看修改详情'} onClick={() => setExpanded((current) => current === section.target ? null : section.target)}><ChevronDown size={15} /></IconButton>
+        <IconButton label={expanded === section.target ? '收起优化原因' : '展开优化原因'} onClick={() => setExpanded((current) => current === section.target ? null : section.target)}><ChevronDown size={15} /></IconButton>
       </section>
-      {expanded === section.target && <div className="eval-config-compare__details"><div><span>修改原因</span><p>{section.reason}</p></div><div><span>关联 Case</span><p>{section.caseIds.map((caseId) => <Pill key={caseId}>{caseId}</Pill>)}</p></div></div>}
+      {expanded === section.target && <div className="eval-config-compare__details">
+        <div><span>问题证据</span><p>{section.evidence || section.reason}</p></div>
+        <div><span>优化原因</span><p>{section.reason}</p></div>
+        <div><span>预期影响</span><p>{section.expectedEffect || '改善关联 Case 的评估器通过状态。'}</p></div>
+        <div><span>关联 Case / 评估器</span><p>{section.caseIds.map((caseId) => <Pill key={caseId}>{caseId}</Pill>)}{section.evaluatorIds?.map((evaluatorId) => <Pill key={evaluatorId} tone="violet">{evaluatorId}</Pill>)}</p></div>
+      </div>}
     </div>)}
   </div>;
 }
@@ -1422,41 +1426,137 @@ function ConfigCompare({ experiment }: { experiment: OptimizeExperiment }) {
 function OptimizationSuggestions({ suggestions }: { suggestions: OptimizationResult['suggestions'] }) {
   if (!suggestions.length) return <EmptyState title="暂无优化建议" description="当前 Badcase 没有发现需要人工处理的问题。" />;
   return <div className="eval-suggestion-list">{suggestions.map((suggestion) => <article className="eval-suggestion-row" key={suggestion.id}>
-    <div className="eval-suggestion-problem"><strong>{suggestion.problem}</strong><div>{suggestion.caseIds.map((caseId) => <Pill key={caseId}>{caseId}</Pill>)}</div></div>
-    <div className="eval-suggestion-advice"><span>修改建议</span><p>{suggestion.suggestion}</p></div>
+    <div className="eval-suggestion-problem">
+      <div className="eval-suggestion-title"><strong>{suggestion.problem}</strong><Pill tone={suggestion.handling === '已纳入配置修改' ? 'green' : suggestion.handling === '需人工处理' ? 'amber' : 'neutral'}>{suggestion.handling || '待处理'}</Pill></div>
+      <div>{suggestion.caseIds.map((caseId) => <Pill key={caseId}>{caseId}</Pill>)}{suggestion.evaluatorIds?.map((evaluatorId) => <Pill key={evaluatorId} tone="violet">{evaluatorId}</Pill>)}</div>
+    </div>
+    <div className="eval-suggestion-advice">
+      <span>评估器依据</span><p>{suggestion.evidence || '未提供可追踪依据。'}</p>
+      <span>根因判断</span><p>{suggestion.rootCause || '未提供根因判断。'}</p>
+      <span>修改建议</span><p>{suggestion.suggestion}</p>
+      <span>预期影响</span><p>{suggestion.expectedEffect || '未提供预期影响。'}</p>
+      {suggestion.unfixableReason && <><span>超出优化范围</span><p>{suggestion.unfixableReason}</p></>}
+    </div>
   </article>)}</div>;
 }
 
-function OptimizationComparison({ comparison }: { comparison?: ComparisonRecord }) {
-  if (!comparison) return null;
-  return <div className="eval-optimization-comparison">
-    <MetricCompareMatrix rows={comparison.evaluatorRows} tasks={comparison.taskRefs} />
-    <MetricCompareMatrix rows={comparison.runtimeRows} tasks={comparison.taskRefs} />
+const optimizationCasePassed = (output?: ComparisonOutputCell) => Boolean(output?.evaluatorResults.length && output.evaluatorResults.every((item) => item.evaluationStatus === '通过'));
+
+function OptimizationMetricSummary({ comparison, experiment }: { comparison: ComparisonRecord; experiment: OptimizeExperiment }) {
+  const validationIds = new Set(experiment.selectedCaseIds);
+  const regressionIds = new Set(experiment.regressionCaseIds ?? comparison.caseRows.filter((item) => !validationIds.has(item.caseId)).map((item) => item.caseId));
+  const summarize = (cohort: '验证集' | '回归集', taskId: string) => {
+    const rows = comparison.caseRows.filter((item) => cohort === '验证集' ? validationIds.has(item.caseId) : regressionIds.has(item.caseId));
+    const passed = rows.filter((item) => optimizationCasePassed(item.outputs[taskId])).length;
+    return { total: rows.length, passed, rate: rows.length ? passed / rows.length : 0 };
+  };
+  const beforeValidation = summarize('验证集', comparison.taskRefs[0].taskId);
+  const afterValidation = summarize('验证集', comparison.taskRefs[1].taskId);
+  const beforeRegression = summarize('回归集', comparison.taskRefs[0].taskId);
+  const afterRegression = summarize('回归集', comparison.taskRefs[1].taskId);
+  const regressions = comparison.caseRows.filter((item) => regressionIds.has(item.caseId) && optimizationCasePassed(item.outputs[comparison.taskRefs[0].taskId]) && !optimizationCasePassed(item.outputs[comparison.taskRefs[1].taskId])).length;
+  const newPasses = comparison.caseRows.filter((item) => validationIds.has(item.caseId) && !optimizationCasePassed(item.outputs[comparison.taskRefs[0].taskId]) && optimizationCasePassed(item.outputs[comparison.taskRefs[1].taskId])).length;
+  return <div className="eval-optimization-summary">
+    <div><span>验证集通过率</span><strong>{Math.round(afterValidation.rate * 100)}%</strong><em>{beforeValidation.passed}/{beforeValidation.total} → {afterValidation.passed}/{afterValidation.total}</em></div>
+    <div><span>验证集新通过</span><strong>{newPasses}</strong><em>Badcase 修复</em></div>
+    <div><span>回归集通过率</span><strong>{Math.round(afterRegression.rate * 100)}%</strong><em>{beforeRegression.passed}/{beforeRegression.total} → {afterRegression.passed}/{afterRegression.total}</em></div>
+    <div><span>回归退化</span><strong className={regressions ? 'is-danger' : ''}>{regressions}</strong><em>原通过变为不通过</em></div>
+    <div><span>有效对比</span><strong>{comparison.comparableCases}</strong><em>共 {comparison.totalCases} 条 Case</em></div>
+  </div>;
+}
+
+function OptimizationMetricBreakdown({ comparison, experiment }: { comparison: ComparisonRecord; experiment: OptimizeExperiment }) {
+  const validationIds = new Set(experiment.selectedCaseIds);
+  const regressionIds = new Set(experiment.regressionCaseIds ?? comparison.caseRows.filter((item) => !validationIds.has(item.caseId)).map((item) => item.caseId));
+  const evaluatorIds = comparison.taskRefs[0].evaluatorIds;
+  const cellFor = (cohort: '验证集' | '回归集', taskId: string, evaluatorId?: string) => {
+    const rows = comparison.caseRows.filter((item) => cohort === '验证集' ? validationIds.has(item.caseId) : regressionIds.has(item.caseId));
+    const results = rows.map((row) => evaluatorId ? row.outputs[taskId]?.evaluatorResults.find((item) => item.evaluatorId === evaluatorId) : undefined);
+    const passed = evaluatorId ? results.filter((item) => item?.evaluationStatus === '通过').length : rows.filter((item) => optimizationCasePassed(item.outputs[taskId])).length;
+    const scores = results.filter((item): item is EvaluatorResult => item != null && item.scoreType === 'numeric' && typeof item.evaluationResult === 'number').map((item) => Number(item.evaluationResult));
+    const score = scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : undefined;
+    return { label: score === undefined ? `${passed}/${rows.length} 通过` : `${score.toFixed(2)} · ${passed}/${rows.length} 通过`, passed, total: rows.length, score };
+  };
+  const rows = [{ id: 'case', name: 'Case 通过率', type: '汇总' }, ...evaluatorIds.map((id) => {
+    const result = comparison.caseRows.flatMap((item) => Object.values(item.outputs)).flatMap((item) => item.evaluatorResults).find((item) => item.evaluatorId === id);
+    return { id, name: result?.evaluatorName ?? id, type: result?.scoreType === 'numeric' ? '0-1 数值' : '通过率' };
+  })];
+  return <div className="eval-optimization-breakdown table-surface"><table className="eval-data-table">
+    <thead><tr><th>指标</th><th>验证集 · 优化前</th><th>验证集 · 优化后</th><th>回归集 · 优化前</th><th>回归集 · 优化后</th></tr></thead>
+    <tbody>{rows.map((row) => {
+      const beforeValidation = cellFor('验证集', comparison.taskRefs[0].taskId, row.id === 'case' ? undefined : row.id);
+      const afterValidation = cellFor('验证集', comparison.taskRefs[1].taskId, row.id === 'case' ? undefined : row.id);
+      const beforeRegression = cellFor('回归集', comparison.taskRefs[0].taskId, row.id === 'case' ? undefined : row.id);
+      const afterRegression = cellFor('回归集', comparison.taskRefs[1].taskId, row.id === 'case' ? undefined : row.id);
+      return <tr key={row.id}><td><div className="eval-cell-title"><strong>{row.name}</strong><small>{row.type}</small></div></td><td>{beforeValidation.label}</td><td className="is-improved">{afterValidation.label}</td><td>{beforeRegression.label}</td><td className={afterRegression.passed < beforeRegression.passed ? 'is-regression' : ''}>{afterRegression.label}</td></tr>;
+    })}</tbody>
+  </table></div>;
+}
+
+function EvaluatorPassPair({ before, after }: { before?: EvaluatorResult; after?: EvaluatorResult }) {
+  const display = (item?: EvaluatorResult) => {
+    if (!item) return '未配置';
+    const score = item.scoreType === 'numeric' && typeof item.evaluationResult === 'number' ? ` ${item.evaluationResult.toFixed(2)}` : '';
+    return `${item.evaluationStatus}${score}`;
+  };
+  const tone = (item?: EvaluatorResult) => item?.evaluationStatus === '通过' ? 'green' : item?.evaluationStatus === '不通过' ? 'amber' : 'neutral';
+  return <div className="eval-pass-pair"><Pill tone={tone(before)}>{display(before)}</Pill><span>→</span><Pill tone={tone(after)}>{display(after)}</Pill></div>;
+}
+
+function OptimizationDetailTable({ comparison, experiment }: { comparison: ComparisonRecord; experiment: OptimizeExperiment }) {
+  const validationIds = new Set(experiment.selectedCaseIds);
+  const evaluatorIds = comparison.taskRefs[0].evaluatorIds;
+  const outcome = (row: ComparisonCaseRow) => {
+    const before = optimizationCasePassed(row.outputs[comparison.taskRefs[0].taskId]);
+    const after = optimizationCasePassed(row.outputs[comparison.taskRefs[1].taskId]);
+    if (row.cohort === '验证集') return before && after ? '保持通过' : !before && after ? '优化通过' : after ? '仍需优化' : '仍不通过';
+    return before && after ? '回归稳定' : before && !after ? '回归退化' : !before && after ? '额外通过' : '保持不通过';
+  };
+  return <div className="eval-optimization-detail-panel">
+    <div className="eval-task-section-heading"><div><h3>对比实验明细</h3><p>展示优化实验使用的评测集数据。验证集为已选 Badcase，回归集为原任务此前通过 Case；评估器按“优化前 → 优化后”展示通过状态。</p></div><span>{comparison.caseRows.length} 条 Case</span></div>
+    <div className="eval-optimization-detail-table-wrap"><table className="eval-optimization-detail-table">
+      <thead><tr><th className="is-sticky">Case / 集合</th><th>评测集字段</th><th>优化前 Agent Output</th><th>优化后 Agent Output</th>{evaluatorIds.map((id) => <th key={id}>{comparison.caseRows.flatMap((row) => Object.values(row.outputs)).flatMap((output) => output.evaluatorResults).find((item) => item.evaluatorId === id)?.evaluatorName ?? id}</th>)}<th>结果</th></tr></thead>
+      <tbody>{comparison.caseRows.map((row) => <tr key={row.caseId}>
+        <td className="is-sticky"><div className="eval-case-stack"><strong>{row.caseId}</strong><Pill tone={row.cohort === '验证集' ? 'amber' : 'green'}>{row.cohort || (validationIds.has(row.caseId) ? '验证集' : '回归集')}</Pill></div></td>
+        <td><div className="eval-detail-context"><strong>{row.sharedValues.Input}</strong><span>{row.sharedValues['Expected Output']}</span><small>{row.sharedValues.订单号} · {row.sharedValues.商品状态} · {row.sharedValues.售后阶段}</small></div></td>
+        <td><p>{row.outputs[comparison.taskRefs[0].taskId]?.output || '未采集'}</p></td>
+        <td><p>{row.outputs[comparison.taskRefs[1].taskId]?.output || '未采集'}</p></td>
+        {evaluatorIds.map((id) => <td key={id}><EvaluatorPassPair before={row.outputs[comparison.taskRefs[0].taskId]?.evaluatorResults.find((item) => item.evaluatorId === id)} after={row.outputs[comparison.taskRefs[1].taskId]?.evaluatorResults.find((item) => item.evaluatorId === id)} /></td>)}
+        <td><Pill tone={outcome(row).includes('退化') || outcome(row).includes('仍') ? 'amber' : 'green'}>{outcome(row)}</Pill></td>
+      </tr>)}</tbody>
+    </table></div>
   </div>;
 }
 
 function OptimizationDetail({ experiment, comparison, onBack, onNotify, onViewComparison }: { experiment: OptimizeExperiment; comparison?: ComparisonRecord; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void; onViewComparison: (comparison: ComparisonRecord) => void }) {
   const result = experiment.result;
+  const [tab, setTab] = useState<OptimizationDetailTab>('config');
   const [evaluationState, setEvaluationState] = useState<'idle' | 'running' | 'ready'>(experiment.followUpMode === '直接实验对比' ? 'ready' : 'idle');
   const continueExperiment = () => {
     setEvaluationState('running');
-    onNotify('已创建优化后复测任务，正在运行评测');
+    onNotify('已创建优化后复测任务，正在运行验证集和回归集');
     window.setTimeout(() => {
       setEvaluationState('ready');
-      onNotify('复测完成，已生成实验对比数据');
+      onNotify('复测完成，已生成指标统计和实验明细');
     }, 1200);
   };
   const showComparison = evaluationState === 'ready' && Boolean(comparison);
+  const tabs: Array<{ id: OptimizationDetailTab; label: string }> = [{ id: 'config', label: '配置对比' }, { id: 'metrics', label: '指标统计' }, { id: 'details', label: '实验明细' }];
   return <div className="eval-detail-page eval-optimization-detail">
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回优化记录</button><Pill tone={experiment.status === '已完成' ? 'green' : 'amber'}>{experiment.status}</Pill></div>
-    <header className="eval-detail-hero eval-optimization-hero"><div><span className="eval-eyebrow">OPTIMIZATION RESULT</span><h2>{experiment.name}</h2><p>{experiment.agentType} · {experiment.followUpMode} · 已选 {result.selectedCaseCount} 个 Badcase</p></div></header>
-    <div className="eval-optimization-flow"><span>优化后流程</span><strong>{experiment.followUpMode}</strong><span>{experiment.agentType === '外部' ? '外部 Agent 只生成优化建议' : '优化后 Agent 需要先完成复测任务'}</span></div>
-    <div className="eval-optimization-stack">
-      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>配置对比</h3><p>只展示优化前后的配置内容，展开查看修改原因和关联 Case。</p></div></div><ConfigCompare experiment={experiment} /></section>
-      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>优化建议</h3><p>展示不能自动修改、但由 Badcase 明确暴露的问题。</p></div></div><OptimizationSuggestions suggestions={result.suggestions} /></section>
-      {evaluationState === 'running' && <section className="eval-optimization-progress"><RefreshCw size={17} /><div><strong>优化后复测任务正在运行</strong><p>复测完成后生成实验对比数据。</p></div><Status label="复测评测中" /></section>}
-      {showComparison && comparison && <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>实验对比数据</h3><p>复测任务完成后，基于评测任务结果展示优化前后的指标。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => onViewComparison(comparison)}>查看完整对比实验</button></div><OptimizationComparison comparison={comparison} /></section>}
-    </div>
+    <header className="eval-detail-hero eval-optimization-hero"><div><span className="eval-eyebrow">OPTIMIZATION RESULT</span><h2>{experiment.name}</h2><p>{experiment.agentType} · {experiment.followUpMode} · 验证集 {result.selectedCaseCount} 条 · 回归集 {experiment.regressionCaseIds?.length ?? 0} 条</p></div></header>
+    <div className="eval-optimization-flow"><span>单次优化</span><strong>验证集 + 回归集</strong><span>{experiment.agentType === '外部' ? '外部 Agent 只生成优化建议' : '候选配置不覆盖原 Agent'}</span></div>
+    <nav className="eval-optimization-tabs" aria-label="优化详情内容">{tabs.map((item) => <button type="button" key={item.id} className={tab === item.id ? 'is-active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}</nav>
+    {evaluationState === 'running' && <section className="eval-optimization-progress"><RefreshCw size={17} /><div><strong>优化后复测任务正在运行</strong><p>同时运行验证集和回归集，完成后生成指标与明细。</p></div><Status label="复测评测中" /></section>}
+    {tab === 'config' && <div className="eval-optimization-stack">
+      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>Agent 配置</h3><p>左侧为优化前，右侧为优化后；点击 Diff 展开可追踪优化原因。</p></div></div><ConfigCompare experiment={experiment} /></section>
+      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>优化建议</h3><p>按问题、证据、根因、修改建议和预期影响展示。</p></div></div><OptimizationSuggestions suggestions={result.suggestions} /></section>
+    </div>}
+    {tab === 'metrics' && (showComparison && comparison ? <div className="eval-optimization-stack">
+      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>验证与回归</h3><p>通过阈值决定评估器是否通过，指标按验证集和回归集分别汇总。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => onViewComparison(comparison)}>查看完整对比实验</button></div><OptimizationMetricSummary comparison={comparison} experiment={experiment} /><OptimizationMetricBreakdown comparison={comparison} experiment={experiment} /></section>
+      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>运行指标</h3><p>展示候选配置的运行效率变化。</p></div></div><MetricCompareMatrix rows={comparison.runtimeRows} tasks={comparison.taskRefs} /></section>
+    </div> : <EmptyState title="暂无指标统计" description="完成优化后复测后查看验证集和回归集指标。" />)}
+    {tab === 'details' && (showComparison && comparison ? <OptimizationDetailTable comparison={comparison} experiment={experiment} /> : <EmptyState title="暂无实验明细" description="完成优化后复测后查看评测集数据和评估器通过状态。" />)}
     <footer className="eval-sticky-footer"><span>{experiment.agentType === '外部' ? '外部 Agent 不修改配置，也不自动生成实验对比。' : '优化结果不会覆盖原 Agent。'}</span><div>
       {experiment.agentType !== '外部' && evaluationState === 'idle' && <><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>暂不继续</button><button type="button" className="eval-button eval-button--primary" onClick={continueExperiment}><Zap size={15} />继续实验对比</button></>}
       {evaluationState === 'running' && <button type="button" className="eval-button eval-button--primary" disabled>复测评测中</button>}
@@ -1817,7 +1917,7 @@ function OptimizationStartModal({ task, selectedCount, onCancel, onStart }: { ta
   </div>;
 }
 
-function TaskDetail({ task, state, tab, onTabChange, onBack, onOpenCase, onNotify, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; tab: 'summary' | 'data' | 'optimize'; onTabChange: (tab: 'summary' | 'data' | 'optimize') => void; onBack: () => void; onOpenCase: (item: CaseResult) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onOptimize: (caseIds: string[], mode: OptimizationFollowUpMode, agentType: '万智' | '外部') => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
+function TaskDetail({ task, state, tab, onTabChange, onBack, onOpenCase, onNotify, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; tab: 'summary' | 'data' | 'optimize'; onTabChange: (tab: 'summary' | 'data' | 'optimize') => void; onBack: () => void; onOpenCase: (item: CaseResult) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onOptimize: (caseIds: string[], mode: OptimizationFollowUpMode, agentType: '万智' | '外部', sourceTaskId: string) => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
   const [selectedBadCaseIds, setSelectedBadCaseIds] = useState<string[]>([]);
   const [optimizeModalOpen, setOptimizeModalOpen] = useState(false);
   const [metricAggregation, setMetricAggregation] = useState<MetricAggregation>('均值');
@@ -1981,7 +2081,7 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, onOpenCase, onNotif
       </div>
     </section>}
     {tab === 'optimize' && <section className="eval-experiment-records"><div className="eval-task-section-heading"><div><h3>优化实验记录</h3><p>点击记录查看配置对比、优化建议和实验对比数据。</p></div><span>{taskExperiments.length} 条记录</span></div>{taskExperiments.length ? <div className="eval-table-wrap"><table className="eval-data-table"><thead><tr><th>优化任务</th><th>Agent 类型</th><th>优化后流程</th><th>Badcase</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{taskExperiments.map((item) => <tr key={item.id} onClick={() => onOpenExperiment(item)}><td><div className="eval-cell-title"><strong>{item.name}</strong><small>{item.id}</small></div></td><td>{item.agentType}</td><td>{item.followUpMode}</td><td>{item.selectedCaseCount}</td><td><Status label={item.status} /></td><td>{item.createdAt}</td><td><IconButton label="查看优化详情" onClick={() => onOpenExperiment(item)}><Eye size={15} /></IconButton></td></tr>)}</tbody></table></div> : <EmptyState title="暂无优化实验记录" description="在数据明细中勾选 Badcase 后发起优化。" />}</section>}
-    {optimizeModalOpen && <OptimizationStartModal task={task} selectedCount={selectedBadCaseIds.length} onCancel={() => setOptimizeModalOpen(false)} onStart={(mode) => { setOptimizeModalOpen(false); onOptimize(selectedBadCaseIds, mode, task.agentType ?? '万智'); }} />}
+    {optimizeModalOpen && <OptimizationStartModal task={task} selectedCount={selectedBadCaseIds.length} onCancel={() => setOptimizeModalOpen(false)} onStart={(mode) => { setOptimizeModalOpen(false); onOptimize(selectedBadCaseIds, mode, task.agentType ?? '万智', task.id); }} />}
     {annotationEditor && editingHumanLabel && <HumanAnnotationEditor caseId={annotationEditor.caseId} label={editingHumanLabel} value={humanAnnotations[`${annotationEditor.caseId}:${annotationEditor.labelId}`]} onCancel={() => setAnnotationEditor(null)} onSave={(annotation) => { setHumanAnnotations((current) => ({ ...current, [`${annotationEditor.caseId}:${annotationEditor.labelId}`]: annotation })); setAnnotationEditor(null); onNotify('人工标注已保存'); }} />}
   </div>;
 }

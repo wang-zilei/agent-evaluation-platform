@@ -229,6 +229,9 @@ export type ConfigChange = {
   after: string;
   reason: string;
   caseIds: string[];
+  evaluatorIds?: string[];
+  evidence?: string;
+  expectedEffect?: string;
 };
 
 export type OptimizationSuggestion = {
@@ -236,6 +239,12 @@ export type OptimizationSuggestion = {
   problem: string;
   caseIds: string[];
   suggestion: string;
+  evaluatorIds?: string[];
+  evidence?: string;
+  rootCause?: string;
+  expectedEffect?: string;
+  handling?: '已纳入配置修改' | '需人工处理' | '超出优化范围';
+  unfixableReason?: string;
 };
 
 export type ScoreComparisonRow = {
@@ -277,6 +286,7 @@ export type OptimizeExperiment = {
   createdAt: string;
   selectedCaseIds: string[];
   selectedCaseCount: number;
+  regressionCaseIds?: string[];
   result: OptimizationResult;
 };
 
@@ -319,6 +329,7 @@ export type ComparisonOutputCell = {
 
 export type ComparisonCaseRow = {
   caseId: string;
+  cohort?: '验证集' | '回归集';
   sharedValues: Record<string, string>;
   outputs: Record<string, ComparisonOutputCell>;
   judgment: '一致' | '有差异' | '无法比较';

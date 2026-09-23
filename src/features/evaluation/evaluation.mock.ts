@@ -1,3 +1,4 @@
+import { demoComparisons, demoDataset, demoEvaluators, demoExperiments, demoTasks } from './evaluation-demo';
 import type {
   AgentOption,
   AgentConfigSnapshot,
@@ -582,7 +583,10 @@ export const humanLabels: HumanLabelDefinition[] = [
 ];
 
 
+evaluators.push(...demoEvaluators);
+
 const datasets: Dataset[] = [
+  demoDataset,
   {
     id: 'DS-53346',
     name: '退款问答评测集',
@@ -664,6 +668,7 @@ datasets.forEach((dataset) => {
 const task = (input: Omit<EvaluationTask, 'totalCases' | 'executableCases' | 'completedCases' | 'failedCases'> & Pick<EvaluationTask, 'totalCases' | 'executableCases' | 'completedCases' | 'failedCases'>): EvaluationTask => input;
 
 const tasks: EvaluationTask[] = [
+  ...demoTasks,
   task({ id: 'TASK-20260922-001', name: '退款客服助手 V3｜退货政策对照组', description: '退款问答评测集上的对照组任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 09:40', updatedAt: '2026-09-22 09:49', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonBaseResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260922-002', name: '退款客服助手 V4｜退货政策实验组 A', description: '退款问答评测集上的实验组任务 A。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 10:12', updatedAt: '2026-09-22 10:23', totalCases: 4, executableCases: 4, completedCases: 3, failedCases: 1, results: comparisonExperimentResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260923-003', name: '退款客服助手 V5｜简洁回答实验组 B', description: '退款问答评测集上的实验组任务 B。', agent: '退款客服助手', agentVersion: 'V5', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 09:16', updatedAt: '2026-09-23 09:25', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonAlternateResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
@@ -902,6 +907,7 @@ const optimizationResult = (selectedCaseCount: number, comparisonId?: string): O
 });
 
 const experiments: OptimizeExperiment[] = [
+  ...demoExperiments,
   { id: 'EXP-20260923-REVIEW', name: '退款客服助手 V4｜退货条件审查', sourceTaskId: 'TASK-20260922-002', agentType: '万智', agent: '退款客服助手', baseVersion: 'V3', candidateVersion: '优化后 Agent', datasetVersion: '退款问答评测集 V2', followUpMode: '先审查配置', status: '待继续实验', tone: 'info', createdAt: '2026-09-23 11:18', selectedCaseIds: ['CASE-HIS-024', 'CASE-UP-019'], selectedCaseCount: 2, result: optimizationResult(2, 'CMP-TASK-20260922-001-TASK-20260922-002') },
   { id: 'EXP-20260923-DIRECT', name: '退款客服助手 V3｜退货条件直接对比', sourceTaskId: 'TASK-20260922-001', agentType: '万智', agent: '退款客服助手', baseVersion: 'V3', candidateVersion: '优化后 Agent', datasetVersion: '退款问答评测集 V2', followUpMode: '直接实验对比', status: '已完成', tone: 'success', createdAt: '2026-09-23 11:42', selectedCaseIds: ['CASE-HIS-024', 'CASE-UP-019'], selectedCaseCount: 2, result: optimizationResult(2, 'CMP-TASK-20260922-001-TASK-20260922-002') },
   { id: 'EXP-20260923-EXTERNAL', name: '外部客服助手｜Badcase 优化建议', sourceTaskId: 'TASK-20260824-008', agentType: '外部', agent: '外部客服助手', baseVersion: 'V1', candidateVersion: '不生成配置', datasetVersion: '招标报告评测集 V1', followUpMode: '仅生成建议', status: '已完成', tone: 'success', createdAt: '2026-09-23 12:05', selectedCaseIds: ['CASE-FILE-001'], selectedCaseCount: 1, result: { ...optimizationResult(1), status: '无有效修改', changeSummary: '外部 Agent 不支持自动修改配置，本次只生成优化建议。', beforeConfig: { systemPrompt: '未采集', tools: [], skills: [] }, afterConfig: { systemPrompt: '未采集', tools: [], skills: [] }, changes: [], suggestions: [{ id: 'SUG-EXT-001', problem: '文件分析完成后没有说明报告生成范围。', caseIds: ['CASE-FILE-001'], suggestion: '在交付说明中补充分析范围、评分项和文件结构。' }], scoreRows: [], summary: { improved: 0, declined: 0, unchanged: 0, incomparable: 1 } } },
@@ -915,7 +921,7 @@ const comparisonExperimentBTask = findTask('TASK-20260923-003');
 const coverageControlTask = findTask('TASK-20260923-004');
 const coverageResultTask = findTask('TASK-20260923-005');
 const coverageProcessTask = findTask('TASK-20260923-006');
-const comparisons: ComparisonRecord[] = [];
+const comparisons: ComparisonRecord[] = [...demoComparisons];
 if (comparisonDataset && comparisonControlTask && comparisonExperimentATask) {
   comparisons.push(createComparisonRecord(comparisonControlTask, [comparisonExperimentATask], comparisonDataset, evaluators, '退款退货条件｜2 个任务对比'));
 }
