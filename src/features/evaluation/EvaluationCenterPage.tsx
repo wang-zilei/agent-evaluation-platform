@@ -14,6 +14,7 @@ import type {
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
   ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationFollowUpMode, OptimizationResult, ScoreType, TaskTab,
   ComparisonCaseRow, ComparisonEvaluatorRow, ComparisonMetricCell, ComparisonRuntimeRow, ComparisonTaskRef, EvaluatorResult,
+  HumanAnnotation, HumanLabelDefinition,
 } from './evaluation.types';
 import './evaluation.css';
 
@@ -25,6 +26,8 @@ type DatasetCreateMode = '用户上传' | '智能生成' | '历史对话回流';
 type HistoryDatePreset = '3' | '5' | '7' | '30' | 'custom';
 type TaskCreateStep = 1 | 2 | 3 | 4;
 type TraceScreen = 'list' | 'detail';
+type MetricAggregation = '均值' | '最大' | '最小';
+type TaskMetricRow = { name: string; display: string; passRate?: string; valid: string; range: string; threshold?: string };
 
 type ParsedFile = { name: string; format: string; columns: string[]; rows: Record<string, string>[] };
 type UploadField = { id: string; sourceColumn: string; name: string; semantic: FieldSemantic };
@@ -196,7 +199,7 @@ export default function EvaluationCenterPage() {
   const [editingEvaluatorId, setEditingEvaluatorId] = useState<string | null>(null);
   const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false);
   const [comparisonInitialControlId, setComparisonInitialControlId] = useState('');
-  const [taskDetailTab, setTaskDetailTab] = useState<'summary' | 'data' | 'optimize'>('summary');
+  const [taskDetailTab, setTaskDetailTab] = useState<'summary' | 'data' | 'optimize'>('data');
   const notify = (message: string, tone: Toast['tone'] = 'success') => { const id = toastId + 1; setToastId(id); setToast({ id, message, tone }); window.setTimeout(() => setToast((current) => current?.id === id ? null : current), 2600); };
   const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks') { setTaskScreen('list'); setTaskTab('list'); } if (module === 'traces') setTraceScreen('list'); };
   const openDatasetCreate = (mode: DatasetCreateMode) => {
@@ -399,7 +402,7 @@ export default function EvaluationCenterPage() {
       <div className="eval-sidebar-footer"><Pill>本地 Mock</Pill></div>
     </aside>
     <div className="evaluation-main">
-      <header className="eval-app-header"><div className="eval-app-title"><h1>{module === 'tasks' && taskScreen === 'detail' ? '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { tasks: '评测任务', datasets: '评测集', evaluators: '评估器', traces: '观测' }[module]}</h1></div><div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div></header>
+      <header className="eval-app-header"><div className="eval-app-title"><h1>{module === 'tasks' && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { tasks: '评测任务', datasets: '评测集', evaluators: '评估器', traces: '观测' }[module]}</h1></div><div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div></header>
       <main className="eval-content">
       {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} />}
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
@@ -409,7 +412,7 @@ export default function EvaluationCenterPage() {
       {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${item.name}（自建）`, description: item.description, model: item.model, scoreType: item.scoreType, prompt: item.prompt, variables: item.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${evaluator.name}（自建）`, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft({ name: evaluator.name, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'create' && <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />}
-      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
+      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('data'); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
       {module === 'tasks' && taskScreen === 'comparison' && comparison && <ComparisonDetail comparison={comparison} onBack={() => { setTaskTab('compare'); setTaskScreen('list'); }} />}
@@ -1397,6 +1400,61 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
   </div>;
 }
 
+const aggregateNumbers = (values: number[], aggregation: MetricAggregation): number | undefined => {
+  if (!values.length) return undefined;
+  if (aggregation === '最大') return Math.max(...values);
+  if (aggregation === '最小') return Math.min(...values);
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+};
+
+const metricDurationValue = (value?: string): number | undefined => {
+  if (!value) return undefined;
+  const match = value.match(/([\d.]+)\s*(ms|s|min)/i);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  return match[2].toLowerCase() === 'ms' ? amount / 1000 : match[2].toLowerCase() === 'min' ? amount * 60 : amount;
+};
+
+const formatTaskMetric = (value: number | undefined, name: string): string => {
+  if (value === undefined) return '未采集';
+  if (name.includes('Tokens')) return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : `${Math.round(value)}`;
+  return name === '首字时延' ? `${Math.round(value * 1000)} ms` : `${value.toFixed(1)} s`;
+};
+
+function TaskMetricBoard({ evaluatorRows, runtimeRows, aggregation, onAggregationChange }: { evaluatorRows: TaskMetricRow[]; runtimeRows: TaskMetricRow[]; aggregation: MetricAggregation; onAggregationChange: (value: MetricAggregation) => void }) {
+  const renderRows = (rows: TaskMetricRow[], runtime = false) => rows.map((row) => <tr key={row.name}>
+    <td><strong>{row.name}</strong></td>
+    <td className="eval-task-metric-value">{row.display}</td>
+    {!runtime && <td>{row.passRate ?? '不适用'}</td>}
+    <td>{row.valid}</td>
+    <td>{row.range}</td>
+    {!runtime && <td>{row.threshold ?? '直接判断'}</td>}
+  </tr>);
+  return <div className="eval-task-metric-board">
+    <div className="eval-metric-board-toolbar"><div><strong>指标统计</strong><span>按评估器得分、通过率和 Agent 运行数据汇总。</span></div><label><span>聚合方式</span><select value={aggregation} onChange={(event) => onAggregationChange(event.target.value as MetricAggregation)}><option>均值</option><option>最大</option><option>最小</option></select></label></div>
+    <section><div className="eval-task-section-heading"><div><h3>评估器得分</h3><p>得分与通过率独立展示，不生成任务总分。</p></div></div><div className="eval-task-metric-table-wrap"><table className="eval-task-metric-table"><thead><tr><th>评估器</th><th>得分</th><th>通过率</th><th>有效样本</th><th>范围</th><th>通过阈值</th></tr></thead><tbody>{renderRows(evaluatorRows)}</tbody></table></div></section>
+    <section><div className="eval-task-section-heading"><div><h3>Agent 运行数据</h3><p>展示 Agent 运行效率，不与评估器质量得分合并。</p></div></div><div className="eval-task-metric-table-wrap"><table className="eval-task-metric-table"><thead><tr><th>指标</th><th>数值</th><th>有效样本</th><th>范围</th></tr></thead><tbody>{renderRows(runtimeRows, true)}</tbody></table></div></section>
+  </div>;
+}
+
+function HumanAnnotationEditor({ caseId, label, value, onCancel, onSave }: { caseId: string; label: HumanLabelDefinition; value?: HumanAnnotation; onCancel: () => void; onSave: (annotation: HumanAnnotation) => void }) {
+  const [score, setScore] = useState(String(value?.score ?? label.passThreshold ?? label.scoreMin ?? 0));
+  const [passed, setPassed] = useState(value?.passed ?? true);
+  const [reason, setReason] = useState(value?.reason ?? '');
+  const numericScore = Number(score);
+  const numericPassed = label.scoreType === 'numeric' ? numericScore >= (label.passThreshold ?? 0) : passed;
+  return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+    <section className="eval-human-annotation-editor" role="dialog" aria-modal="true" aria-label={`人工标注 ${caseId}`}>
+      <header><div><span className="eval-eyebrow">HUMAN ANNOTATION</span><h2>{label.name}</h2><p>{caseId} · {label.scoreType === 'numeric' ? '分数评价' : '通过 / 不通过'}</p></div><IconButton label="关闭" onClick={onCancel}><X size={17} /></IconButton></header>
+      <div className="eval-human-annotation-editor__body">
+        {label.scoreType === 'numeric' ? <label className="eval-field"><span>分数 <b>*</b></span><input type="number" min={label.scoreMin ?? 0} max={label.scoreMax ?? 1} step="0.01" value={score} onChange={(event) => setScore(event.target.value)} /><small>通过阈值 {label.passThreshold ?? 0}，当前结果 {numericPassed ? '通过' : '不通过'}</small></label> : <div className="eval-human-pass-control"><span>判断结果 <b>*</b></span><div><button type="button" className={passed ? 'is-active is-pass' : ''} onClick={() => setPassed(true)}><CircleCheck size={14} />通过</button><button type="button" className={!passed ? 'is-active is-fail' : ''} onClick={() => setPassed(false)}><CircleAlert size={14} />不通过</button></div></div>}
+        <label className="eval-field"><span>标注原因</span><textarea rows={4} maxLength={300} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="说明判断依据" /><small>{reason.length}/300</small></label>
+      </div>
+      <footer><button type="button" className="eval-button eval-button--ghost" onClick={onCancel}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={() => onSave({ labelId: label.id, score: label.scoreType === 'numeric' ? numericScore : undefined, passed: numericPassed, reason: reason.trim(), updatedAt: '2026-09-23 13:20' })}><Check size={15} />保存标注</button></footer>
+    </section>
+  </div>;
+}
+
 function OptimizationStartModal({ task, selectedCount, onCancel, onStart }: { task: EvaluationTask; selectedCount: number; onCancel: () => void; onStart: (mode: OptimizationFollowUpMode) => void }) {
   const agentType = task.agentType ?? '万智';
   const external = agentType === '外部';
@@ -1413,12 +1471,19 @@ function OptimizationStartModal({ task, selectedCount, onCancel, onStart }: { ta
 function TaskDetail({ task, state, tab, onTabChange, onBack, onOpenCase, onNotify, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; tab: 'summary' | 'data' | 'optimize'; onTabChange: (tab: 'summary' | 'data' | 'optimize') => void; onBack: () => void; onOpenCase: (item: CaseResult) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onOptimize: (caseIds: string[], mode: OptimizationFollowUpMode, agentType: '万智' | '外部') => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
   const [selectedBadCaseIds, setSelectedBadCaseIds] = useState<string[]>([]);
   const [optimizeModalOpen, setOptimizeModalOpen] = useState(false);
+  const [metricAggregation, setMetricAggregation] = useState<MetricAggregation>('均值');
+  const [activeHumanLabelId, setActiveHumanLabelId] = useState('');
+  const [humanLabelMenuOpen, setHumanLabelMenuOpen] = useState(false);
+  const [annotationEditor, setAnnotationEditor] = useState<{ caseId: string; labelId: string } | null>(null);
+  const [humanAnnotations, setHumanAnnotations] = useState<Record<string, HumanAnnotation>>(() => Object.fromEntries(task.results.flatMap((item) => Object.entries(item.humanAnnotations ?? {}).map(([labelId, value]) => [`${item.caseId}:${labelId}`, value]))));
   const dataset = getDatasetById(state, task.datasetId);
   const taskEvaluators = state.evaluators.filter((evaluator) => task.evaluatorIds.includes(evaluator.id));
-  const badCases = task.results.filter((item) => item.caseMark === 'Badcase');
   const taskExperiments = state.experiments.filter((item) => item.sourceTaskId === task.id);
-  const runtimeFields: { key: string; label: string }[] = [
-    { key: 'runStatus', label: '运行状态' },
+  const activeHumanLabel = state.humanLabels.find((item) => item.id === activeHumanLabelId);
+  const editingHumanLabel = annotationEditor ? state.humanLabels.find((item) => item.id === annotationEditor.labelId) : undefined;
+  const datasetFields = dataset?.fields.filter((field) => !['Agent Output', 'Trace', 'Agent Configuration', 'User Feedback'].includes(field.semantic)) ?? [];
+  const runtimeOutputFields = dataset?.fields.filter((field) => ['Agent Output', 'Agent Configuration'].includes(field.semantic)) ?? [];
+  const runtimeEfficiencyFields: { key: string; label: string }[] = [
     { key: 'agentDuration', label: 'Agent 耗时' },
     { key: 'firstTokenLatency', label: '首字时延' },
     { key: 'inputTokens', label: 'Input Tokens' },
@@ -1431,11 +1496,10 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, onOpenCase, onNotif
     if (field.semantic === 'Input') return item.input || datasetCase?.values[field.id] || '未采集';
     if (field.semantic === 'Expected Output') return item.expectedOutput || datasetCase?.values[field.id] || '未采集';
     if (field.semantic === 'Agent Output') return item.agentOutput || '未采集';
-    if (field.semantic === 'Trace') return `${item.trace.length} 个节点`;
     if (field.semantic === 'Agent Configuration') return item.agentConfiguration || '未采集';
-    if (field.semantic === 'User Feedback') return item.userFeedback || datasetCase?.values[field.id] || '未采集';
     return datasetCase?.values[field.id] || '未采集';
   };
+  const getTraceValue = (item: CaseResult) => item.trace.map((event) => `${event.name} ${event.status}`).join(' > ') || '未采集';
   const getRuntimeValue = (item: CaseResult, key: string) => {
     const value = item.runtime?.[key as keyof NonNullable<CaseResult['runtime']>];
     return value === undefined || value === null ? '未采集' : String(value);
@@ -1445,13 +1509,43 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, onOpenCase, onNotif
     if (!result) return '未采集';
     return result.scoreType === 'numeric' && typeof result.evaluationResult === 'number' ? result.evaluationResult.toFixed(2) : String(result.evaluationResult);
   };
+  const getHumanAnnotationValue = (item: CaseResult) => {
+    if (!activeHumanLabel) return '';
+    const annotation = humanAnnotations[`${item.caseId}:${activeHumanLabel.id}`] ?? item.humanAnnotations?.[activeHumanLabel.id];
+    if (!annotation) return '未标注';
+    return activeHumanLabel.scoreType === 'numeric' ? `${annotation.score?.toFixed(2) ?? '未采集'} / ${annotation.passed ? '通过' : '不通过'}` : annotation.passed ? '通过' : '不通过';
+  };
   const toggleBadCase = (caseId: string) => setSelectedBadCaseIds((current) => current.includes(caseId) ? current.filter((id) => id !== caseId) : [...current, caseId]);
-  const evaluatorSummary = taskEvaluators.map((evaluator) => {
-    const values = task.results.map((item) => item.evaluatorResults.find((result) => result.evaluatorId === evaluator.id)).filter(Boolean);
-    const valid = values.filter((result) => result?.evaluationStatus === '通过' || result?.evaluationStatus === '不通过');
-    const passed = valid.filter((result) => result?.evaluationStatus === '通过').length;
-    const scores = values.map((result) => result?.evaluationResult).filter((value): value is number => typeof value === 'number');
-    return { evaluator, valid: valid.length, passed, average: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : undefined };
+  const evaluatorRows: TaskMetricRow[] = taskEvaluators.map((evaluator) => {
+    const results = task.results.map((item) => item.evaluatorResults.find((result) => result.evaluatorId === evaluator.id)).filter((item): item is EvaluatorResult => item !== undefined && ['通过', '不通过'].includes(item.evaluationStatus));
+    const scores = results.map((item) => item.scoreType === 'numeric' && typeof item.evaluationResult === 'number' ? item.evaluationResult : item.evaluationStatus === '通过' ? 1 : 0);
+    const aggregate = aggregateNumbers(scores, metricAggregation);
+    const passed = results.filter((item) => item.evaluationStatus === '通过').length;
+    return {
+      name: evaluator.name,
+      display: aggregate === undefined ? '未采集' : aggregate.toFixed(2),
+      passRate: results.length ? `${Math.round((passed / results.length) * 100)}% (${passed}/${results.length})` : '未采集',
+      valid: `${results.length}/${task.results.length}`,
+      range: scores.length ? `${Math.min(...scores).toFixed(2)} - ${Math.max(...scores).toFixed(2)}` : '未采集',
+      threshold: evaluator.passThreshold === undefined ? undefined : evaluator.passThreshold.toFixed(2),
+    };
+  });
+  const runtimeMetricValue = (item: CaseResult, key: string) => {
+    if (!item.runtime) return undefined;
+    if (key === 'agentDuration') return metricDurationValue(item.runtime.agentDuration);
+    if (key === 'firstTokenLatency') return metricDurationValue(item.runtime.firstTokenLatency);
+    if (key === 'evaluatorDuration') return metricDurationValue(item.runtime.evaluatorDuration);
+    return Number(item.runtime[key as 'inputTokens' | 'outputTokens' | 'totalTokens']);
+  };
+  const runtimeRows: TaskMetricRow[] = runtimeEfficiencyFields.map((field) => {
+    const values = task.results.map((item) => runtimeMetricValue(item, field.key)).filter((item): item is number => item !== undefined);
+    const aggregate = aggregateNumbers(values, metricAggregation);
+    return {
+      name: field.label,
+      display: formatTaskMetric(aggregate, field.label),
+      valid: `${values.length}/${task.results.length}`,
+      range: values.length ? `${formatTaskMetric(Math.min(...values), field.label)} - ${formatTaskMetric(Math.max(...values), field.label)}` : '未采集',
+    };
   });
   const successfulCases = Math.max(task.completedCases - task.failedCases, 0);
   const pendingCases = Math.max(task.totalCases - task.completedCases, 0);
@@ -1487,15 +1581,59 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, onOpenCase, onNotif
         <div><span>描述</span><strong>{task.description || '未采集'}</strong></div>
       </div>
     </section>
-    <nav className="eval-task-detail-tabs" aria-label="任务详情内容"><button type="button" className={tab === 'summary' ? 'is-active' : ''} onClick={() => onTabChange('summary')}>统计结论</button><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => onTabChange('data')}>数据明细</button><button type="button" className={tab === 'optimize' ? 'is-active' : ''} onClick={() => onTabChange('optimize')}>优化实验</button></nav>
-    {tab === 'summary' && <div className="eval-task-conclusion">
-      <section className="eval-conclusion-main"><div><span className="eval-eyebrow">TASK SUMMARY</span><h3>{task.status === '已完成' ? '评测完成' : task.status === '部分失败' ? '部分 Case 需要处理' : task.status === '失败' ? '评测失败' : '评测运行中'}</h3><p>共 {task.totalCases} 个 Case，已执行 {task.completedCases} 个，失败 {task.failedCases} 个。结果只覆盖当前任务范围。</p></div><div className="eval-conclusion-metrics"><div><span>可执行 Case</span><strong>{task.executableCases}</strong></div><div><span>已完成 Case</span><strong>{task.completedCases}</strong></div><div><span>失败 Case</span><strong>{task.failedCases}</strong></div><div><span>Badcase</span><strong>{badCases.length}</strong></div></div></section>
-      <section className="eval-conclusion-data"><div className="eval-task-section-heading"><div><h3>评估器概览</h3><p>不同评估器独立统计，不合并为任务总分。</p></div></div>{evaluatorSummary.map(({ evaluator, valid, passed, average }) => <div className="eval-evaluator-conclusion-row" key={evaluator.id}><strong>{evaluator.name}</strong><div><span>有效 Case {valid}</span>{evaluator.scoreType === 'pass_fail' ? <span>通过 {passed}</span> : <span>平均分 {average === undefined ? '暂无' : average.toFixed(2)}</span>}</div><Status label={valid ? '已完成' : '暂无'} /></div>)}</section>
-      <section className="eval-conclusion-cases"><div className="eval-task-section-heading"><div><h3>问题 Case</h3><p>勾选 Badcase 后，可从任务详情直接发起优化。</p></div><span>{selectedBadCaseIds.length} 个已选</span></div><div className="eval-conclusion-case-list">{badCases.map((item) => <button type="button" key={item.caseId} className={selectedBadCaseIds.includes(item.caseId) ? 'is-selected' : ''} onClick={() => toggleBadCase(item.caseId)}><input type="checkbox" checked={selectedBadCaseIds.includes(item.caseId)} readOnly /><span><strong>{item.caseId}</strong><small>{item.input}</small></span><Status label={item.status} /></button>)}</div></section>
-    </div>}
-    {tab === 'data' && <section className="eval-task-data-detail"><div className="eval-task-detail-table-wrap"><table className="eval-task-detail-table"><thead><tr><th className="is-sticky">选择 / ID</th>{dataset?.fields.map((field) => <th key={field.id}><strong>{field.semantic}</strong></th>)}{runtimeFields.map((field) => <th key={field.key}><strong>{field.label}</strong><small>运行指标</small></th>)}{taskEvaluators.map((evaluator) => <th key={evaluator.id}><strong>{evaluator.name}</strong><small>评估结果</small></th>)}<th className="is-sticky is-sticky-right">操作</th></tr></thead><tbody>{task.results.map((item) => <tr key={item.caseId} onClick={() => onOpenCase(item)}><td className="is-sticky"><div className="eval-case-select"><input type="checkbox" disabled={item.caseMark !== 'Badcase'} checked={selectedBadCaseIds.includes(item.caseId)} onChange={() => toggleBadCase(item.caseId)} onClick={(event) => event.stopPropagation()} /><span><strong className="eval-mono">{item.caseId}</strong></span></div></td>{dataset?.fields.map((field) => <td key={field.id} title={getFieldValue(item, field)}>{getFieldValue(item, field)}</td>)}{runtimeFields.map((field) => <td key={field.key} title={getRuntimeValue(item, field.key)}>getRuntimeValue(item, field.key)</td>)}{taskEvaluators.map((evaluator) => <td key={evaluator.id} title={getEvaluatorValue(item, evaluator.id)}>{getEvaluatorValue(item, evaluator.id)}</td>)}<td className="is-sticky is-sticky-right"><div className="eval-row-actions"><button type="button" className="eval-text-button" onClick={(event) => { event.stopPropagation(); onOpenCase(item); }}>详情</button><button type="button" className="eval-text-button" onClick={(event) => { event.stopPropagation(); onNotify(`${item.caseId} 已加入重试队列`); }}>重试</button></div></td></tr>)}</tbody></table></div></section>}
+    <nav className="eval-task-detail-tabs" aria-label="任务详情内容"><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => onTabChange('data')}>数据明细</button><button type="button" className={tab === 'summary' ? 'is-active' : ''} onClick={() => onTabChange('summary')}>统计结论</button><button type="button" className={tab === 'optimize' ? 'is-active' : ''} onClick={() => onTabChange('optimize')}>优化实验</button></nav>
+    {tab === 'summary' && <TaskMetricBoard evaluatorRows={evaluatorRows} runtimeRows={runtimeRows} aggregation={metricAggregation} onAggregationChange={setMetricAggregation} />}
+    {tab === 'data' && <section className="eval-task-data-detail">
+      <div className="eval-task-data-toolbar"><span>{task.results.length} 条 Case</span><div className="eval-human-label-wrap"><button type="button" className="eval-button eval-button--ghost" onClick={() => setHumanLabelMenuOpen((current) => !current)}><Plus size={15} />添加人工标注</button>{humanLabelMenuOpen && <div className="eval-human-label-menu">{state.humanLabels.map((label) => <button type="button" key={label.id} className={activeHumanLabelId === label.id ? 'is-active' : ''} onClick={() => { setActiveHumanLabelId(label.id); setHumanLabelMenuOpen(false); }}><span><strong>{label.name}</strong><small>{label.scoreType === 'numeric' ? `0-1 分，阈值 ${label.passThreshold ?? 0}` : '通过 / 不通过'}</small></span>{activeHumanLabelId === label.id && <Check size={14} />}</button>)}</div>}</div></div>
+      <div className="eval-task-detail-table-wrap">
+        <table className="eval-task-detail-table">
+          <thead>
+            <tr className="eval-task-detail-table__groups">
+              <th rowSpan={2} className="is-sticky">选择 / ID</th>
+              <th colSpan={datasetFields.length}>评测集字段</th>
+              <th colSpan={runtimeOutputFields.length + 1}>运行时产生数据</th>
+              <th>Trace</th>
+              <th>User Feedback</th>
+              {activeHumanLabel && <th>人工标注</th>}
+              <th colSpan={taskEvaluators.length}>评估器</th>
+              <th colSpan={runtimeEfficiencyFields.length}>Agent 运行效率</th>
+              <th rowSpan={2} className="is-sticky is-sticky-right">操作</th>
+            </tr>
+            <tr>
+              {datasetFields.map((field) => <th key={field.id}>{field.semantic === 'Custom' ? field.name : field.semantic}</th>)}
+              {runtimeOutputFields.map((field) => <th key={field.id}>{field.semantic}</th>)}
+              <th>运行状态</th>
+              <th className="is-trace">执行轨迹</th>
+              <th>User Feedback</th>
+              {activeHumanLabel && <th>{activeHumanLabel.name}</th>}
+              {taskEvaluators.map((evaluator) => <th key={evaluator.id}>{evaluator.name}<small>评估结果</small></th>)}
+              {runtimeEfficiencyFields.map((field) => <th key={field.key}>{field.label}<small>运行指标</small></th>)}
+            </tr>
+          </thead>
+          <tbody>{task.results.map((item) => {
+            const annotationKey = activeHumanLabel ? `${item.caseId}:${activeHumanLabel.id}` : '';
+            const annotation = activeHumanLabel ? humanAnnotations[annotationKey] ?? item.humanAnnotations?.[activeHumanLabel.id] : undefined;
+            const feedbackField = dataset?.fields.find((field) => field.semantic === 'User Feedback');
+            const datasetCase = dataset?.cases.find((current) => current.id === item.caseId);
+            return <tr key={item.caseId} onClick={() => onOpenCase(item)}>
+              <td className="is-sticky"><div className="eval-case-select"><input type="checkbox" disabled={item.caseMark !== 'Badcase'} checked={selectedBadCaseIds.includes(item.caseId)} onChange={() => toggleBadCase(item.caseId)} onClick={(event) => event.stopPropagation()} /><span><strong className="eval-mono">{item.caseId}</strong></span></div></td>
+              {datasetFields.map((field) => <td key={field.id} title={getFieldValue(item, field)}>{getFieldValue(item, field)}</td>)}
+              {runtimeOutputFields.map((field) => <td key={field.id} title={getFieldValue(item, field)}>{getFieldValue(item, field)}</td>)}
+              <td>{getRuntimeValue(item, 'runStatus')}</td>
+              <td className="is-trace" title={getTraceValue(item)}><span>{getTraceValue(item)}</span></td>
+              <td title={item.userFeedback || datasetCase?.values[feedbackField?.id ?? ''] || '未采集'}>{item.userFeedback || datasetCase?.values[feedbackField?.id ?? ''] || '未采集'}</td>
+              {activeHumanLabel && <td><button type="button" className={`eval-human-cell${annotation ? ' is-filled' : ''}`} onClick={(event) => { event.stopPropagation(); setAnnotationEditor({ caseId: item.caseId, labelId: activeHumanLabel.id }); }}><strong>{getHumanAnnotationValue(item)}</strong><small>{annotation?.reason || '点击编辑标注'}</small></button></td>}
+              {taskEvaluators.map((evaluator) => <td key={evaluator.id} title={getEvaluatorValue(item, evaluator.id)}>{getEvaluatorValue(item, evaluator.id)}</td>)}
+              {runtimeEfficiencyFields.map((field) => <td key={field.key} title={getRuntimeValue(item, field.key)}>{getRuntimeValue(item, field.key)}</td>)}
+              <td className="is-sticky is-sticky-right"><div className="eval-row-actions"><button type="button" className="eval-text-button" onClick={(event) => { event.stopPropagation(); onOpenCase(item); }}>详情</button><button type="button" className="eval-text-button" onClick={(event) => { event.stopPropagation(); onNotify(`${item.caseId} 已加入重试队列`); }}>重试</button></div></td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </section>}
     {tab === 'optimize' && <section className="eval-experiment-records"><div className="eval-task-section-heading"><div><h3>优化实验记录</h3><p>点击记录查看配置对比、优化建议和实验对比数据。</p></div><span>{taskExperiments.length} 条记录</span></div>{taskExperiments.length ? <div className="eval-table-wrap"><table className="eval-data-table"><thead><tr><th>优化任务</th><th>Agent 类型</th><th>优化后流程</th><th>Badcase</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{taskExperiments.map((item) => <tr key={item.id} onClick={() => onOpenExperiment(item)}><td><div className="eval-cell-title"><strong>{item.name}</strong><small>{item.id}</small></div></td><td>{item.agentType}</td><td>{item.followUpMode}</td><td>{item.selectedCaseCount}</td><td><Status label={item.status} /></td><td>{item.createdAt}</td><td><IconButton label="查看优化详情" onClick={() => onOpenExperiment(item)}><Eye size={15} /></IconButton></td></tr>)}</tbody></table></div> : <EmptyState title="暂无优化实验记录" description="在数据明细中勾选 Badcase 后发起优化。" />}</section>}
     {optimizeModalOpen && <OptimizationStartModal task={task} selectedCount={selectedBadCaseIds.length} onCancel={() => setOptimizeModalOpen(false)} onStart={(mode) => { setOptimizeModalOpen(false); onOptimize(selectedBadCaseIds, mode, task.agentType ?? '万智'); }} />}
+    {annotationEditor && editingHumanLabel && <HumanAnnotationEditor caseId={annotationEditor.caseId} label={editingHumanLabel} value={humanAnnotations[`${annotationEditor.caseId}:${annotationEditor.labelId}`]} onCancel={() => setAnnotationEditor(null)} onSave={(annotation) => { setHumanAnnotations((current) => ({ ...current, [`${annotationEditor.caseId}:${annotationEditor.labelId}`]: annotation })); setAnnotationEditor(null); onNotify('人工标注已保存'); }} />}
   </div>;
 }
 function CasePreview({ item, onClose }: { item: CaseResult; onClose: () => void }) {

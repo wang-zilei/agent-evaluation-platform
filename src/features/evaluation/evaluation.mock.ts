@@ -16,6 +16,7 @@ import type {
   FieldDefinition,
   HistoryConversation,
   HistoryTraceRecord,
+  HumanLabelDefinition,
   OptimizeExperiment,
   OptimizationResult,
   ScoreType,
@@ -430,6 +431,7 @@ export const evaluators: Evaluator[] = evaluatorDefinitions.map((item) => ({
   creator: '系统',
   updatedAt: '2026-08-25 18:20',
   runCount: 128 + Number(item.id.slice(-2)) * 7,
+  passThreshold: item.scoreType === 'numeric' ? (item.id === 'P0-02' ? 0.7 : 0.8) : undefined,
 }));
 
 evaluators.push({
@@ -449,6 +451,7 @@ evaluators.push({
   creator: '王子磊',
   updatedAt: '2026-08-24 14:12',
   runCount: 42,
+  passThreshold: 0.7,
 });
 
 evaluators.push({
@@ -487,7 +490,14 @@ evaluators.push({
   creator: '系统',
   updatedAt: '2026-08-25 17:10',
   runCount: 18,
+  passThreshold: 0.75,
 });
+
+export const humanLabels: HumanLabelDefinition[] = [
+  { id: 'HUMAN-QUALITY', name: '回答质量', description: '按 0-1 分评估回答是否完整、准确、可执行。', scoreType: 'numeric', scoreMin: 0, scoreMax: 1, passThreshold: 0.7 },
+  { id: 'HUMAN-RISK', name: '风险判断', description: '判断回答是否存在误导、越权或遗漏风险。', scoreType: 'pass_fail' },
+  { id: 'HUMAN-SERVICE', name: '服务体验', description: '按 0-1 分评估语气、清晰度和服务动作。', scoreType: 'numeric', scoreMin: 0, scoreMax: 1, passThreshold: 0.8 },
+];
 
 
 const datasets: Dataset[] = [
@@ -834,7 +844,7 @@ if (comparisonDataset && coverageControlTask && coverageResultTask && coveragePr
   comparisons.push(createComparisonRecord(coverageControlTask, [coverageResultTask, coverageProcessTask], comparisonDataset, evaluators, '评估器覆盖差异｜3 个任务对比'));
 }
 
-export const mockEvaluationState: EvaluationState = { agents, datasets, evaluators, tasks, experiments, comparisons };
+export const mockEvaluationState: EvaluationState = { agents, datasets, evaluators, humanLabels, tasks, experiments, comparisons };
 
 export const cloneEvaluationState = (): EvaluationState => structuredClone(mockEvaluationState);
 

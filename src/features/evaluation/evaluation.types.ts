@@ -78,6 +78,7 @@ export type Evaluator = {
   creator: string;
   updatedAt: string;
   runCount: number;
+  passThreshold?: number;
 };
 
 export type HumanEvaluation = {
@@ -86,6 +87,24 @@ export type HumanEvaluation = {
   humanReason: string;
   updatedAt: string;
   updatedBy: string;
+};
+
+export type HumanLabelDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  scoreType: ScoreType;
+  scoreMin?: number;
+  scoreMax?: number;
+  passThreshold?: number;
+};
+
+export type HumanAnnotation = {
+  labelId: string;
+  score?: number;
+  passed?: boolean;
+  reason: string;
+  updatedAt: string;
 };
 
 export type TraceEvent = {
@@ -131,6 +150,7 @@ export type CaseResult = {
   trace: TraceEvent[];
   evaluatorResults: EvaluatorResult[];
   humanEvaluation?: HumanEvaluation;
+  humanAnnotations?: Record<string, HumanAnnotation>;
   userFeedback?: string;
   agentConfiguration: string;
   duration?: string;
@@ -338,6 +358,7 @@ export type EvaluationState = {
   agents: AgentOption[];
   datasets: Dataset[];
   evaluators: Evaluator[];
+  humanLabels: HumanLabelDefinition[];
   tasks: EvaluationTask[];
   experiments: OptimizeExperiment[];
   comparisons: ComparisonRecord[];
