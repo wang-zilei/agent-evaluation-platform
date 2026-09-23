@@ -311,24 +311,64 @@ export default function EvaluationCenterPage() {
   };
 
   const createEvaluator = (draft: EvaluatorDraft) => {
-    if (!draft.name.trim()) { notify('请填写评估器名称', 'warning'); return; }
-    if (!draft.prompt.trim()) { notify('请填写 Prompt', 'warning'); return; }
-    if (!draft.prompt.includes('只返回 JSON')) { notify('请在 Prompt 中补充“只返回 JSON”约束', 'warning'); return; }
+    const isHuman = evaluatorKind === '人工评估';
+    if (!draft.name.trim()) { notify(isHuman ? '请填写标签名' : '请填写评估器名称', 'warning'); return; }
+    if (!isHuman) {
+      if (!draft.prompt.trim()) { notify('请填写 Prompt', 'warning'); return; }
+      if (!draft.prompt.includes('只返回 JSON')) { notify('请在 Prompt 中补充“只返回 JSON”约束', 'warning'); return; }
+    }
+
     const existing = editingEvaluatorId ? state.evaluators.find((item) => item.id === editingEvaluatorId) : undefined;
     const nextVersion = existing ? `0.0.${existing.versions.length + 1}` : '0.0.1';
-    const variables = extractPromptVariables(draft.prompt);
-    const evaluator: Evaluator = { id: existing?.id ?? `custom-${state.evaluators.length + 1}`, name: draft.name.trim(), kind: '模型评估器', mode: 'custom', version: nextVersion, versions: existing ? [...existing.versions, nextVersion] : [nextVersion], description: draft.description.trim() || '用户自定义评估规则。', purpose: draft.description.trim() || '用户自定义评估规则。', category: '自建评估器', scoreType: draft.scoreType, model: draft.model, prompt: draft.prompt, variables, passThreshold: draft.scoreType === 'numeric' ? draft.passThreshold : undefined, creator: existing?.creator ?? '演示账户', updatedAt: `${TODAY} 20:30`, runCount: existing?.runCount ?? 0 };
-    setState((current) => ({ ...current, evaluators: existing ? current.evaluators.map((item) => item.id === existing.id ? evaluator : item) : [evaluator, ...current.evaluators] })); setSelectedEvaluatorId(evaluator.id); setEditingEvaluatorId(null); setEvaluatorMode('custom');
+    const variables = isHuman ? [] : extractPromptVariables(draft.prompt);
+    const evaluator: Evaluator = {
+      id: existing?.id ?? `${isHuman ? 'human' : 'custom'}-${state.evaluators.length + 1}`,
+      name: draft.name.trim(),
+      kind: evaluatorKind,
+      mode: 'custom',
+      version: nextVersion,
+      versions: existing ? [...existing.versions, nextVersion] : [nextVersion],
+      description: isHuman ? '人工评估标签。' : draft.description.trim() || '用户自定义评估规则。',
+      purpose: isHuman ? '用于人工标注和人工评分。' : draft.description.trim() || '用户自定义评估规则。',
+      category: isHuman ? '人工评估' : '自建评估器',
+      scoreType: draft.scoreType,
+      model: isHuman ? '人工评估' : draft.model,
+      prompt: isHuman ? '' : draft.prompt,
+      variables,
+      passThreshold: draft.scoreType === 'numeric' ? draft.passThreshold : undefined,
+      creator: existing?.creator ?? '演示账户',
+      updatedAt: `${TODAY} 20:30`,
+      runCount: existing?.runCount ?? 0,
+    };
+    const humanLabel: HumanLabelDefinition = {
+      id: evaluator.id,
+      name: evaluator.name,
+      description: evaluator.description,
+      scoreType: evaluator.scoreType,
+      scoreMin: evaluator.scoreType === 'numeric' ? 0 : undefined,
+      scoreMax: evaluator.scoreType === 'numeric' ? 1 : undefined,
+      passThreshold: evaluator.passThreshold,
+    };
+
+    setState((current) => ({
+      ...current,
+      evaluators: existing ? current.evaluators.map((item) => item.id === existing.id ? evaluator : item) : [evaluator, ...current.evaluators],
+      humanLabels: isHuman ? (current.humanLabels.some((item) => item.id === humanLabel.id) ? current.humanLabels.map((item) => item.id === humanLabel.id ? humanLabel : item) : [humanLabel, ...current.humanLabels]) : current.humanLabels,
+    }));
+    setSelectedEvaluatorId(evaluator.id);
+    setEditingEvaluatorId(null);
+    setEvaluatorMode('custom');
     if (taskReturn) {
       setTaskDraft((current) => ({ ...current, evaluatorIds: current.evaluatorIds.includes(evaluator.id) ? current.evaluatorIds : [...current.evaluatorIds, evaluator.id] }));
       setTaskReturn(false);
       setEvaluatorScreen('list');
       setTaskScreen('create');
       setModule('tasks');
-      notify('自建评估器已创建，已加入当前任务配置');
+      notify(isHuman ? '人工评估标签已创建，已加入当前任务配置' : '自建评估器已创建，已加入当前任务配置');
       return;
     }
-    setEvaluatorScreen('list'); notify(existing ? `自建评估器已更新，生成版本 ${nextVersion}` : '自建评估器已创建，版本 0.0.1');
+    setEvaluatorScreen('list');
+    notify(existing ? `${isHuman ? '人工评估标签' : '自建评估器'}已更新，生成版本 ${nextVersion}` : `${isHuman ? '人工评估标签' : '自建评估器'}已创建，版本 0.0.1`);
   };
 
   const createTask = () => {
@@ -443,7 +483,7 @@ export default function EvaluationCenterPage() {
       {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} onCopyDraft={copyDatasetAsDraft} />}
       {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${item.name}（自建）`, description: item.description, model: item.model, scoreType: item.scoreType, passThreshold: item.passThreshold ?? 0.7, prompt: item.prompt, variables: item.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${evaluator.name}（自建）`, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, passThreshold: evaluator.passThreshold ?? 0.7, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft({ name: evaluator.name, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, passThreshold: evaluator.passThreshold ?? 0.7, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} />}
-      {module === 'evaluators' && evaluatorScreen === 'create' && <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />}
+      {module === 'evaluators' && evaluatorScreen === 'create' && (evaluatorKind === '人工评估' ? <HumanEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />)}
       {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('data'); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
@@ -930,12 +970,48 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
 }
 
 function EvaluatorList({ evaluators, kind, setKind, mode, setMode, search, setSearch, scoreFilter, setScoreFilter, onCreate, onOpen, onCopy }: { evaluators: Evaluator[]; kind: EvaluatorKind; setKind: (kind: EvaluatorKind) => void; mode: EvaluatorMode; setMode: (mode: EvaluatorMode) => void; search: string; setSearch: (value: string) => void; scoreFilter: string; setScoreFilter: (value: string) => void; onCreate: () => void; onOpen: (evaluator: Evaluator) => void; onCopy: (evaluator: Evaluator) => void }) {
-  return <div className="eval-list-page"><div className="eval-evaluator-tabs">{(['模型评估器', '代码评估', '人工评估'] as EvaluatorKind[]).map((item) => <button type="button" key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div><div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" /></label><select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置评估器</option><option value="custom">自建评估器</option></select><select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建自建评估器</button></div><div className="eval-evaluator-grid">{evaluators.map((evaluator) => <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}><h3>{evaluator.name}</h3><p>{evaluator.description}</p><div className="eval-evaluator-meta"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</Pill><span>{evaluator.scoreType === 'numeric' ? `通过阈值 ${evaluator.passThreshold?.toFixed(2) ?? '未设置'}` : `${evaluator.variables.length} 个输入语义`}</span></div><div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div><footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer></article>)}</div>{evaluators.length === 0 && <EmptyState title="没有匹配的评估器" description="调整筛选条件，或创建一个自建评估器。" />}</div>;
+  const isHuman = kind === '人工评估';
+  return <div className="eval-list-page">
+    <div className="eval-evaluator-tabs">{(['模型评估器', '代码评估', '人工评估'] as EvaluatorKind[]).map((item) => <button type="button" key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div>
+    <div className="eval-toolbar">
+      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isHuman ? '搜索标签名' : '搜索评估器名称'} /></label>
+      <select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置{isHuman ? '标签' : '评估器'}</option><option value="custom">自建{isHuman ? '标签' : '评估器'}</option></select>
+      <select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select>
+      <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />{isHuman ? '新建人工标签' : '新建自建评估器'}</button>
+    </div>
+    <div className="eval-evaluator-grid">{evaluators.map((evaluator) => <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}>
+      <h3>{evaluator.name}</h3>
+      <p>{evaluator.description}</p>
+      <div className="eval-evaluator-meta"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</Pill><span>{evaluator.scoreType === 'numeric' ? `通过阈值 ${evaluator.passThreshold?.toFixed(2) ?? '未设置'}` : evaluator.kind === '人工评估' ? '人工标注' : `${evaluator.variables.length} 个输入语义`}</span></div>
+      {evaluator.kind !== '人工评估' && <div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div>}
+      <footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer>
+    </article>)}</div>
+    {evaluators.length === 0 && <EmptyState title={`没有匹配的${isHuman ? '标签' : '评估器'}`} description={`调整筛选条件，或创建一个${isHuman ? '人工标签' : '自建评估器'}。`} />}
+  </div>;
 }
 
 function EvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator: Evaluator; onBack: () => void; onCopy: () => void; onEdit: () => void }) {
   const [expandedPrompt, setExpandedPrompt] = useState(false);
-  return <div className="eval-detail-page eval-evaluator-detail-page"><div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评估器</button></div><div className="eval-evaluator-detail-intro"><div><span className="eval-eyebrow">{evaluator.category}</span><h2>{evaluator.name}</h2><p>{evaluator.description}</p></div><div className="eval-detail-hero__actions"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />复制为自建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div></div><div className="eval-evaluator-detail-meta"><div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</strong></div><div><span>通过阈值</span><strong>{evaluator.scoreType === 'numeric' ? (evaluator.passThreshold?.toFixed(2) ?? '未设置') : '直接判断'}</strong></div><div><span>评估模型</span><strong>{evaluator.model}</strong></div><div><span>累计运行</span><strong>{evaluator.runCount}</strong></div><div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div></div><section className={`eval-evaluator-prompt-card${expandedPrompt ? ' is-expanded' : ''}`}><div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">PROMPT</span><h3>评估规则</h3></div><div className="eval-prompt-actions"><IconButton label={expandedPrompt ? '收起 Prompt' : '放大 Prompt'} onClick={() => setExpandedPrompt((current) => !current)}><Maximize2 size={15} /></IconButton><IconButton label="复制 Prompt" onClick={() => { void navigator.clipboard?.writeText(evaluator.prompt); }}><Copy size={15} /></IconButton></div></div><div className="eval-prompt-system">System</div><pre className="eval-evaluator-prompt">{evaluator.prompt}</pre><div className="eval-evaluator-variables-bar"><span>Variables</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div></section></div>;
+  const isHuman = evaluator.kind === '人工评估';
+  return <div className="eval-detail-page eval-evaluator-detail-page">
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评估器</button></div>
+    <div className="eval-evaluator-detail-intro">
+      <div><span className="eval-eyebrow">{evaluator.category}</span><h2>{evaluator.name}</h2><p>{evaluator.description}</p></div>
+      <div className="eval-detail-hero__actions"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />复制为自建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div>
+    </div>
+    <div className="eval-evaluator-detail-meta">
+      <div><span>{isHuman ? '评分类型' : '结果类型'}</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</strong></div>
+      <div><span>通过阈值</span><strong>{evaluator.scoreType === 'numeric' ? (evaluator.passThreshold?.toFixed(2) ?? '未设置') : '直接判断'}</strong></div>
+      {isHuman ? <><div><span>评估方式</span><strong>人工标注</strong></div><div><span>累计标注</span><strong>{evaluator.runCount}</strong></div><div><span>版本</span><strong>{evaluator.version}</strong></div></> : <><div><span>评估模型</span><strong>{evaluator.model}</strong></div><div><span>累计运行</span><strong>{evaluator.runCount}</strong></div><div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div></>}
+    </div>
+    {!isHuman && <section className={`eval-evaluator-prompt-card${expandedPrompt ? ' is-expanded' : ''}`}>
+      <div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">PROMPT</span><h3>评估规则</h3></div><div className="eval-prompt-actions"><IconButton label={expandedPrompt ? '收起 Prompt' : '放大 Prompt'} onClick={() => setExpandedPrompt((current) => !current)}><Maximize2 size={15} /></IconButton><IconButton label="复制 Prompt" onClick={() => { void navigator.clipboard?.writeText(evaluator.prompt); }}><Copy size={15} /></IconButton></div></div>
+      <div className="eval-prompt-system">System</div>
+      <pre className="eval-evaluator-prompt">{evaluator.prompt}</pre>
+      <div className="eval-evaluator-variables-bar"><span>Variables</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div>
+    </section>}
+    {isHuman && <div className="eval-human-detail-note"><ClipboardCheck size={17} /><span><strong>人工评估标签</strong><small>在评测任务数据明细中添加人工标注，填写分数或通过状态和标注原因。</small></span></div>}
+  </div>;
 }
 
 function PromptEditor({ prompt, onChange }: { prompt: string; onChange: (value: string) => void }) {
@@ -996,6 +1072,21 @@ function PromptEditor({ prompt, onChange }: { prompt: string; onChange: (value: 
       )}
     </div>
   );
+}
+
+function HumanEvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }: { draft: EvaluatorDraft; setDraft: Dispatch<SetStateAction<EvaluatorDraft>>; editing?: boolean; onBack: () => void; onCreate: () => void }) {
+  return <div className="eval-create-page">
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回人工评估</button></div>
+    <section className="eval-create-single eval-create-single--compact eval-human-create">
+      <div className="eval-create-single__head"><span className="eval-eyebrow">HUMAN LABEL</span><h3>{editing ? '编辑人工标签' : '新建人工标签'}</h3></div>
+      <div className="eval-human-create-fields">
+        <label className="eval-field"><span>标签名 <b>*</b></span><input autoFocus maxLength={30} value={draft.name} placeholder="例如：回答质量" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/30</small></label>
+        <label className="eval-field"><span>评分类型 <b>*</b></span><select value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></select></label>
+        {draft.scoreType === 'numeric' && <label className="eval-field eval-threshold-field"><span>通过阈值 <b>*</b></span><div className="eval-threshold-control"><input aria-label="人工标签通过阈值" type="range" min="0" max="1" step="0.01" value={draft.passThreshold} onChange={(event) => setDraft((current) => ({ ...current, passThreshold: Number(event.target.value) }))} /><strong>{draft.passThreshold.toFixed(2)}</strong></div><small>得分达到该值时判定为通过。</small></label>}
+      </div>
+    </section>
+    <footer className="eval-sticky-footer"><span>{editing ? '保存后生成新版本，不覆盖历史版本。' : '保存后可用于任务数据明细的人工标注。'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Check size={15} />{editing ? '保存并生成新版本' : '创建标签'}</button></div></footer>
+  </div>;
 }
 
 function EvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }: { draft: EvaluatorDraft; setDraft: Dispatch<SetStateAction<EvaluatorDraft>>; editing?: boolean; onBack: () => void; onCreate: () => void }) {

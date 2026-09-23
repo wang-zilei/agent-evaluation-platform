@@ -1471,6 +1471,13 @@
 .eval-agent-target-row .eval-agent-target-description { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 7px; margin-top: -2px; }
 .eval-agent-target-description span { color: var(--eval-ink); font-size: 13px; font-weight: 700; }
 .eval-agent-target-description p { max-width: 760px; margin: 0; color: var(--eval-muted); font-size: 13px; line-height: 1.65; }
+.eval-human-create-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .7fr); align-items: start; gap: 18px; }
+.eval-human-create .eval-threshold-field { grid-column: 1 / -1; }
+.eval-human-detail-note { display: flex; align-items: flex-start; gap: 12px; margin-top: 16px; padding: 16px 18px; border: 1px solid var(--eval-border); border-radius: 10px; color: var(--eval-muted); background: #fafafd; }
+.eval-human-detail-note > svg { flex: 0 0 auto; margin-top: 2px; color: var(--eval-violet); }
+.eval-human-detail-note > span { display: flex; flex-direction: column; gap: 5px; }
+.eval-human-detail-note strong { color: var(--eval-ink); font-size: 13px; }
+.eval-human-detail-note small { font-size: 11px; line-height: 1.55; }
 .eval-threshold-field { grid-column: 1 / -1; }
 .eval-threshold-control { display: grid; grid-template-columns: minmax(0, 1fr) 52px; align-items: center; gap: 14px; }
 .eval-threshold-control input { width: 100%; accent-color: var(--eval-violet); }
