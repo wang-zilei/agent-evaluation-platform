@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type MouseEvent, type ReactNode, type SetStateAction } from 'react';
 import * as XLSX from 'xlsx';
 import {
-  Activity, ArrowLeft, ArrowRight, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  Activity, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, CircleCheck, ClipboardCheck, Copy, Database, Download, Eye, FileSpreadsheet, GitCompare, History,
   Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, Trash2, Upload,
   X, Zap,
@@ -1124,16 +1124,37 @@ function evaluatorDisplay(item: EvaluatorResult) {
   return item.evaluationResult;
 }
 
-function MetricCompareCard({ row, runtime = false }: { row: ComparisonEvaluatorRow | ComparisonRuntimeRow; runtime?: boolean }) {
+function MetricCompareRow({ row, runtime = false }: { row: ComparisonEvaluatorRow | ComparisonRuntimeRow; runtime?: boolean }) {
   const maxValue = Math.max(row.beforeValue ?? 0, row.afterValue ?? 0, runtime ? 0 : 1);
-  const width = (value?: number) => `${Math.max(0, Math.min(100, maxValue ? ((value ?? 0) / maxValue) * 100 : 0))}%`;
+  const position = (value?: number) => Math.max(0, Math.min(100, maxValue ? ((value ?? 0) / maxValue) * 100 : 0));
+  const beforePosition = position(row.beforeValue);
+  const afterPosition = position(row.afterValue);
+  const connectorLeft = Math.min(beforePosition, afterPosition);
+  const connectorWidth = Math.abs(afterPosition - beforePosition);
   const tone = row.judgment === '改善' ? 'green' : row.judgment === '下降' ? 'amber' : 'neutral';
-  return <article className="eval-metric-card">
-    <header><div><strong>{row.metric}</strong><small>{runtime ? '运行时指标' : '评估器得分'}</small></div><Pill tone={tone}>{row.judgment}</Pill></header>
-    <div className="eval-metric-values"><div><span>基准</span><strong>{row.beforeResult}</strong></div><div><span>对比</span><strong>{row.afterResult}</strong></div><div><span>变化</span><strong>{row.delta}</strong></div></div>
-    <div className="eval-metric-bars"><div><span>基准</span><i style={{ width: width(row.beforeValue) }} /></div><div><span>对比</span><i className="is-candidate" style={{ width: width(row.afterValue) }} /></div></div>
-    <footer><span>有效样本 {row.coverage}</span><span>{runtime ? '越低越好' : '分数越高越好'}</span></footer>
-  </article>;
+  const JudgmentIcon = row.judgment === '改善' ? ArrowUpRight : row.judgment === '下降' ? ArrowDownRight : Minus;
+  return <div className="eval-metric-row">
+    <div className="eval-metric-row__name"><strong>{row.metric}</strong><small>{runtime ? '越低越好' : '分数越高越好'}</small></div>
+    <strong className="eval-metric-row__value">{row.beforeResult}</strong>
+    <strong className="eval-metric-row__value is-candidate">{row.afterResult}</strong>
+    <div className="eval-metric-row__change">
+      <div className="eval-metric-rail" aria-hidden="true">
+        <span style={{ left: `${connectorLeft}%`, width: `${connectorWidth}%` }} />
+        <i className="is-before" style={{ left: `${beforePosition}%` }} />
+        <i className="is-after" style={{ left: `${afterPosition}%` }} />
+      </div>
+      <strong>{row.delta}</strong>
+    </div>
+    <Pill tone={tone}><JudgmentIcon size={12} />{row.judgment}</Pill>
+    <span className="eval-metric-row__coverage">{row.coverage}</span>
+  </div>;
+}
+
+function MetricCompareMatrix({ rows, runtime = false }: { rows: Array<ComparisonEvaluatorRow | ComparisonRuntimeRow>; runtime?: boolean }) {
+  return <div className="eval-metric-matrix">
+    <div className="eval-metric-matrix__head"><span>指标</span><span>基准</span><span>对比</span><span>变化</span><span>判断</span><span>样本</span></div>
+    <div className="eval-metric-matrix__body">{rows.map((row) => <MetricCompareRow key={row.metric} row={row} runtime={runtime} />)}</div>
+  </div>;
 }
 
 function ComparisonCasePreview({ row, baseLabel, candidateLabel, onClose }: { row: ComparisonCaseRow; baseLabel: string; candidateLabel: string; onClose: () => void }) {
@@ -1192,8 +1213,8 @@ function ComparisonDetail({ comparison, onBack }: { comparison: ComparisonRecord
     </section>}
     {tab === 'metrics' && <section className="eval-metrics-workspace">
       <div className="eval-metrics-summary"><div><span>可比较 Case</span><strong>{comparison.comparableCases} / {comparison.totalCases}</strong></div><div><span>改善</span><strong>{comparison.improvedCases}</strong></div><div><span>下降</span><strong>{comparison.declinedCases}</strong></div><div><span>无法比较</span><strong>{comparison.incomparableCases}</strong></div></div>
-      <section className="eval-metrics-section"><div className="eval-task-section-heading"><div><h3>评估器得分</h3><p>相同评估规则下独立统计，不生成任务总分。</p></div></div><div className="eval-metric-grid">{comparison.evaluatorRows.map((row) => <MetricCompareCard key={row.metric} row={row} />)}</div></section>
-      <section className="eval-metrics-section"><div className="eval-task-section-heading"><div><h3>运行时指标</h3><p>默认展示平均值；运行设置不一致时只标记为参考差异。</p></div></div><div className="eval-metric-grid eval-metric-grid--runtime">{comparison.runtimeRows.map((row) => <MetricCompareCard key={row.metric} row={row} runtime />)}</div></section>
+      <section className="eval-metrics-section"><div className="eval-task-section-heading"><div><h3>评估器得分</h3><p>相同评估规则下独立统计，不生成任务总分。</p></div></div><MetricCompareMatrix rows={comparison.evaluatorRows} /></section>
+      <section className="eval-metrics-section"><div className="eval-task-section-heading"><div><h3>运行时指标</h3><p>默认展示平均值；运行设置不一致时只标记为参考差异。</p></div></div><MetricCompareMatrix rows={comparison.runtimeRows} runtime /></section>
     </section>}
     {previewRow && <ComparisonCasePreview row={previewRow} baseLabel={comparison.baseLabel} candidateLabel={comparison.candidateLabel} onClose={() => setPreviewRow(null)} />}
   </div>;
