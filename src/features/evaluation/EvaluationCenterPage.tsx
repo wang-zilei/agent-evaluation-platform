@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type MouseEvent, type ReactNode, type SetStateAction } from 'react';
 import * as XLSX from 'xlsx';
 import {
-  Activity, ArrowLeft, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
-  CircleAlert, ClipboardCheck, Copy, Database, Download, Eye, FileSpreadsheet, History,
-  Layers3, ListChecks, Maximize2, MoreHorizontal, Plus, RefreshCw, Search, Settings2, Sparkles, Trash2, Upload,
+  Activity, ArrowLeft, ArrowRight, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  CircleAlert, CircleCheck, ClipboardCheck, Copy, Database, Download, Eye, FileSpreadsheet, GitCompare, History,
+  Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, Trash2, Upload,
   X, Zap,
 } from 'lucide-react';
-import { cloneEvaluationState, getDatasetById, historyConversations, statusTone } from './evaluation.mock';
+import { cloneEvaluationState, createComparisonRecord, getDatasetById, historyConversations, statusTone } from './evaluation.mock';
 import { observedTraces } from './trace.data';
 import { TraceDetail, TraceList } from './TraceWorkspace';
 import type {
   AgentOption, CaseResult, Dataset, DatasetCase, EvaluationModule, EvaluationState,
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
   ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationResult, ScoreType, TaskTab,
+  ComparisonCaseRow, ComparisonEvaluatorRow, ComparisonRuntimeRow, EvaluatorResult,
 } from './evaluation.types';
 import './evaluation.css';
 
@@ -193,6 +194,8 @@ export default function EvaluationCenterPage() {
   const [selectedTraceId, setSelectedTraceId] = useState(observedTraces[0]?.id ?? '');
   const [datasetEntryFromTask, setDatasetEntryFromTask] = useState(false);
   const [editingEvaluatorId, setEditingEvaluatorId] = useState<string | null>(null);
+  const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false);
+  const [comparisonCandidateId, setComparisonCandidateId] = useState('');
   const notify = (message: string, tone: Toast['tone'] = 'success') => { const id = toastId + 1; setToastId(id); setToast({ id, message, tone }); window.setTimeout(() => setToast((current) => current?.id === id ? null : current), 2600); };
   const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks') { setTaskScreen('list'); setTaskTab('list'); } if (module === 'traces') setTraceScreen('list'); };
   const openDatasetCreate = (mode: DatasetCreateMode) => {
@@ -204,6 +207,28 @@ export default function EvaluationCenterPage() {
   };
   const openTaskCreate = () => { setTaskDraft(makeTaskDraft(state)); setTaskScreen('create'); setModule('tasks'); };
   const openComparison = (item: ComparisonRecord) => { setSelectedComparisonId(item.id); setTaskScreen('comparison'); setModule('tasks'); };
+  const openComparisonPicker = () => {
+    const current = state.tasks.find((item) => item.id === selectedTaskId);
+    if (!current || !['已完成', '部分失败'].includes(current.status)) {
+      const fallback = state.tasks.find((item) => ['已完成', '部分失败'].includes(item.status));
+      if (fallback) setSelectedTaskId(fallback.id);
+    }
+    setComparisonCandidateId('');
+    setComparisonPickerOpen(true);
+  };
+  const createComparison = (candidateId: string) => {
+    const baseTask = state.tasks.find((item) => item.id === selectedTaskId);
+    const candidateTask = state.tasks.find((item) => item.id === candidateId);
+    const dataset = baseTask ? getDatasetById(state, baseTask.datasetId) : undefined;
+    if (!baseTask || !candidateTask || !dataset) { notify('没有找到可对比的评测任务', 'warning'); return; }
+    const record = createComparisonRecord(baseTask, candidateTask, dataset, state.evaluators);
+    setState((current) => ({ ...current, comparisons: [record, ...current.comparisons] }));
+    setSelectedComparisonId(record.id);
+    setComparisonPickerOpen(false);
+    setTaskScreen('comparison');
+    setModule('tasks');
+    notify('对比实验已创建，已生成指标统计');
+  };
   const startOptimization = (caseIds: string[]) => { const target = state.experiments[0]; if (!target) return; setSelectedExperimentId(target.id); setTaskScreen('experiment'); notify(`已创建优化实验，等待 Agent Builder 处理 ${caseIds.length} 个 Badcase`); };
   const openEvaluatorCreate = () => { setTaskReturn(module === 'tasks' && taskScreen === 'create'); setEditingEvaluatorId(null); setEvaluatorDraft(makeEvaluatorDraft()); setEvaluatorScreen('create'); setModule('evaluators'); };
 
@@ -316,7 +341,7 @@ export default function EvaluationCenterPage() {
         input,
         agentOutput,
         expectedOutput,
-        trace: [{ id: `mock-${index}`, type: 'system', name: 'Mock 执行记录', status: '成功', duration: '—', detail: '原型数据：不调用真实 Agent。' }],
+        trace: [{ id: `mock-${index}`, type: 'system', name: 'Mock 执行记录', status: '成功', duration: '未采集', detail: '原型数据：不调用真实 Agent。' }],
         evaluatorResults: selected.map((evaluator) => ({
           evaluatorId: evaluator.id,
           evaluatorName: evaluator.name,
@@ -371,25 +396,26 @@ export default function EvaluationCenterPage() {
       <div className="eval-sidebar-footer"><Pill>本地 Mock</Pill></div>
     </aside>
     <div className="evaluation-main">
-      <header className="eval-app-header"><div className="eval-app-title"><h1>{module === 'tasks' && taskScreen === 'detail' ? '统计结论' : { tasks: '评测任务', datasets: '评测集', evaluators: '评估器', traces: '观测' }[module]}</h1></div><div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div></header>
+      <header className="eval-app-header"><div className="eval-app-title"><h1>{module === 'tasks' && taskScreen === 'detail' ? '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { tasks: '评测任务', datasets: '评测集', evaluators: '评估器', traces: '观测' }[module]}</h1></div><div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div></header>
       <main className="eval-content">
       {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} />}
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'history' && <DatasetHistoryPage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} onCopyDraft={copyDatasetAsDraft} />}
-      {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0—1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${item.name}（自建）`, description: item.description, model: item.model, scoreType: item.scoreType, prompt: item.prompt, variables: item.variables }); setEvaluatorScreen('create'); }} />}
+      {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${item.name}（自建）`, description: item.description, model: item.model, scoreType: item.scoreType, prompt: item.prompt, variables: item.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${evaluator.name}（自建）`, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft({ name: evaluator.name, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'create' && <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />}
-      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
+      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={openComparisonPicker} onOpen={(item) => { setSelectedTaskId(item.id); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} onBack={showList} onNotify={notify} />}
       {module === 'tasks' && taskScreen === 'comparison' && comparison && <ComparisonDetail comparison={comparison} onBack={() => { setTaskTab('compare'); setTaskScreen('list'); }} />}
-      {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail task={task} state={state} onBack={showList} onOpenCase={setCasePreview} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparison(state.comparisons[0])} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
+      {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail task={task} state={state} onBack={showList} onOpenCase={setCasePreview} onNotify={notify} onOptimize={startOptimization} onCompare={openComparisonPicker} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} search={traceSearch} setSearch={setTraceSearch} onOpen={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} />}
       {module === 'traces' && traceScreen === 'detail' && selectedTrace && <TraceDetail key={selectedTrace.id} trace={selectedTrace} onBack={showList} />}
       </main>
     </div>
+    {comparisonPickerOpen && <ComparisonPicker baseTask={task} tasks={state.tasks} selectedCandidateId={comparisonCandidateId} onSelect={setComparisonCandidateId} onCancel={() => setComparisonPickerOpen(false)} onCreate={createComparison} />}
     {casePreview && <CasePreview item={casePreview} onClose={() => setCasePreview(null)} />}
     {toast && <div className={`eval-toast eval-toast--${toast.tone}`}><CheckCircle2 size={15} />{toast.message}</div>}
   </div>;
@@ -421,7 +447,7 @@ function DatasetList({ datasets, search, setSearch, onCreate, onOpen }: { datase
             <td><Status label={dataset.status} /></td>
             <td><Pill>{dataset.source === '历史对话回流' ? '轨迹回流' : dataset.source}</Pill></td>
             <td>{dataset.cases.length}</td>
-            <td>{dataset.versions[0]?.label ?? '—'}</td>
+            <td>{dataset.versions[0]?.label ?? '未采集'}</td>
             <td>{dataset.updatedAt.slice(0, 10)}</td>
             <td><IconButton label="打开评测集" onClick={() => onOpen(dataset)}><Eye size={15} /></IconButton></td>
           </tr>)}
@@ -459,7 +485,7 @@ function DatasetUploadPage({ draft, setDraft, onBack, onCreate, onNotify }: { dr
         {draft.file && <div className="eval-file-summary"><div className="eval-file-summary__icon"><FileSpreadsheet size={20} /></div><div><strong>{draft.file.name}</strong><span>{draft.file.format} · {draft.file.columns.length} 个字段 · {draft.file.rows.length} 条数据</span></div><button type="button" className="eval-button eval-button--ghost" onClick={() => inputRef.current?.click()}>更换文件</button></div>}
         {draft.error && <div className="eval-error"><CircleAlert size={15} />{draft.error}</div>}
         <input ref={inputRef} type="file" accept=".csv,.xls,.xlsx,.jsonl" hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { void chooseFile(event.target.files?.[0]); }} />
-        {draft.file && <div className="eval-field-mapping"><div className="eval-subsection-head"><div><h4>字段确认</h4><span>不设置数据类型，只确认字段名称和语义</span></div><span>{draft.fields.length} 个字段</span></div><div className="eval-field-mapping__head"><span>原始字段</span><span>展示名称</span><span>字段语义</span><span>示例值</span></div>{draft.fields.map((field) => <div className="eval-field-mapping__row" key={field.id}><strong>{field.sourceColumn}</strong><input value={field.name} onChange={(event) => updateField(field.id, 'name', event.target.value)} /><select value={field.semantic} onChange={(event) => updateField(field.id, 'semantic', event.target.value)}>{FIELD_SEMANTICS.map((semantic) => <option key={semantic}>{semantic}</option>)}</select><span>{draft.file?.rows[0]?.[field.sourceColumn] || '—'}</span></div>)}</div>}
+        {draft.file && <div className="eval-field-mapping"><div className="eval-subsection-head"><div><h4>字段确认</h4><span>不设置数据类型，只确认字段名称和语义</span></div><span>{draft.fields.length} 个字段</span></div><div className="eval-field-mapping__head"><span>原始字段</span><span>展示名称</span><span>字段语义</span><span>示例值</span></div>{draft.fields.map((field) => <div className="eval-field-mapping__row" key={field.id}><strong>{field.sourceColumn}</strong><input value={field.name} onChange={(event) => updateField(field.id, 'name', event.target.value)} /><select value={field.semantic} onChange={(event) => updateField(field.id, 'semantic', event.target.value)}>{FIELD_SEMANTICS.map((semantic) => <option key={semantic}>{semantic}</option>)}</select><span>{draft.file?.rows[0]?.[field.sourceColumn] || '未采集'}</span></div>)}</div>}
       </div>
     </section>
     <footer className="eval-sticky-footer"><span>字段可以在草稿详情继续编辑。</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!canCreate} onClick={() => onCreate(draft)}><Check size={15} />创建评测集</button></div></footer>
@@ -786,7 +812,7 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
           <tbody>
             {filteredCases.map((item) => <tr key={item.id}>
               <td className="is-id"><span className="eval-case-chip">#{item.id}</span></td>
-              {dataset.fields.map((field) => <td key={field.id} title={item.values[field.id] || ''}>{item.values[field.id] || <em>—</em>}</td>)}
+              {dataset.fields.map((field) => <td key={field.id} title={item.values[field.id] || ''}>{item.values[field.id] || <em>未采集</em>}</td>)}
               <td className="is-actions">
                 {editable ? <>
                   <button type="button" className="eval-text-button" onClick={() => setCaseEditor({ id: item.id, values: { ...item.values }, hasFile: Boolean(item.hasFile) })}>编辑</button>
@@ -866,12 +892,12 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
 }
 
 function EvaluatorList({ evaluators, kind, setKind, mode, setMode, search, setSearch, scoreFilter, setScoreFilter, onCreate, onOpen, onCopy }: { evaluators: Evaluator[]; kind: EvaluatorKind; setKind: (kind: EvaluatorKind) => void; mode: EvaluatorMode; setMode: (mode: EvaluatorMode) => void; search: string; setSearch: (value: string) => void; scoreFilter: string; setScoreFilter: (value: string) => void; onCreate: () => void; onOpen: (evaluator: Evaluator) => void; onCopy: (evaluator: Evaluator) => void }) {
-  return <div className="eval-list-page"><div className="eval-evaluator-tabs">{(['模型评估器', '代码评估', '人工评估'] as EvaluatorKind[]).map((item) => <button type="button" key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div><div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" /></label><select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置评估器</option><option value="custom">自建评估器</option></select><select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0—1 数值</option></select><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建自建评估器</button></div><div className="eval-evaluator-grid">{evaluators.map((evaluator) => <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}><h3>{evaluator.name}</h3><p>{evaluator.description}</p><div className="eval-evaluator-meta"><Pill>{evaluator.scoreType === 'numeric' ? '0—1 数值评分' : '通过 / 不通过'}</Pill><span>{evaluator.variables.length} 个输入语义</span></div><div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div><footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer></article>)}</div>{evaluators.length === 0 && <EmptyState title="没有匹配的评估器" description="调整筛选条件，或创建一个自建评估器。" />}</div>;
+  return <div className="eval-list-page"><div className="eval-evaluator-tabs">{(['模型评估器', '代码评估', '人工评估'] as EvaluatorKind[]).map((item) => <button type="button" key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div><div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" /></label><select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置评估器</option><option value="custom">自建评估器</option></select><select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建自建评估器</button></div><div className="eval-evaluator-grid">{evaluators.map((evaluator) => <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}><h3>{evaluator.name}</h3><p>{evaluator.description}</p><div className="eval-evaluator-meta"><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</Pill><span>{evaluator.variables.length} 个输入语义</span></div><div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div><footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer></article>)}</div>{evaluators.length === 0 && <EmptyState title="没有匹配的评估器" description="调整筛选条件，或创建一个自建评估器。" />}</div>;
 }
 
 function EvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator: Evaluator; onBack: () => void; onCopy: () => void; onEdit: () => void }) {
   const [expandedPrompt, setExpandedPrompt] = useState(false);
-  return <div className="eval-detail-page eval-evaluator-detail-page"><div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评估器</button></div><div className="eval-evaluator-detail-intro"><div><span className="eval-eyebrow">{evaluator.category}</span><h2>{evaluator.name}</h2><p>{evaluator.description}</p></div><div className="eval-detail-hero__actions">{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />复制为自建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div></div><div className="eval-evaluator-detail-meta"><div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? '0—1 数值评分' : '通过 / 不通过'}</strong></div><div><span>评估模型</span><strong>{evaluator.model}</strong></div><div><span>累计运行</span><strong>{evaluator.runCount}</strong></div><div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div></div><section className={`eval-evaluator-prompt-card${expandedPrompt ? ' is-expanded' : ''}`}><div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">PROMPT</span><h3>评估规则</h3></div><div className="eval-prompt-actions"><IconButton label={expandedPrompt ? '收起 Prompt' : '放大 Prompt'} onClick={() => setExpandedPrompt((current) => !current)}><Maximize2 size={15} /></IconButton><IconButton label="复制 Prompt" onClick={() => { void navigator.clipboard?.writeText(evaluator.prompt); }}><Copy size={15} /></IconButton></div></div><div className="eval-prompt-system">System</div><pre className="eval-evaluator-prompt">{evaluator.prompt}</pre><div className="eval-evaluator-variables-bar"><span>Variables</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div></section></div>;
+  return <div className="eval-detail-page eval-evaluator-detail-page"><div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评估器</button></div><div className="eval-evaluator-detail-intro"><div><span className="eval-eyebrow">{evaluator.category}</span><h2>{evaluator.name}</h2><p>{evaluator.description}</p></div><div className="eval-detail-hero__actions">{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />复制为自建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div></div><div className="eval-evaluator-detail-meta"><div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</strong></div><div><span>评估模型</span><strong>{evaluator.model}</strong></div><div><span>累计运行</span><strong>{evaluator.runCount}</strong></div><div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div></div><section className={`eval-evaluator-prompt-card${expandedPrompt ? ' is-expanded' : ''}`}><div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">PROMPT</span><h3>评估规则</h3></div><div className="eval-prompt-actions"><IconButton label={expandedPrompt ? '收起 Prompt' : '放大 Prompt'} onClick={() => setExpandedPrompt((current) => !current)}><Maximize2 size={15} /></IconButton><IconButton label="复制 Prompt" onClick={() => { void navigator.clipboard?.writeText(evaluator.prompt); }}><Copy size={15} /></IconButton></div></div><div className="eval-prompt-system">System</div><pre className="eval-evaluator-prompt">{evaluator.prompt}</pre><div className="eval-evaluator-variables-bar"><span>Variables</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div></section></div>;
 }
 
 function PromptEditor({ prompt, onChange }: { prompt: string; onChange: (value: string) => void }) {
@@ -947,7 +973,7 @@ function EvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }:
         </div>
         <div className="eval-form-grid eval-evaluator-option-fields">
           <label className="eval-field"><span>评估模型</span><select value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></select></label>
-          <label className="eval-field"><span>结果类型</span><select value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0—1 数值评分</option><option value="pass_fail">通过 / 不通过</option></select></label>
+          <label className="eval-field"><span>结果类型</span><select value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></select></label>
         </div>
         <div className="eval-create-section">
           <section className="eval-evaluator-prompt-card">
@@ -964,7 +990,7 @@ function EvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }:
   );
 }
 
-function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch, tab, setTab, onCreate, onOpen, onOpenComparison }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; comparisons: ComparisonRecord[]; search: string; setSearch: (value: string) => void; tab: TaskTab; setTab: (tab: TaskTab) => void; onCreate: () => void; onOpen: (task: EvaluationTask) => void; onOpenComparison: (item: ComparisonRecord) => void; }) {
+function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch, tab, setTab, onCreate, onCreateComparison, onOpen, onOpenComparison }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; comparisons: ComparisonRecord[]; search: string; setSearch: (value: string) => void; tab: TaskTab; setTab: (tab: TaskTab) => void; onCreate: () => void; onCreateComparison: () => void; onOpen: (task: EvaluationTask) => void; onOpenComparison: (item: ComparisonRecord) => void; }) {
   const filtered = tasks.filter((task) => !search || `${task.name} ${task.agent}`.toLowerCase().includes(search.toLowerCase()));
   const datasetName = (id: string) => datasets.find((item) => item.id === id)?.name ?? id;
   const evaluatorNames = (task: EvaluationTask) => task.evaluatorIds.map((id) => evaluators.find((item) => item.id === id)?.name ?? id);
@@ -989,16 +1015,16 @@ function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch,
       {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索条件。" />}
     </>}
     {tab === 'compare' && <section className="eval-record-page">
-      <div className="eval-section-head"><div><span className="eval-eyebrow">COMPARISON</span><h2>对比实验</h2><p>以一次评测任务为基准，比较相同 Case 在不同运行条件下的评估结果。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => window.alert('演示入口：请选择两个已完成评测任务创建对比记录')}><Plus size={15} />新建对比实验</button></div>
+      <div className="eval-section-head"><div><span className="eval-eyebrow">COMPARISON</span><h2>对比实验</h2><p>以一个评测任务为基准，比较同一评测集下不同任务的 Agent Output 和评估结果。</p></div><button type="button" className="eval-button eval-button--primary" onClick={onCreateComparison}><Plus size={15} />创建对比实验</button></div>
       <section className="eval-surface table-surface">
         <table className="eval-data-table">
-          <thead><tr><th>对比名称</th><th>基准</th><th>对比对象</th><th>评测集</th><th>对比结果</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>对比名称</th><th>基准任务</th><th>对比任务</th><th>评测集</th><th>Case 变化</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>{comparisons.map((item) => <tr key={item.id} onClick={() => onOpenComparison(item)}>
             <td><strong>{item.name}</strong></td><td>{item.baseLabel}</td><td>{item.candidateLabel}</td><td>{item.dataset}</td><td><div className="eval-cell-pills"><span>改善 {item.improvedCases}</span><span>下降 {item.declinedCases}</span><span>无变化 {item.unchangedCases}</span><span>无法比较 {item.incomparableCases}</span></div></td><td><Status label={item.status} /></td><td><IconButton label="查看对比结果" onClick={() => onOpenComparison(item)}><Eye size={15} /></IconButton></td>
           </tr>)}</tbody>
         </table>
       </section>
-      {comparisons.length === 0 && <EmptyState title="暂无对比实验" description="完成两个评测任务后创建对比记录。" />}
+      {comparisons.length === 0 && <EmptyState title="暂无对比实验" description="从已完成的评测任务中选择一个同评测集任务创建对比。" />}
     </section>}
   </div>;
 }
@@ -1012,8 +1038,8 @@ function ConfigCompare({ experiment }: { experiment: OptimizeExperiment }) {
   return <div className="eval-config-compare">
     {sections.map((section) => <section className="eval-config-compare__row" key={section.key}>
       <div className="eval-config-compare__label"><strong>{section.label}</strong><span>{experiment.result.changes.find((item) => item.target === (section.key === 'systemPrompt' ? 'system_prompt' : section.key))?.changeType ?? '未变化'}</span></div>
-      <div className="eval-config-compare__side"><span>优化前</span><pre>{section.before || '—'}</pre></div>
-      <div className="eval-config-compare__side is-after"><span>优化后</span><pre>{section.after || '—'}</pre></div>
+      <div className="eval-config-compare__side"><span>优化前</span><pre>{section.before || '未采集'}</pre></div>
+      <div className="eval-config-compare__side is-after"><span>优化后</span><pre>{section.after || '未采集'}</pre></div>
     </section>)}
   </div>;
 }
@@ -1043,15 +1069,133 @@ function OptimizationDetail({ experiment, onBack, onNotify }: { experiment: Opti
   </div>;
 }
 
+function ComparisonPicker({ baseTask, tasks, selectedCandidateId, onSelect, onCancel, onCreate }: { baseTask: EvaluationTask; tasks: EvaluationTask[]; selectedCandidateId: string; onSelect: (id: string) => void; onCancel: () => void; onCreate: (id: string) => void }) {
+  const [query, setQuery] = useState('');
+  const terminalStatuses: EvaluationTask['status'][] = ['已完成', '部分失败'];
+  const sameEvaluatorRules = (candidate: EvaluationTask) => {
+    const base = [...baseTask.evaluatorIds].sort().join('|');
+    const next = [...candidate.evaluatorIds].sort().join('|');
+    return base === next;
+  };
+  const commonCaseCount = (candidate: EvaluationTask) => {
+    const candidateIds = new Set(candidate.results.map((item) => item.caseId));
+    return baseTask.results.filter((item) => candidateIds.has(item.caseId)).length;
+  };
+  const candidates = tasks
+    .filter((item) => item.id !== baseTask.id && item.datasetId === baseTask.datasetId && terminalStatuses.includes(item.status))
+    .filter((item) => !query || `${item.name} ${item.agent} ${item.agentVersion}`.toLowerCase().includes(query.toLowerCase()))
+    .map((item) => ({ item, compatible: sameEvaluatorRules(item), commonCases: commonCaseCount(item) }));
+  const selected = candidates.find((row) => row.item.id === selectedCandidateId);
+  const canCreate = Boolean(selected && selected.commonCases > 0);
+  return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+    <section className="eval-comparison-picker" role="dialog" aria-modal="true" aria-label="选择对比任务">
+      <header>
+        <div><span className="eval-eyebrow">CREATE COMPARISON</span><h2>选择对比任务</h2><p>当前任务固定为基准，再选择一个同评测集任务。</p></div>
+        <IconButton label="关闭" onClick={onCancel}><X size={17} /></IconButton>
+      </header>
+      <div className="eval-picker-notice"><CircleAlert size={15} /><span>仅同一评测集且已执行完成的任务可对比。评估器规则不同的任务只能查看 Agent Output 差异。</span></div>
+      <div className="eval-picker-baseline"><Pill tone="violet">基准任务</Pill><div><strong>{baseTask.name}</strong><small>{baseTask.agent} · {baseTask.agentVersion} · {baseTask.datasetVersion}</small></div><Status label={baseTask.status} /></div>
+      <div className="eval-picker-toolbar"><label className="eval-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称或 Agent" /></label><span>{candidates.length} 个可选任务</span></div>
+      <div className="eval-picker-table-wrap">
+        <table className="eval-picker-table">
+          <thead><tr><th aria-label="选择" /><th>任务</th><th>评测对象</th><th>评测集版本</th><th>评估规则</th><th>共同 Case</th><th>完成时间</th></tr></thead>
+          <tbody>{candidates.map(({ item, compatible, commonCases }) => <tr key={item.id} className={selectedCandidateId === item.id ? 'is-selected' : ''}>
+            <td><input type="radio" name="comparison-candidate" checked={selectedCandidateId === item.id} disabled={commonCases === 0} onChange={() => onSelect(item.id)} aria-label={`选择 ${item.name}`} /></td>
+            <td><div className="eval-primary-cell"><strong>{item.name}</strong><small>{item.id}</small></div></td>
+            <td><div className="eval-cell-title"><strong>{item.agent}</strong><small>{item.agentVersion}</small></div></td>
+            <td>{item.datasetVersion}</td>
+            <td>{compatible ? <Pill tone="green">一致</Pill> : <Pill tone="amber">不同</Pill>}</td>
+            <td>{commonCases} / {baseTask.results.length}</td>
+            <td>{item.updatedAt}</td>
+          </tr>)}</tbody>
+        </table>
+        {candidates.length === 0 && <EmptyState title="没有可对比的评测任务" description="当前评测集下没有另一个已完成任务。" />}
+      </div>
+      <footer>
+        <div className="eval-picker-compatibility">{selected ? <><CircleCheck size={15} /><span>{selected.compatible ? '评估器规则一致，可生成改善和下降结论。' : '评估器规则不同，仅展示 Agent Output 差异。'}共同 Case {selected.commonCases} 个。</span></> : <><Minus size={15} /><span>选择一个对比任务后显示可比范围。</span></>}</div>
+        <div><button type="button" className="eval-button eval-button--ghost" onClick={onCancel}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!canCreate} onClick={() => onCreate(selectedCandidateId)}><GitCompare size={15} />创建对比实验</button></div>
+      </footer>
+    </section>
+  </div>;
+}
+
+function evaluatorDisplay(item: EvaluatorResult) {
+  if (item.scoreType === 'numeric' && typeof item.evaluationResult === 'number') return item.evaluationResult.toFixed(2);
+  return item.evaluationResult;
+}
+
+function MetricCompareCard({ row, runtime = false }: { row: ComparisonEvaluatorRow | ComparisonRuntimeRow; runtime?: boolean }) {
+  const maxValue = Math.max(row.beforeValue ?? 0, row.afterValue ?? 0, runtime ? 0 : 1);
+  const width = (value?: number) => `${Math.max(0, Math.min(100, maxValue ? ((value ?? 0) / maxValue) * 100 : 0))}%`;
+  const tone = row.judgment === '改善' ? 'green' : row.judgment === '下降' ? 'amber' : 'neutral';
+  return <article className="eval-metric-card">
+    <header><div><strong>{row.metric}</strong><small>{runtime ? '运行时指标' : '评估器得分'}</small></div><Pill tone={tone}>{row.judgment}</Pill></header>
+    <div className="eval-metric-values"><div><span>基准</span><strong>{row.beforeResult}</strong></div><div><span>对比</span><strong>{row.afterResult}</strong></div><div><span>变化</span><strong>{row.delta}</strong></div></div>
+    <div className="eval-metric-bars"><div><span>基准</span><i style={{ width: width(row.beforeValue) }} /></div><div><span>对比</span><i className="is-candidate" style={{ width: width(row.afterValue) }} /></div></div>
+    <footer><span>有效样本 {row.coverage}</span><span>{runtime ? '越低越好' : '分数越高越好'}</span></footer>
+  </article>;
+}
+
+function ComparisonCasePreview({ row, baseLabel, candidateLabel, onClose }: { row: ComparisonCaseRow; baseLabel: string; candidateLabel: string; onClose: () => void }) {
+  return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="eval-comparison-case-preview" role="dialog" aria-modal="true" aria-label={row.caseId}>
+      <header><div><span className="eval-eyebrow">CASE COMPARISON</span><h2>{row.caseId}</h2></div><IconButton label="关闭" onClick={onClose}><X size={17} /></IconButton></header>
+      <div className="eval-compare-case-context"><span>评测集共享字段</span><div>{Object.entries(row.sharedValues).map(([key, value]) => <p key={key}><strong>{key}</strong>{value}</p>)}</div></div>
+      <div className="eval-compare-output-grid">
+        <section><header><strong>{baseLabel}</strong><span>agent_output</span></header><p>{row.beforeOutput || '未采集'}</p><div>{row.beforeEvaluators.map((item) => <span key={item.evaluatorId}><strong>{item.evaluatorName}</strong><em>{evaluatorDisplay(item)}</em></span>)}</div></section>
+        <section><header><strong>{candidateLabel}</strong><span>agent_output</span></header><p>{row.afterOutput || '未采集'}</p><div>{row.afterEvaluators.map((item) => <span key={item.evaluatorId}><strong>{item.evaluatorName}</strong><em>{evaluatorDisplay(item)}</em></span>)}</div></section>
+      </div>
+      <div className="eval-compare-case-judgment"><Pill tone={row.judgment === '改善' ? 'green' : row.judgment === '下降' ? 'amber' : 'neutral'}>{row.judgment}</Pill><span>{row.reason}</span></div>
+      <footer><button type="button" className="eval-button eval-button--primary" onClick={onClose}>关闭</button></footer>
+    </section>
+  </div>;
+}
+
 function ComparisonDetail({ comparison, onBack }: { comparison: ComparisonRecord; onBack: () => void }) {
+  const [tab, setTab] = useState<'data' | 'metrics'>('data');
+  const [filter, setFilter] = useState<'全部' | '改善' | '下降' | '无变化' | '无法比较'>('全部');
+  const [query, setQuery] = useState('');
+  const [previewRow, setPreviewRow] = useState<ComparisonCaseRow | null>(null);
+  const rows = comparison.caseRows.filter((row) => {
+    const matchesFilter = filter === '全部' || row.judgment === filter;
+    const haystack = `${row.caseId} ${Object.values(row.sharedValues).join(' ')} ${row.beforeOutput} ${row.afterOutput}`.toLowerCase();
+    return matchesFilter && (!query || haystack.includes(query.toLowerCase()));
+  });
+  const judgmentTone = (judgment: ComparisonCaseRow['judgment']) => judgment === '改善' ? 'green' : judgment === '下降' ? 'amber' : 'neutral';
   return <div className="eval-detail-page eval-comparison-detail">
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回对比实验</button><Pill tone={comparison.status === '已完成' ? 'green' : 'amber'}>{comparison.status}</Pill></div>
-    <header className="eval-detail-hero"><div><span className="eval-eyebrow">COMPARISON RESULT</span><h2>{comparison.name}</h2><p>{comparison.baseLabel} → {comparison.candidateLabel} · {comparison.dataset}</p></div></header>
-    <div className="eval-comparison-summary"><div><span>参与对比</span><strong>{comparison.comparableCases}</strong></div><div><span>改善</span><strong>{comparison.improvedCases}</strong></div><div><span>下降</span><strong>{comparison.declinedCases}</strong></div><div><span>无变化</span><strong>{comparison.unchangedCases}</strong></div><div><span>无法比较</span><strong>{comparison.incomparableCases}</strong></div></div>
-    <div className="eval-optimization-grid">
-      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>评估器结果</h3><p>相同评估规则下的汇总变化。</p></div></div><div className="eval-compare-table"><div><span>评估器</span><span>优化前</span><span>优化后</span><span>判断</span></div>{comparison.evaluatorRows.map((row) => <div key={row.evaluatorName}><span>{row.evaluatorName}</span><span>{row.beforeResult}</span><span>{row.afterResult}</span><span><Pill tone={row.judgment === '改善' ? 'green' : row.judgment === '下降' ? 'amber' : 'neutral'}>{row.judgment}</Pill></span></div>)}</div></section>
-      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>Case 明细</h3><p>逐条展示相同 Case 在两次运行中的结果。</p></div></div><div className="eval-compare-table"><div><span>Case</span><span>优化前</span><span>优化后</span><span>判断</span></div>{comparison.caseRows.map((row) => <div key={row.caseId}><span><strong>{row.caseId}</strong><small>{row.reason}</small></span><span>{row.beforeResult}</span><span>{row.afterResult}</span><span><Pill tone={row.judgment === '改善' ? 'green' : row.judgment === '下降' ? 'amber' : 'neutral'}>{row.judgment}</Pill></span></div>)}</div></section>
-    </div>
+    <header className="eval-comparison-detail-header">
+      <div><span className="eval-eyebrow">COMPARISON RESULT</span><h2>{comparison.name}</h2><p>{comparison.dataset} · 版本 {comparison.datasetVersion}</p></div>
+      <div className="eval-comparison-task-pair">
+        <div><span>基准任务</span><strong>{comparison.baseLabel}</strong></div>
+        <ArrowRight size={17} />
+        <div><span>对比任务</span><strong>{comparison.candidateLabel}</strong></div>
+      </div>
+    </header>
+    <nav className="eval-comparison-tabs" aria-label="对比结果内容"><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => setTab('data')}><Table2 size={15} />评测集数据</button><button type="button" className={tab === 'metrics' ? 'is-active' : ''} onClick={() => setTab('metrics')}><BarChart3 size={15} />指标统计</button></nav>
+    {tab === 'data' && <section className="eval-comparison-data">
+      <div className="eval-comparison-toolbar"><label className="eval-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Case、Input 或 Agent Output" /></label><select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}><option>全部</option><option>改善</option><option>下降</option><option>无变化</option><option>无法比较</option></select><span>{rows.length} 条 Case</span></div>
+      <div className="eval-comparison-table-wrap">
+        <table className="eval-comparison-data-table">
+          <thead><tr><th className="is-sticky">Case</th>{comparison.sharedFields.map((field) => <th key={field}>{field}</th>)}<th className="is-output">基准 Agent Output</th><th className="is-output">对比 Agent Output</th><th>判断</th><th className="is-sticky is-sticky-right">操作</th></tr></thead>
+          <tbody>{rows.map((row) => <tr key={row.caseId}>
+            <td className="is-sticky"><strong className="eval-mono">{row.caseId}</strong></td>
+            {comparison.sharedFields.map((field) => <td key={field}>{row.sharedValues[field] || '未采集'}</td>)}
+            <td className="is-output"><div className="eval-compare-output-cell"><p>{row.beforeOutput || '未采集'}</p><div>{row.beforeEvaluators.slice(0, 2).map((item) => <span key={item.evaluatorId}>{item.evaluatorName} {evaluatorDisplay(item)}</span>)}</div></div></td>
+            <td className="is-output"><div className="eval-compare-output-cell is-candidate"><p>{row.afterOutput || '未采集'}</p><div>{row.afterEvaluators.slice(0, 2).map((item) => <span key={item.evaluatorId}>{item.evaluatorName} {evaluatorDisplay(item)}</span>)}</div></div></td>
+            <td><Pill tone={judgmentTone(row.judgment)}>{row.judgment}</Pill></td>
+            <td className="is-sticky is-sticky-right"><button type="button" className="eval-text-button" onClick={() => setPreviewRow(row)}>详情</button></td>
+          </tr>)}</tbody>
+        </table>
+        {rows.length === 0 && <EmptyState title="没有匹配的 Case" description="调整搜索或判断筛选条件。" />}
+      </div>
+    </section>}
+    {tab === 'metrics' && <section className="eval-metrics-workspace">
+      <div className="eval-metrics-summary"><div><span>可比较 Case</span><strong>{comparison.comparableCases} / {comparison.totalCases}</strong></div><div><span>改善</span><strong>{comparison.improvedCases}</strong></div><div><span>下降</span><strong>{comparison.declinedCases}</strong></div><div><span>无法比较</span><strong>{comparison.incomparableCases}</strong></div></div>
+      <section className="eval-metrics-section"><div className="eval-task-section-heading"><div><h3>评估器得分</h3><p>相同评估规则下独立统计，不生成任务总分。</p></div></div><div className="eval-metric-grid">{comparison.evaluatorRows.map((row) => <MetricCompareCard key={row.metric} row={row} />)}</div></section>
+      <section className="eval-metrics-section"><div className="eval-task-section-heading"><div><h3>运行时指标</h3><p>默认展示平均值；运行设置不一致时只标记为参考差异。</p></div></div><div className="eval-metric-grid eval-metric-grid--runtime">{comparison.runtimeRows.map((row) => <MetricCompareCard key={row.metric} row={row} runtime />)}</div></section>
+    </section>}
+    {previewRow && <ComparisonCasePreview row={previewRow} baseLabel={comparison.baseLabel} candidateLabel={comparison.candidateLabel} onClose={() => setPreviewRow(null)} />}
   </div>;
 }
 
@@ -1187,21 +1331,21 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
   ];
   const getFieldValue = (item: CaseResult, field: FieldDefinition) => {
     const datasetCase = dataset?.cases.find((current) => current.id === item.caseId);
-    if (field.semantic === 'Input') return item.input || datasetCase?.values[field.id] || '—';
-    if (field.semantic === 'Expected Output') return item.expectedOutput || datasetCase?.values[field.id] || '—';
-    if (field.semantic === 'Agent Output') return item.agentOutput || '—';
+    if (field.semantic === 'Input') return item.input || datasetCase?.values[field.id] || '未采集';
+    if (field.semantic === 'Expected Output') return item.expectedOutput || datasetCase?.values[field.id] || '未采集';
+    if (field.semantic === 'Agent Output') return item.agentOutput || '未采集';
     if (field.semantic === 'Trace') return `${item.trace.length} 个节点`;
-    if (field.semantic === 'Agent Configuration') return item.agentConfiguration || '—';
-    if (field.semantic === 'User Feedback') return item.userFeedback || datasetCase?.values[field.id] || '—';
-    return datasetCase?.values[field.id] || '—';
+    if (field.semantic === 'Agent Configuration') return item.agentConfiguration || '未采集';
+    if (field.semantic === 'User Feedback') return item.userFeedback || datasetCase?.values[field.id] || '未采集';
+    return datasetCase?.values[field.id] || '未采集';
   };
   const getRuntimeValue = (item: CaseResult, key: string) => {
     const value = item.runtime?.[key as keyof NonNullable<CaseResult['runtime']>];
-    return value === undefined || value === null ? '—' : String(value);
+    return value === undefined || value === null ? '未采集' : String(value);
   };
   const getEvaluatorValue = (item: CaseResult, evaluatorId: string) => {
     const result = item.evaluatorResults.find((current) => current.evaluatorId === evaluatorId);
-    if (!result) return '—';
+    if (!result) return '未采集';
     return result.scoreType === 'numeric' && typeof result.evaluationResult === 'number' ? result.evaluationResult.toFixed(2) : String(result.evaluationResult);
   };
   const toggleBadCase = (caseId: string) => setSelectedBadCaseIds((current) => current.includes(caseId) ? current.filter((id) => id !== caseId) : [...current, caseId]);
@@ -1231,7 +1375,7 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
       </div>
       <div className="eval-task-detail-actions">
         <button type="button" className="eval-button eval-button--primary" disabled={selectedBadCaseIds.length === 0} onClick={() => onOptimize(selectedBadCaseIds)}><Sparkles size={14} />优化 Badcase{selectedBadCaseIds.length > 0 ? `（${selectedBadCaseIds.length}）` : ''}</button>
-        <button type="button" className="eval-button eval-button--ghost" onClick={onCompare}><Layers3 size={14} />对比实验</button>
+        <button type="button" className="eval-button eval-button--ghost" disabled={!['已完成', '部分失败'].includes(task.status)} title={['已完成', '部分失败'].includes(task.status) ? '创建对比实验' : '任务执行完成后才能创建对比实验'} onClick={onCompare}><Layers3 size={14} />对比实验</button>
         <button type="button" className="eval-button eval-button--ghost" onClick={() => onNotify('已创建异常 Case 重试任务')}><RefreshCw size={14} />重试异常</button>
       </div>
     </header>
@@ -1239,11 +1383,11 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
       <div className="eval-task-info-panel__heading"><strong>基础信息</strong><ChevronDown size={15} /></div>
       <div className="eval-task-info-grid">
         <div><span>评测对象</span><strong>{task.agent}<small>{task.agentVersion}</small></strong></div>
-        <div><span>评测集</span><strong>{dataset?.name ?? '—'}<small>{task.datasetVersion}</small></strong></div>
+        <div><span>评测集</span><strong>{dataset?.name ?? '未采集'}<small>{task.datasetVersion}</small></strong></div>
         <div><span>创建时间</span><strong>{task.createdAt}</strong></div>
         <div><span>任务 ID</span><strong className="eval-mono">{task.id}</strong></div>
         <div><span>创建人</span><strong>{task.createdBy}</strong></div>
-        <div><span>描述</span><strong>{task.description || '—'}</strong></div>
+        <div><span>描述</span><strong>{task.description || '未采集'}</strong></div>
       </div>
     </section>
     <nav className="eval-task-detail-tabs" aria-label="任务详情内容"><button type="button" className={tab === 'summary' ? 'is-active' : ''} onClick={() => setTab('summary')}>统计结论</button><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => setTab('data')}>数据明细</button><button type="button" className={tab === 'optimize' ? 'is-active' : ''} onClick={() => setTab('optimize')}>优化实验</button></nav>
@@ -1257,5 +1401,5 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
   </div>;
 }
 function CasePreview({ item, onClose }: { item: CaseResult; onClose: () => void }) {
-  return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="eval-case-preview" role="dialog" aria-modal="true" aria-label={item.caseId}><header><div><span className="eval-eyebrow">CASE DETAIL</span><h2>{item.caseId}</h2></div><IconButton label="关闭" onClick={onClose}><X size={17} /></IconButton></header><div className="eval-case-preview__status"><Status label={item.status} /><span>{item.runtime?.agentDuration ?? '—'} · {item.runtime?.totalTokens ?? 0} Tokens</span>{item.caseMark && <Pill tone={item.caseMark === 'Badcase' ? 'amber' : 'green'}>{item.caseMark}</Pill>}</div><div className="eval-case-preview__blocks"><div><span>Input</span><p>{item.input || '—'}</p></div><div><span>Agent Output</span><p>{item.agentOutput || '没有生成 Agent Output。'}</p></div><div><span>Trace</span><p>{item.trace.map((event) => `${event.name} · ${event.status}`).join(' → ')}</p></div><div><span>User Feedback</span><p>{item.userFeedback || '—'}</p></div><div><span>人工标注</span><p>{item.humanEvaluation ? `${item.humanEvaluation.humanLabel} · ${item.humanEvaluation.humanReason}` : '—'}</p></div></div><div className="eval-case-preview__evaluators"><span className="eval-eyebrow">EVALUATOR RESULTS</span>{item.evaluatorResults.map((result) => <div key={result.evaluatorId}><div><strong>{result.evaluatorName}</strong><small>{result.evaluationReason}</small></div><Pill tone={result.evaluationStatus === '通过' ? 'green' : result.evaluationStatus === '不通过' ? 'amber' : 'neutral'}>{result.scoreType === 'numeric' && typeof result.evaluationResult === 'number' ? result.evaluationResult.toFixed(2) : result.evaluationResult}</Pill></div>)}</div><footer><button type="button" className="eval-button eval-button--primary" onClick={onClose}>关闭</button></footer></section></div>;
+  return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="eval-case-preview" role="dialog" aria-modal="true" aria-label={item.caseId}><header><div><span className="eval-eyebrow">CASE DETAIL</span><h2>{item.caseId}</h2></div><IconButton label="关闭" onClick={onClose}><X size={17} /></IconButton></header><div className="eval-case-preview__status"><Status label={item.status} /><span>{item.runtime?.agentDuration ?? '未采集'} · {item.runtime?.totalTokens ?? 0} Tokens</span>{item.caseMark && <Pill tone={item.caseMark === 'Badcase' ? 'amber' : 'green'}>{item.caseMark}</Pill>}</div><div className="eval-case-preview__blocks"><div><span>Input</span><p>{item.input || '未采集'}</p></div><div><span>Agent Output</span><p>{item.agentOutput || '没有生成 Agent Output。'}</p></div><div><span>Trace</span><p>{item.trace.map((event) => `${event.name} · ${event.status}`).join(' → ')}</p></div><div><span>User Feedback</span><p>{item.userFeedback || '未采集'}</p></div><div><span>人工标注</span><p>{item.humanEvaluation ? `${item.humanEvaluation.humanLabel} · ${item.humanEvaluation.humanReason}` : '未采集'}</p></div></div><div className="eval-case-preview__evaluators"><span className="eval-eyebrow">EVALUATOR RESULTS</span>{item.evaluatorResults.map((result) => <div key={result.evaluatorId}><div><strong>{result.evaluatorName}</strong><small>{result.evaluationReason}</small></div><Pill tone={result.evaluationStatus === '通过' ? 'green' : result.evaluationStatus === '不通过' ? 'amber' : 'neutral'}>{result.scoreType === 'numeric' && typeof result.evaluationResult === 'number' ? result.evaluationResult.toFixed(2) : result.evaluationResult}</Pill></div>)}</div><footer><button type="button" className="eval-button eval-button--primary" onClick={onClose}>关闭</button></footer></section></div>;
 }

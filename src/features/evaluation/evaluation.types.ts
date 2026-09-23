@@ -221,35 +221,63 @@ export type OptimizeExperiment = {
 };
 
 export type ComparisonEvaluatorRow = {
+  metric: string;
+  scoreType: ScoreType;
   evaluatorName: string;
-  beforeResult: string | number;
-  afterResult: string | number;
-  judgment: '改善' | '下降' | '无变化' | '无法比较';
+  beforeResult: string;
+  afterResult: string;
+  delta: string;
+  judgment: '改善' | '下降' | '无变化' | '无法比较' | '参考差异';
+  coverage: string;
+  beforeValue?: number;
+  afterValue?: number;
 };
 
 export type ComparisonCaseRow = {
   caseId: string;
-  beforeResult: string;
-  afterResult: string;
+  sharedValues: Record<string, string>;
+  beforeOutput: string;
+  afterOutput: string;
+  beforeEvaluators: EvaluatorResult[];
+  afterEvaluators: EvaluatorResult[];
   judgment: '改善' | '下降' | '无变化' | '无法比较';
   reason: string;
+};
+
+export type ComparisonRuntimeRow = {
+  metric: string;
+  beforeResult: string;
+  afterResult: string;
+  delta: string;
+  judgment: '改善' | '下降' | '无变化' | '无法比较' | '参考差异';
+  coverage: string;
+  beforeValue?: number;
+  afterValue?: number;
 };
 
 export type ComparisonRecord = {
   id: string;
   name: string;
+  baseTaskId: string;
+  candidateTaskId: string;
   baseLabel: string;
   candidateLabel: string;
   dataset: string;
+  datasetId: string;
+  datasetVersion: string;
   status: '待分析' | '已完成';
   tone: StatusTone;
+  totalCases: number;
   comparableCases: number;
+  excludedCases: number;
   improvedCases: number;
   declinedCases: number;
   unchangedCases: number;
   incomparableCases: number;
   createdAt: string;
+  sharedFields: string[];
   evaluatorRows: ComparisonEvaluatorRow[];
+  runtimeRows: ComparisonRuntimeRow[];
   caseRows: ComparisonCaseRow[];
 };
 

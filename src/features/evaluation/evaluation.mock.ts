@@ -3,6 +3,9 @@ import type {
   AgentConfigSnapshot,
   CaseResult,
   ComparisonRecord,
+  ComparisonCaseRow,
+  ComparisonEvaluatorRow,
+  ComparisonRuntimeRow,
   Dataset,
   EvaluationState,
   EvaluationTask,
@@ -30,11 +33,11 @@ const baseTrace = trace([
 const failedTrace = trace([
   { id: 'f1', type: 'system', name: '接收用户输入', status: '成功', duration: '15 ms', detail: '解析为跨境订单退款咨询。' },
   { id: 'f2', type: 'tool', name: '订单查询', status: '失败', duration: '4.2 s', detail: '订单服务超时，未返回有效订单信息。' },
-  { id: 'f3', type: 'agent', name: '生成最终回答', status: '跳过', duration: '—', detail: '依赖的订单信息不可用，未生成有效回答。' },
+  { id: 'f3', type: 'agent', name: '生成最终回答', status: '跳过', duration: '未采集', detail: '依赖的订单信息不可用，未生成有效回答。' },
 ]);
 
 const historyTrace = trace([
-  { id: 'h1', type: 'system', name: '历史会话回流', status: '成功', duration: '—', detail: '沿用原始会话中的 Agent 回复和 Trace，不重新运行 Agent。' },
+  { id: 'h1', type: 'system', name: '历史会话回流', status: '成功', duration: '未采集', detail: '沿用原始会话中的 Agent 回复和 Trace，不重新运行 Agent。' },
   { id: 'h2', type: 'retrieval', name: '历史 Trace · 知识库检索', status: '成功', duration: '1.1 s', detail: '原始会话命中售后政策与退款时效知识片段。' },
   { id: 'h3', type: 'agent', name: '原始最终回答', status: '成功', duration: '2.3 s', detail: '来自 2026-08-19 16:02 的真实对话回流记录。' },
 ]);
@@ -68,7 +71,7 @@ const runtime = (status: CaseResult['status'], duration: string, firstTokenLaten
   evaluatorDuration,
 });
 
-const withRuntime = (item: unknown): CaseResult => { const value = item as CaseResult & { duration?: string }; const badcase = ['CASE-HIS-024', 'CASE-UP-019', 'CASE-GEN-011', 'CASE-FILE-002', 'CASE-FAIL-001', 'CASE-HISTORY-006'].includes(value.caseId); return { ...value, caseMark: value.caseMark ?? (badcase ? 'Badcase' : undefined), runtime: value.runtime ?? runtime(value.status, value.duration ?? '—') }; };
+const withRuntime = (item: unknown): CaseResult => { const value = item as CaseResult & { duration?: string }; const badcase = ['CASE-HIS-024', 'CASE-UP-019', 'CASE-GEN-011', 'CASE-FILE-002', 'CASE-FAIL-001', 'CASE-HISTORY-006'].includes(value.caseId); return { ...value, caseMark: value.caseMark ?? (badcase ? 'Badcase' : undefined), runtime: value.runtime ?? runtime(value.status, value.duration ?? '未采集') }; };
 
 const refundResults: CaseResult[] = [
   {
@@ -96,12 +99,12 @@ const refundResults: CaseResult[] = [
     duration: '8.4 s',
     input: '退款申请提交后多久能到账？',
     expectedOutput: '说明审核通过后的到账时效和原路退回规则。',
-    agentOutput: '退款审核通过后，通常会在 3—5 个工作日内原路退回；具体到账时间以银行或支付渠道处理为准。',
+    agentOutput: '退款审核通过后，通常会在 3-5 个工作日内原路退回；具体到账时间以银行或支付渠道处理为准。',
     agentConfiguration: '退款客服助手 V3 · 知识库：售后政策 · 工具：订单查询',
     trace: baseTrace,
     evaluatorResults: [
       result('P0-01', '任务完成度', 'pass_fail', '通过', '直接回答到账时间，并补充了渠道差异。', ['Agent Output 覆盖时效和原路退回'], ['t4'], 1),
-      result('P0-02', '参考答案遵从度', 'numeric', '通过', '覆盖审核通过、3—5 个工作日和原路退回三个要点。', ['Expected Output 要点全部出现'], ['t4'], 0.98),
+      result('P0-02', '参考答案遵从度', 'numeric', '通过', '覆盖审核通过、3-5 个工作日和原路退回三个要点。', ['Expected Output 要点全部出现'], ['t4'], 0.98),
       result('P0-03', '指令遵循', 'pass_fail', '通过', '没有承诺超出政策边界的确定性时间。', ['“通常”“以渠道处理为准”'], ['t4'], 1),
       result('P0-05', '检索相关性', 'numeric', '通过', '检索内容集中于退款时效。', ['命中退款时效片段'], ['t2'], 0.97),
       result('P0-07', '回答忠实度', 'numeric', '通过', '回答中的时效表述被知识库片段完整支持。', ['售后政策片段 #refund-05'], ['t2', 't4'], 0.98),
@@ -111,7 +114,7 @@ const refundResults: CaseResult[] = [
   {
     caseId: 'CASE-GEN-011',
     status: '证据不足',
-    duration: '—',
+    duration: '未采集',
     input: '订单号缺失，帮我查询退款进度。',
     expectedOutput: '提示用户补充订单号，不应直接执行订单查询。',
     agentOutput: '',
@@ -143,6 +146,83 @@ const refundResults: CaseResult[] = [
     ],
   },
 ].map(withRuntime);
+
+const comparisonResult = (
+  source: CaseResult,
+  status: CaseResult['status'],
+  agentOutput: string,
+  duration: string,
+  firstTokenLatency: string,
+  inputTokens: number,
+  outputTokens: number,
+  scores: Record<string, { status: EvaluatorResult['evaluationStatus']; score?: number; reason: string }>,
+): CaseResult => ({
+  ...source,
+  status,
+  agentOutput,
+  duration,
+  runtime: runtime(status, duration, firstTokenLatency, inputTokens, outputTokens, status === '执行失败' ? '1.1 s' : '2.2 s'),
+  evaluatorResults: [
+    result('P0-01', '任务完成度', 'pass_fail', scores['P0-01'].status, scores['P0-01'].reason, ['Agent Output', 'Expected Output'], ['t4'], scores['P0-01'].score),
+    result('P0-02', '参考答案遵从度', 'numeric', scores['P0-02'].status, scores['P0-02'].reason, ['Expected Output', 'Agent Output'], ['t4'], scores['P0-02'].score),
+    result('P0-05', '检索相关性', 'numeric', scores['P0-05'].status, scores['P0-05'].reason, ['Trace'], ['t2'], scores['P0-05'].score),
+    result('P0-12', 'Agent 轨迹质量', 'numeric', scores['P0-12'].status, scores['P0-12'].reason, ['Trace'], ['t1', 't2', 't3', 't4'], scores['P0-12'].score),
+  ],
+});
+
+const comparisonBaseResults: CaseResult[] = [
+  comparisonResult(refundResults[0], '不通过', '商品未使用且不影响二次销售时，可申请退货。', '12.6 s', '1.18 s', 2280, 460, {
+    'P0-01': { status: '不通过', score: 0, reason: '未说明寄回方式和运费承担。' },
+    'P0-02': { status: '不通过', score: 0.25, reason: '只覆盖商品完好条件。' },
+    'P0-05': { status: '通过', score: 0.92, reason: '检索内容与退货政策相关。' },
+    'P0-12': { status: '通过', score: 0.88, reason: '先检索政策，再生成回答。' },
+  }),
+  comparisonResult(refundResults[1], '通过', '退款审核通过后，通常会在 3-5 个工作日内原路退回；具体到账时间以银行或支付渠道处理为准。', '8.4 s', '760 ms', 2140, 520, {
+    'P0-01': { status: '通过', score: 1, reason: '覆盖到账时效和原路退回规则。' },
+    'P0-02': { status: '通过', score: 0.98, reason: '覆盖全部验收要点。' },
+    'P0-05': { status: '通过', score: 0.97, reason: '检索内容集中于退款时效。' },
+    'P0-12': { status: '通过', score: 0.95, reason: '一次检索后直接回答。' },
+  }),
+  comparisonResult(refundResults[2], '通过', '请先补充订单号，我再帮你查询退款进度。', '6.2 s', '610 ms', 1860, 310, {
+    'P0-01': { status: '通过', score: 1, reason: '正确要求补充订单号。' },
+    'P0-02': { status: '通过', score: 0.86, reason: '满足主要验收要求，但未说明查询入口。' },
+    'P0-05': { status: '证据不足', reason: '该 Case 不需要检索。' },
+    'P0-12': { status: '通过', score: 0.82, reason: '识别缺少订单号后停止查询。' },
+  }),
+  comparisonResult(refundResults[3], '通过', '跨境订单可先核实订单状态和跨境售后政策；如仍无法退款，可转人工处理。', '10.8 s', '940 ms', 2460, 580, {
+    'P0-01': { status: '通过', score: 1, reason: '覆盖核实、跨境政策和转人工。' },
+    'P0-02': { status: '通过', score: 0.73, reason: '覆盖方向正确，但缺少具体凭证要求。' },
+    'P0-05': { status: '通过', score: 0.9, reason: '检索内容与跨境售后相关。' },
+    'P0-12': { status: '通过', score: 0.84, reason: '工具异常后仍完成政策兜底。' },
+  }),
+];
+
+const comparisonCandidateResults: CaseResult[] = [
+  comparisonResult(refundResults[0], '通过', '可以。商品签收后 7 天内，商品完好且不影响二次销售即可申请无理由退货。请在订单详情中提交退货，审核通过后按页面提示寄回；无理由退货通常由买家承担寄回运费，质量问题由商家承担。', '9.8 s', '720 ms', 2320, 690, {
+    'P0-01': { status: '通过', score: 1, reason: '覆盖退货条件、寄回方式和运费承担。' },
+    'P0-02': { status: '通过', score: 0.88, reason: '覆盖 4 个主要验收要点。' },
+    'P0-05': { status: '通过', score: 0.94, reason: '检索片段覆盖退货条件和运费规则。' },
+    'P0-12': { status: '通过', score: 0.91, reason: '检索政策并补充运费工具结果。' },
+  }),
+  comparisonResult(refundResults[1], '通过', '退款审核通过后会原路退回，通常需要 3-5 个工作日。', '10.2 s', '830 ms', 2210, 430, {
+    'P0-01': { status: '通过', score: 1, reason: '回答到账时效。' },
+    'P0-02': { status: '通过', score: 0.92, reason: '覆盖时效，但省略渠道处理差异。' },
+    'P0-05': { status: '通过', score: 0.96, reason: '检索内容与退款时效相关。' },
+    'P0-12': { status: '通过', score: 0.89, reason: '路径正确，但多一次无效订单查询。' },
+  }),
+  comparisonResult(refundResults[2], '通过', '请提供订单号。补充后我可以继续查询退款进度。', '5.8 s', '540 ms', 1790, 280, {
+    'P0-01': { status: '通过', score: 1, reason: '要求补充必要信息。' },
+    'P0-02': { status: '通过', score: 0.84, reason: '满足主要要求，缺少下一步说明。' },
+    'P0-05': { status: '证据不足', reason: '该 Case 不需要检索。' },
+    'P0-12': { status: '通过', score: 0.86, reason: '识别输入不足后停止查询。' },
+  }),
+  comparisonResult(refundResults[3], '执行失败', '', '58.4 s', '2.10 s', 2380, 0, {
+    'P0-01': { status: '执行失败', reason: '订单查询超时，未生成有效回答。' },
+    'P0-02': { status: '执行失败', reason: '缺少 Agent Output。' },
+    'P0-05': { status: '证据不足', reason: '检索完成，但最终执行失败。' },
+    'P0-12': { status: '执行失败', reason: '关键工具调用超时。' },
+  }),
+];
 
 const tenderResults: CaseResult[] = [
   {
@@ -193,7 +273,7 @@ const historyResults: CaseResult[] = [
     duration: '历史记录',
     input: '我已经提交退款申请，为什么还没有到账？',
     expectedOutput: '说明审核状态、到账时效，并在无法查询时引导补充订单号。',
-    agentOutput: '退款申请一般会在审核通过后的 3—5 个工作日内原路退回，请耐心等待。',
+    agentOutput: '退款申请一般会在审核通过后的 3-5 个工作日内原路退回，请耐心等待。',
     userFeedback: '用户点踩：没有先核实订单号和当前审核状态。',
     humanEvaluation: { humanLabel: '待标注', humanReason: '回流记录缺少可确认的订单状态，需要专家判断。', updatedAt: '2026-08-25 20:10', updatedBy: '演示账户' },
     agentConfiguration: '退款客服助手 V2 · 历史会话回流 · 原始 Trace 已保留',
@@ -203,7 +283,7 @@ const historyResults: CaseResult[] = [
       result('P0-02', '参考答案遵从度', 'numeric', '不通过', '没有说明审核状态，也没有询问订单号。', ['Expected Output 要求先核实状态'], ['h3'], 0.42),
       result('P0-03', '指令遵循', 'pass_fail', '通过', '回复语气和退款时效说明符合配置，但信息收集不充分。', ['Agent Configuration', 'Agent Output'], ['h3'], 1),
       result('P0-05', '检索相关性', 'numeric', '通过', '原始检索片段与退款时效有关。', ['历史 Trace 命中退款时效片段'], ['h2'], 0.9),
-      result('P0-07', '回答忠实度', 'numeric', '通过', '3—5 个工作日的表述被原始检索片段支持。', ['历史知识片段 #refund-05'], ['h2', 'h3'], 0.94),
+      result('P0-07', '回答忠实度', 'numeric', '通过', '3-5 个工作日的表述被原始检索片段支持。', ['历史知识片段 #refund-05'], ['h2', 'h3'], 0.94),
       result('P0-12', 'Agent 轨迹质量', 'numeric', '不通过', '历史路径直接检索并回答，没有核实订单状态的动作。', ['缺少订单查询节点'], ['h1', 'h2', 'h3'], 0.61),
     ],
   },
@@ -229,7 +309,7 @@ const evaluatorDefinitions: Array<Pick<Evaluator, 'id' | 'name' | 'purpose' | 'c
 ];
 
 export const agents: AgentOption[] = [
-  { id: 'agent-refund', name: '退款客服助手', versions: ['V3', 'V2'], description: '处理退款政策、申请进度和售后咨询。' },
+  { id: 'agent-refund', name: '退款客服助手', versions: ['V4', 'V3', 'V2'], description: '处理退款政策、申请进度和售后咨询。' },
   { id: 'agent-tender', name: '招标文件评估助手', versions: ['V1'], description: '分析招标文件并生成结构化评分报告。' },
   { id: 'agent-research', name: '网页研究助手', versions: ['V2', 'V1'], description: '基于网页检索完成带来源的研究任务。' },
 ];
@@ -244,10 +324,10 @@ export const historyConversations: HistoryConversation[] = [
     replayTrace('TRACE-27001-B', '第 2 轮', '补充订单号后追问运费', '订单号 OD202608180042，运费谁承担？', '退货运费一般由买家承担，质量问题除外。', '', '2026-08-27 09:22'),
   ]),
   historyConversation('SESSION-20260827-002', '退款申请提交后多久能到账？', '2026-08-27 11:06', 'agent-refund', 'V3', [
-    replayTrace('TRACE-27002-A', '第 1 轮', '查询退款到账时效', '退款申请提交后多久能到账？', '审核通过后通常 3—5 个工作日原路退回。', '', '2026-08-27 11:06'),
+    replayTrace('TRACE-27002-A', '第 1 轮', '查询退款到账时效', '退款申请提交后多久能到账？', '审核通过后通常 3-5 个工作日原路退回。', '', '2026-08-27 11:06'),
   ]),
   historyConversation('SESSION-20260826-003', '我已经提交退款申请，为什么还没有到账？', '2026-08-26 16:02', 'agent-refund', 'V3', [
-    replayTrace('TRACE-26003-A', '第 1 轮', '未核实订单状态直接回复时效', '我已经提交退款申请，为什么还没有到账？', '退款申请一般会在审核通过后的 3—5 个工作日内原路退回。', '用户点踩：没有先核实订单号和当前审核状态。', '2026-08-26 16:02'),
+    replayTrace('TRACE-26003-A', '第 1 轮', '未核实订单状态直接回复时效', '我已经提交退款申请，为什么还没有到账？', '退款申请一般会在审核通过后的 3-5 个工作日内原路退回。', '用户点踩：没有先核实订单号和当前审核状态。', '2026-08-26 16:02'),
     replayTrace('TRACE-26003-B', '第 2 轮', '用户补充订单号', '订单号是 OD202608180099。', '正在查询该订单的审核状态。', '', '2026-08-26 16:05'),
     replayTrace('TRACE-26003-C', '第 3 轮', '返回审核中状态', '查到了吗？', '当前仍在审核中，请等待审核结果。', '', '2026-08-26 16:07'),
   ]),
@@ -454,11 +534,177 @@ datasets.forEach((dataset) => {
 const task = (input: Omit<EvaluationTask, 'totalCases' | 'executableCases' | 'completedCases' | 'failedCases'> & Pick<EvaluationTask, 'totalCases' | 'executableCases' | 'completedCases' | 'failedCases'>): EvaluationTask => input;
 
 const tasks: EvaluationTask[] = [
+  task({ id: 'TASK-20260922-001', name: '退款客服助手 V3｜退货政策基线', description: '作为退货政策优化前的基准任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 09:40', updatedAt: '2026-09-22 09:49', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonBaseResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260922-002', name: '退款客服助手 V4｜退货政策优化', description: '验证补充寄回方式、运费规则和异常兜底后的输出。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 10:12', updatedAt: '2026-09-22 10:23', totalCases: 4, executableCases: 4, completedCases: 3, failedCases: 1, results: comparisonCandidateResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260825-001', name: '退款客服助手 V3｜回流问题评测', description: '验证退款问答的任务完成、检索证据和完整 Trace。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '部分失败', tone: 'warning', createdBy: '王子磊', createdAt: '2026-08-25 18:12', updatedAt: '2026-08-25 18:19', totalCases: 4, executableCases: 3, completedCases: 3, failedCases: 1, results: refundResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260823-003', name: '退款客服助手 V2｜工具稳定性检查', description: '验证订单查询工具异常时的失败边界。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-53346', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-10', 'P0-12'], status: '失败', tone: 'danger', createdBy: '王子磊', createdAt: '2026-08-23 11:16', updatedAt: '2026-08-23 11:18', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 1, results: failureResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260824-008', name: '招标文件覆盖评测', description: '验证文件分析和最终交付文件的完整性。', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: 'DS-24610', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-04', 'P0-08', 'P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-08-24 15:34', updatedAt: '2026-08-24 16:02', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 0, results: tenderResults, runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
   task({ id: 'TASK-20260825-004', name: '退款问答回归检查', description: '基于历史对话回流验证退款回复的完整性。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-11490', datasetVersion: '草稿', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '运行中', tone: 'info', createdBy: '王子磊', createdAt: '2026-08-25 19:42', updatedAt: '2026-08-25 19:44', totalCases: 1, executableCases: 1, completedCases: 0, failedCases: 0, results: historyResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
 ];
+
+const metricValue = (item?: EvaluatorResult): number | undefined => {
+  if (!item || !['通过', '不通过'].includes(item.evaluationStatus)) return undefined;
+  if (item.scoreType === 'numeric') return typeof item.evaluationResult === 'number' ? item.evaluationResult : undefined;
+  return item.evaluationStatus === '通过' ? 1 : 0;
+};
+
+const average = (values: number[]): number | undefined => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
+
+const signed = (value: number, digits = 2): string => `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
+
+const durationSeconds = (value?: string): number | undefined => {
+  if (!value) return undefined;
+  const match = value.match(/([\d.]+)\s*(ms|s|min)/i);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  return unit === 'ms' ? amount / 1000 : unit === 'min' ? amount * 60 : amount;
+};
+
+const formatSeconds = (value: number, metric: string): string => metric === '首字时延' ? `${Math.round(value * 1000)} ms` : `${value.toFixed(1)} s`;
+const formatTokens = (value: number): string => value >= 1000 ? `${(value / 1000).toFixed(1)}K` : `${Math.round(value)}`;
+
+const runtimeValue = (item: CaseResult, metric: string): number | undefined => {
+  if (!item.runtime) return undefined;
+  if (metric === 'Agent 耗时') return durationSeconds(item.runtime.agentDuration);
+  if (metric === '首字时延') return durationSeconds(item.runtime.firstTokenLatency);
+  if (metric === 'Input Tokens') return item.runtime.inputTokens;
+  if (metric === 'Output Tokens') return item.runtime.outputTokens;
+  if (metric === 'Total Tokens') return item.runtime.totalTokens;
+  if (metric === '评估器耗时') return durationSeconds(item.runtime.evaluatorDuration);
+  return undefined;
+};
+
+export const createComparisonRecord = (
+  baseTask: EvaluationTask,
+  candidateTask: EvaluationTask,
+  dataset: Dataset,
+  evaluatorCatalog: Evaluator[],
+): ComparisonRecord => {
+  const candidateById = new Map(candidateTask.results.map((item) => [item.caseId, item]));
+  const datasetCases = new Map(dataset.cases.map((item) => [item.id, item]));
+  const evaluatorById = new Map(evaluatorCatalog.map((item) => [item.id, item]));
+  const commonEvaluatorIds = baseTask.evaluatorIds.filter((id) => candidateTask.evaluatorIds.includes(id));
+  const sharedFields = dataset.fields
+    .filter((item) => !['Agent Output', 'Trace', 'Agent Configuration'].includes(item.semantic))
+    .map((item) => item.semantic === 'Custom' ? item.name : item.semantic);
+
+  const paired = baseTask.results
+    .filter((item) => candidateById.has(item.caseId))
+    .map((base) => ({ base, candidate: candidateById.get(base.caseId) as CaseResult }));
+
+  const caseRows = paired.map(({ base, candidate }) => {
+    const pairedValues = commonEvaluatorIds
+      .map((id) => ({ before: metricValue(base.evaluatorResults.find((item) => item.evaluatorId === id)), after: metricValue(candidate.evaluatorResults.find((item) => item.evaluatorId === id)) }))
+      .filter((item): item is { before: number; after: number } => item.before !== undefined && item.after !== undefined);
+    const beforeAverage = average(pairedValues.map((item) => item.before));
+    const afterAverage = average(pairedValues.map((item) => item.after));
+    const judgment: ComparisonCaseRow['judgment'] = beforeAverage === undefined || afterAverage === undefined
+      ? '无法比较'
+      : afterAverage - beforeAverage > 0.005 ? '改善' : beforeAverage - afterAverage > 0.005 ? '下降' : '无变化';
+    const datasetCase = datasetCases.get(base.caseId);
+    const sharedValues = Object.fromEntries(dataset.fields
+      .filter((item) => !['Agent Output', 'Trace', 'Agent Configuration'].includes(item.semantic))
+      .map((item) => [item.semantic === 'Custom' ? item.name : item.semantic, item.semantic === 'Input' ? base.input : item.semantic === 'Expected Output' ? base.expectedOutput ?? '' : item.semantic === 'User Feedback' ? base.userFeedback ?? '' : datasetCase?.values[item.id] ?? '未采集']));
+    return {
+      caseId: base.caseId,
+      sharedValues,
+      beforeOutput: base.agentOutput,
+      afterOutput: candidate.agentOutput,
+      beforeEvaluators: base.evaluatorResults.filter((item) => commonEvaluatorIds.includes(item.evaluatorId)),
+      afterEvaluators: candidate.evaluatorResults.filter((item) => commonEvaluatorIds.includes(item.evaluatorId)),
+      judgment,
+      reason: judgment === '无法比较'
+        ? '至少一侧缺少有效评估结果。'
+        : `共同评估器均值 ${beforeAverage?.toFixed(2)} → ${afterAverage?.toFixed(2)}。`,
+    };
+  });
+
+  const evaluatorRows: ComparisonEvaluatorRow[] = commonEvaluatorIds.map((id) => {
+    const evaluator = evaluatorById.get(id);
+    const beforeResults = paired.map(({ base }) => base.evaluatorResults.find((item) => item.evaluatorId === id));
+    const afterResults = paired.map(({ candidate }) => candidate.evaluatorResults.find((item) => item.evaluatorId === id));
+    const beforeValues = beforeResults.map(metricValue).filter((item): item is number => item !== undefined);
+    const afterValues = afterResults.map(metricValue).filter((item): item is number => item !== undefined);
+    const pairedValues = beforeResults.map((item, index) => ({ before: metricValue(item), after: metricValue(afterResults[index]) })).filter((item): item is { before: number; after: number } => item.before !== undefined && item.after !== undefined);
+    const beforeAverage = average(pairedValues.map((item) => item.before));
+    const afterAverage = average(pairedValues.map((item) => item.after));
+    const delta = beforeAverage === undefined || afterAverage === undefined ? 0 : afterAverage - beforeAverage;
+    const judgment: ComparisonEvaluatorRow['judgment'] = beforeAverage === undefined || afterAverage === undefined ? '无法比较' : delta > 0.005 ? '改善' : delta < -0.005 ? '下降' : '无变化';
+    const scoreType = evaluator?.scoreType ?? 'numeric';
+    const format = (value: number | undefined) => value === undefined ? '未采集' : scoreType === 'pass_fail' ? `${Math.round(value * 100)}%` : value.toFixed(2);
+    return {
+      metric: evaluator?.name ?? id,
+      evaluatorName: evaluator?.name ?? id,
+      scoreType,
+      beforeResult: scoreType === 'pass_fail' ? `${Math.round((beforeAverage ?? 0) * 100)}% (${beforeValues.filter((item) => item === 1).length}/${beforeValues.length})` : format(beforeAverage),
+      afterResult: scoreType === 'pass_fail' ? `${Math.round((afterAverage ?? 0) * 100)}% (${afterValues.filter((item) => item === 1).length}/${afterValues.length})` : format(afterAverage),
+      delta: scoreType === 'pass_fail' ? `${signed(delta * 100, 1)} pp` : signed(delta, 2),
+      judgment,
+      coverage: `${pairedValues.length}/${caseRows.length}`,
+      beforeValue: beforeAverage,
+      afterValue: afterAverage,
+    };
+  });
+
+  const sameRuntimeSettings = JSON.stringify(baseTask.runtime) === JSON.stringify(candidateTask.runtime);
+  const runtimeMetrics = ['Agent 耗时', '首字时延', 'Input Tokens', 'Output Tokens', 'Total Tokens', '评估器耗时'];
+  const runtimeRows: ComparisonRuntimeRow[] = runtimeMetrics.map((metric) => {
+    const pairs = paired.map(({ base, candidate }) => ({ before: runtimeValue(base, metric), after: runtimeValue(candidate, metric) })).filter((item): item is { before: number; after: number } => item.before !== undefined && item.after !== undefined);
+    const beforeAverage = average(pairs.map((item) => item.before));
+    const afterAverage = average(pairs.map((item) => item.after));
+    const delta = beforeAverage === undefined || afterAverage === undefined ? 0 : (afterAverage - beforeAverage) / (beforeAverage || 1);
+    const lowerIsBetter = true;
+    const judgment: ComparisonRuntimeRow['judgment'] = beforeAverage === undefined || afterAverage === undefined || !sameRuntimeSettings
+      ? '参考差异'
+      : lowerIsBetter && delta < -0.005 ? '改善' : lowerIsBetter && delta > 0.005 ? '下降' : '无变化';
+    const format = (value: number | undefined) => value === undefined ? '未采集' : metric.includes('Tokens') ? formatTokens(value) : formatSeconds(value, metric);
+    return {
+      metric,
+      beforeResult: format(beforeAverage),
+      afterResult: format(afterAverage),
+      delta: `${signed(delta * 100, 1)}%`,
+      judgment,
+      coverage: `${pairs.length}/${caseRows.length}`,
+      beforeValue: beforeAverage,
+      afterValue: afterAverage,
+    };
+  });
+
+  const summary = { improved: 0, declined: 0, unchanged: 0, incomparable: 0 };
+  caseRows.forEach((item) => {
+    if (item.judgment === '改善') summary.improved += 1;
+    else if (item.judgment === '下降') summary.declined += 1;
+    else if (item.judgment === '无变化') summary.unchanged += 1;
+    else summary.incomparable += 1;
+  });
+
+  return {
+    id: `CMP-${baseTask.id}-${candidateTask.id}`,
+    name: `${baseTask.agent} ${baseTask.agentVersion} vs ${candidateTask.agentVersion}`,
+    baseTaskId: baseTask.id,
+    candidateTaskId: candidateTask.id,
+    baseLabel: `${baseTask.name} · ${baseTask.agentVersion}`,
+    candidateLabel: `${candidateTask.name} · ${candidateTask.agentVersion}`,
+    dataset: dataset.name,
+    datasetId: dataset.id,
+    datasetVersion: baseTask.datasetVersion === candidateTask.datasetVersion ? baseTask.datasetVersion : `${baseTask.datasetVersion} / ${candidateTask.datasetVersion}`,
+    status: '已完成',
+    tone: 'success',
+    totalCases: paired.length,
+    comparableCases: paired.length - summary.incomparable,
+    excludedCases: Math.max(0, baseTask.results.length - paired.length),
+    improvedCases: summary.improved,
+    declinedCases: summary.declined,
+    unchangedCases: summary.unchanged,
+    incomparableCases: summary.incomparable,
+    createdAt: '2026-09-22 10:31',
+    sharedFields,
+    evaluatorRows,
+    runtimeRows,
+    caseRows,
+  };
+};
 
 const beforeConfig: AgentConfigSnapshot = {
   systemPrompt: '你是退款客服助手。根据售后政策回答退款、退货和到账问题。',
@@ -496,50 +742,12 @@ const experiments: OptimizeExperiment[] = [
   { id: 'EXP-20260824-02', name: '招标文件评估助手 V1｜文件交付优化', sourceTaskId: 'TASK-20260824-008', agent: '招标文件评估助手', baseVersion: 'V1', candidateVersion: '新建 Agent（待确认）', datasetVersion: '招标报告评测集 V1', status: '优化中', tone: 'info', createdAt: '2026-08-24 17:20', selectedCaseIds: ['CASE-FILE-001'], selectedCaseCount: 1, result: { ...optimizationResult(1), status: '无有效修改', changeSummary: '当前输入不足以确认文件交付问题，不生成无依据修改。', changes: [], scoreRows: [], summary: { improved: 0, declined: 0, unchanged: 0, incomparable: 1 } } },
 ];
 
-const comparisons: ComparisonRecord[] = [
-  {
-    id: 'CMP-20260825-01',
-    name: '退款客服助手 V3 优化前后',
-    baseLabel: '退款客服助手 V3',
-    candidateLabel: '新建 Agent（优化配置）',
-    dataset: '退款问答评测集 V2',
-    status: '已完成',
-    tone: 'success',
-    comparableCases: 3,
-    improvedCases: 2,
-    declinedCases: 0,
-    unchangedCases: 0,
-    incomparableCases: 1,
-    createdAt: '2026-08-25 19:02',
-    evaluatorRows: [
-      { evaluatorName: '任务完成度', beforeResult: '1 / 3 通过', afterResult: '2 / 3 通过', judgment: '改善' },
-      { evaluatorName: '参考答案遵从度', beforeResult: 0.48, afterResult: 0.82, judgment: '改善' },
-      { evaluatorName: 'Agent 轨迹质量', beforeResult: 0.73, afterResult: 0.73, judgment: '无变化' },
-    ],
-    caseRows: [
-      { caseId: 'CASE-HIS-024', beforeResult: '不通过', afterResult: '通过', judgment: '改善', reason: '补充寄回方式和运费承担。' },
-      { caseId: 'CASE-UP-018', beforeResult: '通过', afterResult: '通过', judgment: '无变化', reason: '原有回答已覆盖到账时效。' },
-      { caseId: 'CASE-UP-019', beforeResult: '执行失败', afterResult: '无法比较', judgment: '无法比较', reason: '优化后没有可比较的有效结果。' },
-    ],
-  },
-  {
-    id: 'CMP-20260824-02',
-    name: '招标文件 V1 文件交付对比',
-    baseLabel: '招标文件评估助手 V1',
-    candidateLabel: '新建 Agent（优化配置）',
-    dataset: '招标报告评测集 V1',
-    status: '待分析',
-    tone: 'info',
-    comparableCases: 1,
-    improvedCases: 0,
-    declinedCases: 0,
-    unchangedCases: 1,
-    incomparableCases: 0,
-    createdAt: '2026-08-24 18:06',
-    evaluatorRows: [{ evaluatorName: '文件交付质量', beforeResult: 0.94, afterResult: 0.94, judgment: '无变化' }],
-    caseRows: [{ caseId: 'CASE-FILE-001', beforeResult: '通过', afterResult: '通过', judgment: '无变化', reason: '文件结构和交付说明未发生变化。' }],
-  },
-];
+const comparisonDataset = datasets.find((item) => item.id === 'DS-53346');
+const comparisonBaseTask = tasks.find((item) => item.id === 'TASK-20260922-001');
+const comparisonCandidateTask = tasks.find((item) => item.id === 'TASK-20260922-002');
+const comparisons: ComparisonRecord[] = comparisonDataset && comparisonBaseTask && comparisonCandidateTask
+  ? [createComparisonRecord(comparisonBaseTask, comparisonCandidateTask, comparisonDataset, evaluators)]
+  : [];
 
 export const mockEvaluationState: EvaluationState = { agents, datasets, evaluators, tasks, experiments, comparisons };
 
