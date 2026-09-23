@@ -3265,3 +3265,17 @@
 @media (max-width: 680px) {
   .eval-code-output-fields, .eval-code-config-section .eval-code-inputs { grid-template-columns: 1fr; }
 }
+
+
+.eval-code-only-detail .eval-evaluator-detail-intro { align-items: center; margin-bottom: 14px; padding-bottom: 16px; }
+.eval-code-only-detail .eval-detail-hero__actions { gap: 6px; }
+.eval-code-only-detail .eval-detail-card { padding: 0; overflow: hidden; }
+.eval-code-create-box { margin-top: 18px; }
+.eval-code-editor { border: 1px solid var(--eval-border-strong); border-radius: 8px; overflow: hidden; background: #fff; box-shadow: none; }
+.eval-code-editor > header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--eval-border); color: var(--eval-ink); background: #fff; }
+.eval-code-editor > header strong { font-size: 13px; }
+.eval-code-editor > header select { width: 132px; height: 32px; padding: 0 9px; border: 1px solid var(--eval-border-strong); border-radius: 6px; color: var(--eval-text); background: #fff; font-size: 11px; }
+.eval-code-editor__body { min-height: 420px; display: grid; grid-template-columns: 48px minmax(0, 1fr); background: #fff; }
+.eval-code-editor__body > div { display: flex; flex-direction: column; align-items: flex-end; padding: 16px 11px 16px 0; border-right: 1px solid var(--eval-border); color: var(--eval-faint); background: #fafafa; font: 11px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.eval-code-editor textarea { width: 100%; min-height: 420px; padding: 16px; border: 0; outline: 0; resize: vertical; color: var(--eval-ink); background: #fff; font: 12px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; tab-size: 4; }
+.eval-code-editor textarea:focus { box-shadow: inset 0 0 0 2px rgba(91, 95, 232, .12); }

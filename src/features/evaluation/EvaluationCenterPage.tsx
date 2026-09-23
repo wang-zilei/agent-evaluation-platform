@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type Dispatch, type MouseEvent, type ReactNode, type SetStateAction } from 'react';
 import * as XLSX from 'xlsx';
 import {
-  Activity, ArrowLeft, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Code2,
+  Activity, ArrowLeft, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, CircleCheck, ClipboardCheck, Copy, Database, Download, Eye, FileSpreadsheet, GitCompare, History,
-  Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Package, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, Terminal, Trash2, Upload,
+  Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Package, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, Trash2, Upload,
   X, Zap,
 } from 'lucide-react';
 import ApplicationRegistryPage from '../applications/ApplicationRegistryPage';
@@ -1142,15 +1142,6 @@ function EvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator: Eva
   </div>;
 }
 
-const CODE_CATEGORIES = ['格式与结构', '内容与约束', '工具与轨迹', '代码与性能'] as const;
-const CODE_INPUT_OPTIONS = [
-  { id: 'Input', label: '用户输入', source: '评测集字段' },
-  { id: 'Expected Output', label: '参考答案 / 验收标准', source: '评测集字段' },
-  { id: 'Agent Output', label: 'Agent 最终输出', source: '系统绑定' },
-  { id: 'Trace', label: '完整 Trace', source: '系统绑定' },
-  { id: 'Agent Configuration', label: 'Agent 配置快照', source: '系统绑定' },
-  { id: 'runtime', label: '时延、Token 和调用次数', source: '运行指标' },
-];
 
 function CodeEvaluatorList({ evaluators, setKind, mode, setMode, search, setSearch, scoreFilter, setScoreFilter, onCreate, onOpen, onCopy }: {
   evaluators: Evaluator[];
@@ -1165,89 +1156,50 @@ function CodeEvaluatorList({ evaluators, setKind, mode, setMode, search, setSear
   onOpen: (evaluator: Evaluator) => void;
   onCopy: (evaluator: Evaluator) => void;
 }) {
-  const [category, setCategory] = useState<string>('全部');
-  const visible = evaluators.filter((item) => category === '全部' || item.category === category);
-
   return (
     <div className="eval-list-page">
       <div className="eval-evaluator-tabs">{(['模型评估器', '代码评估', '人工评估'] as EvaluatorKind[]).map((item) => <button type="button" key={item} className={item === '代码评估' ? 'is-active' : ''} onClick={() => setKind(item)}>{item === '代码评估' ? 'Code 评估器' : item}</button>)}</div>
-      <div className="eval-code-method"><Code2 size={17} /><strong>Code 评估器</strong><span>确定性检查</span></div>
       <div className="eval-toolbar">
-        <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索检查名称或用途" /></label>
+        <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" /></label>
         <select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">内置 Code 评估器</option><option value="custom">自建 Code 评估器</option></select>
         <select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select>
         <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />自定义创建</button>
       </div>
-      <div className="eval-code-categories">
-        {['全部', ...CODE_CATEGORIES].map((item) => {
-          const count = item === '全部' ? evaluators.length : evaluators.filter((evaluator) => evaluator.category === item).length;
-          return <button type="button" key={item} className={category === item ? 'is-active' : ''} onClick={() => setCategory(item)}>{item}<span>{count}</span></button>;
-        })}
-      </div>
       <div className="eval-evaluator-grid">
-        {visible.map((evaluator) => (
+        {evaluators.map((evaluator) => (
           <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}>
             <h3>{evaluator.name}</h3>
             <p>{evaluator.description}</p>
-            <div className="eval-evaluator-meta"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '内置' : '自建'}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</Pill><span>{evaluator.category}</span></div>
+            <div className="eval-evaluator-meta"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '内置' : '自建'}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</Pill><span>{evaluator.implementation}</span></div>
             <div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div>
-            <footer><span>{evaluator.implementation}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer>
+            <footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer>
           </article>
         ))}
       </div>
-      {visible.length === 0 && <EmptyState title={mode === 'custom' ? '还没有自建 Code 评估器' : '没有匹配的 Code 评估器'} description={mode === 'custom' ? '从内置模板创建，或直接编写 Python / JavaScript 检查逻辑。' : '调整搜索词或筛选条件。'} action={<button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={15} />新建 Code 评估器</button>} />}
+      {evaluators.length === 0 && <EmptyState title={mode === 'custom' ? '还没有自建 Code 评估器' : '没有匹配的 Code 评估器'} description={mode === 'custom' ? '从内置模板创建，或直接编写 Python / JavaScript 检查逻辑。' : '调整搜索词或筛选条件。'} action={<button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={15} />新建 Code 评估器</button>} />}
     </div>
   );
 }
 
 function CodeEvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator: Evaluator; onBack: () => void; onCopy: () => void; onEdit: () => void }) {
-  const outputExample = evaluator.outputExample ?? `{\n  "check": "passed",\n  "diagnostics": [],\n  "observations": {}\n}`;
   return (
-    <div className="eval-detail-page eval-evaluator-detail-page">
+    <div className="eval-detail-page eval-evaluator-detail-page eval-code-only-detail">
       <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Code 评估器</button></div>
       <div className="eval-evaluator-detail-intro">
-        <div><span className="eval-eyebrow">{evaluator.category}</span><h2>{evaluator.name}</h2></div>
-        <div className="eval-detail-hero__actions"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '内置' : '自建'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />基于此创建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div>
+        <div><h2>{evaluator.name}</h2></div>
+        <div className="eval-detail-hero__actions"><Pill>Code</Pill><Pill>{evaluator.category}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />基于此创建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑</button>}</div>
       </div>
-      <div className="eval-evaluator-detail-meta">
-        <div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</strong></div>
-        <div><span>实现方式</span><strong>{evaluator.implementation}</strong></div>
-        <div><span>依赖</span><strong>{evaluator.dependencies}</strong></div>
-        <div><span>版本</span><strong>{evaluator.version}</strong></div>
-        <div><span>累计运行</span><strong>{evaluator.runCount}</strong></div>
-      </div>
-
       <section className="eval-detail-card">
-        <div className="eval-detail-card__heading"><h3>输入变量</h3></div>
-        <div className="eval-code-contract-table">
-          <div><span>变量</span><span>来源</span><span>要求</span></div>
-          {evaluator.variables.map((variable) => <div key={variable.name}><strong>{variable.name}</strong><span>{variable.semantic === 'Custom' ? '评估器参数' : variable.semantic === 'Trace' ? '系统 Trace' : '系统绑定 / 评测集字段'}</span><Pill tone={variable.required ? 'green' : 'neutral'}>{variable.required ? '必需' : '可选'}</Pill></div>)}
-        </div>
-      </section>
-
-      <section className="eval-detail-card">
-        <div className="eval-detail-card__heading"><h3>判定规则</h3></div>
-        <div className="eval-code-rule-list">{(evaluator.rules ?? []).map((rule, index) => <div key={rule.condition}><span>{String(index + 1).padStart(2, '0')}</span><p><small>条件</small><strong>{rule.condition}</strong></p><ChevronRight size={14} /><p><small>输出</small><strong>{rule.output}</strong></p></div>)}</div>
-      </section>
-
-      <section className="eval-detail-card">
-        <div className="eval-detail-card__heading"><h3>输出</h3></div>
-        <div className="eval-code-output-fields"><div><code>check / value</code><span>结果</span></div><div><code>diagnostics</code><span>诊断</span></div><div><code>observations</code><span>观察值</span></div></div>
-        <div className="eval-code-output"><pre>{outputExample}</pre></div>
-      </section>
-
-      <section className="eval-detail-card">
-        <div className="eval-detail-card__heading"><div><h3>实现</h3></div><IconButton label="复制代码" onClick={() => { void navigator.clipboard?.writeText(evaluator.code ?? ''); }}><Copy size={15} /></IconButton></div>
-        <pre className="eval-code-block">{evaluator.code ?? '未配置代码'}</pre>
+        <CodeEditor value={evaluator.code ?? ''} language={evaluator.implementation === 'JavaScript' ? 'JavaScript' : 'Python'} onChange={() => undefined} />
       </section>
     </div>
   );
 }
 
-function CodeEditor({ value, language, onChange }: { value: string; language: CodeEvaluatorLanguage; onChange: (value: string) => void }) {
+function CodeEditor({ value, language, onChange, onLanguageChange }: { value: string; language: CodeEvaluatorLanguage; onChange: (value: string) => void; onLanguageChange?: (language: CodeEvaluatorLanguage) => void }) {
   const lineCount = value.split('\n').length;
   return <div className="eval-code-editor">
-    <header><div><Terminal size={13} /><span>{language}</span></div><span>UTF-8 · 依赖白名单</span></header>
+    <header><strong>Code</strong><select value={language} disabled={!onLanguageChange} onChange={(event) => onLanguageChange?.(event.target.value as CodeEvaluatorLanguage)}><option>Python</option><option>JavaScript</option></select></header>
     <div className="eval-code-editor__body"><div aria-hidden="true">{Array.from({ length: lineCount }, (_, index) => <span key={index}>{index + 1}</span>)}</div><textarea aria-label="评估代码" spellCheck={false} value={value} onChange={(event) => onChange(event.target.value)} /></div>
   </div>;
 }
@@ -1359,33 +1311,20 @@ function EvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }:
 }
 
 function CodeEvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }: { draft: EvaluatorDraft; setDraft: Dispatch<SetStateAction<EvaluatorDraft>>; editing?: boolean; onBack: () => void; onCreate: () => void }) {
-  const toggleInput = (id: string) => setDraft((current) => ({ ...current, inputs: current.inputs.includes(id) ? current.inputs.filter((item) => item !== id) : [...current.inputs, id] }));
   const changeLanguage = (language: CodeEvaluatorLanguage) => setDraft((current) => ({ ...current, language, code: CODE_TEMPLATE[language], dependencies: language === 'Python' ? 'Python 标准库 + 白名单依赖' : 'JavaScript ECMAScript + 白名单依赖' }));
-
   return (
     <div className="eval-create-page">
       <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Code 评估器</button></div>
       <section className="eval-create-single">
-        <div className="eval-create-single__head"><span className="eval-eyebrow">CODE EVALUATOR</span><h3>{editing ? '编辑 Code 评估器' : '新建 Code 评估器'}</h3></div>
         <div className="eval-form-grid">
-          <label className="eval-field"><span>名称 <b>*</b></span><input autoFocus maxLength={50} value={draft.name} placeholder="例如：退款响应字段完整性" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
+          <label className="eval-field"><span>名称 <b>*</b></span><input autoFocus maxLength={50} value={draft.name} placeholder="例如：文本正则匹配" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
           <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明检查内容" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
-          <label className="eval-field"><span>检查分类</span><select value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))}>{CODE_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label className="eval-field"><span>结果类型</span><select value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="pass_fail">通过 / 不通过</option><option value="numeric">0-1 数值评分</option></select></label>
         </div>
-
-        <div className="eval-code-config-section">
-          <div className="eval-subsection-head"><h4>输入变量</h4></div>
-          <div className="eval-code-inputs">{CODE_INPUT_OPTIONS.map((item) => <label key={item.id}><input type="checkbox" checked={draft.inputs.includes(item.id)} onChange={() => toggleInput(item.id)} /><span><strong>{item.id}</strong><small>{item.label}</small></span></label>)}</div>
-        </div>
-
-        <div className="eval-code-config-section">
-          <div className="eval-subsection-head"><h4>评估代码</h4><label className="eval-code-language"><span>语言</span><select value={draft.language} onChange={(event) => changeLanguage(event.target.value as CodeEvaluatorLanguage)}><option>Python</option><option>JavaScript</option></select></label></div>
-          <CodeEditor value={draft.code} language={draft.language} onChange={(code) => setDraft((current) => ({ ...current, code }))} />
-          <div className="eval-code-editor-contract"><div><code>evaluate(ctx)</code></div><div><code>EvalResult</code></div><div><code>Diagnostic</code></div><button type="button" className="eval-text-button" onClick={() => setDraft((current) => ({ ...current, code: CODE_TEMPLATE[current.language] }))}>重置为模板</button></div>
+        <div className="eval-code-create-box">
+          <CodeEditor value={draft.code} language={draft.language} onChange={(code) => setDraft((current) => ({ ...current, code }))} onLanguageChange={changeLanguage} />
         </div>
       </section>
-      <footer className="eval-sticky-footer"><span>{editing ? '保存后生成新版本。' : '创建后生成 v0.0.1。'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!draft.name.trim() || !draft.inputs.length || !draft.code.includes('evaluate(') || !draft.code.includes('EvalResult')} onClick={onCreate}><Check size={15} />{editing ? '保存并生成新版本' : '创建 Code 评估器'}</button></div></footer>
+      <footer className="eval-sticky-footer"><span>{editing ? '保存后生成新版本。' : '创建后生成 v0.0.1。'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!draft.name.trim() || !draft.code.trim()} onClick={onCreate}><Check size={15} />{editing ? '保存并生成新版本' : '创建 Code 评估器'}</button></div></footer>
     </div>
   );
 }
