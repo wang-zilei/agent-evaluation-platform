@@ -3075,13 +3075,10 @@
 
 
 /* Code evaluator redesign */
-.eval-code-method { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--eval-border); border-radius: 10px; background: linear-gradient(90deg, #f2faf8, #fff); }
+.eval-code-method { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid var(--eval-border); border-radius: 9px; background: var(--eval-green-soft); }
 .eval-code-method > svg { color: var(--eval-green); flex: 0 0 auto; }
-.eval-code-method > div:nth-child(2) { display: flex; flex: 1; flex-direction: column; gap: 4px; }
-.eval-code-method strong { color: var(--eval-green); font-size: 12px; }
-.eval-code-method span { color: var(--eval-muted); font-size: 10px; line-height: 1.5; }
-.eval-code-method__flow { display: flex; align-items: center; gap: 5px; color: var(--eval-green); }
-.eval-code-method__flow span { padding: 5px 7px; border: 1px solid #c8e3dc; border-radius: 5px; background: var(--eval-green-soft); font: 700 8px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; }
+.eval-code-method strong { color: var(--eval-green); font-size: 11px; }
+.eval-code-method span { color: var(--eval-muted); font-size: 10px; }
 .eval-code-categories { display: flex; gap: 7px; margin: -4px 0 16px; overflow-x: auto; }
 .eval-code-categories button { min-height: 31px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--eval-border); border-radius: 99px; color: var(--eval-muted); background: #fff; font-size: 10px; white-space: nowrap; cursor: pointer; }
 .eval-code-categories button span { min-width: 18px; padding: 2px 5px; border-radius: 99px; color: var(--eval-faint); background: #f1f1f3; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -3242,4 +3239,29 @@
   .eval-code-create__head { align-items: flex-start; flex-direction: column; }
   .eval-code-create__rail { display: flex; flex-direction: row; overflow-x: auto; }
   .eval-code-create__rail > div:not(.eval-no-test-note) { min-width: 150px; }
+}
+
+
+.eval-code-output-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.eval-code-output-fields > div { display: flex; flex-direction: column; gap: 5px; padding: 10px; border: 1px solid var(--eval-border); border-radius: 7px; }
+.eval-code-output-fields code { color: var(--eval-green); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.eval-code-output-fields span { color: var(--eval-muted); font-size: 9px; }
+.eval-code-config-section { margin-top: 22px; }
+.eval-code-config-section + .eval-code-config-section { padding-top: 20px; border-top: 1px solid var(--eval-border); }
+.eval-code-config-section .eval-subsection-head { align-items: end; }
+.eval-code-config-section .eval-code-inputs { grid-template-columns: repeat(2, minmax(0, 1fr)); display: grid; gap: 7px; padding: 0; border: 0; }
+.eval-code-config-section .eval-code-inputs label { min-height: 52px; }
+.eval-code-language { display: flex; align-items: center; gap: 7px; color: var(--eval-muted); font-size: 9px; }
+.eval-code-language select { width: 130px; height: 30px; padding: 0 8px; border: 1px solid var(--eval-border-strong); border-radius: 6px; color: var(--eval-text); background: #fff; font-size: 10px; }
+.eval-code-language span { color: var(--eval-faint); }
+.eval-evaluator-detail-page .eval-detail-card + .eval-detail-card { margin-top: 12px; }
+.eval-evaluator-detail-page .eval-detail-card__heading { margin-bottom: 13px; }
+.eval-evaluator-detail-page .eval-detail-card__heading h3 { margin: 0; font-size: 15px; }
+.eval-evaluator-detail-page .eval-evaluator-detail-intro p { display: none; }
+.eval-evaluator-detail-page .eval-evaluator-detail-meta { margin-bottom: 14px; }
+.eval-evaluator-detail-page .eval-detail-hero__actions { align-items: center; }
+.eval-evaluator-detail-page .eval-detail-card { padding: 18px; }
+.eval-evaluator-detail-page .eval-code-block { max-height: 360px; }
+@media (max-width: 680px) {
+  .eval-code-output-fields, .eval-code-config-section .eval-code-inputs { grid-template-columns: 1fr; }
 }
