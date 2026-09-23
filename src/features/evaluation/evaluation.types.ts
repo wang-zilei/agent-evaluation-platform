@@ -220,48 +220,62 @@ export type OptimizeExperiment = {
   result: OptimizationResult;
 };
 
+export type ComparisonTaskRole = '对照组' | '实验组';
+
+export type ComparisonTaskRef = {
+  taskId: string;
+  name: string;
+  label: string;
+  role: ComparisonTaskRole;
+  agent: string;
+  agentVersion: string;
+  datasetVersion: string;
+  evaluatorIds: string[];
+};
+
+export type ComparisonMetricCell = {
+  taskId: string;
+  result: string;
+  value?: number;
+  coverage: string;
+  state: '对照组' | '有效' | '未配置' | '未采集' | '无法比较' | '版本不同';
+  delta?: string;
+  judgment?: '改善' | '下降' | '无变化' | '无法比较' | '参考差异';
+};
+
 export type ComparisonEvaluatorRow = {
   metric: string;
   scoreType: ScoreType;
   evaluatorName: string;
-  beforeResult: string;
-  afterResult: string;
-  delta: string;
-  judgment: '改善' | '下降' | '无变化' | '无法比较' | '参考差异';
-  coverage: string;
-  beforeValue?: number;
-  afterValue?: number;
+  evaluatorId: string;
+  cells: Record<string, ComparisonMetricCell>;
+};
+
+export type ComparisonOutputCell = {
+  taskId: string;
+  output: string;
+  evaluatorResults: EvaluatorResult[];
 };
 
 export type ComparisonCaseRow = {
   caseId: string;
   sharedValues: Record<string, string>;
-  beforeOutput: string;
-  afterOutput: string;
-  beforeEvaluators: EvaluatorResult[];
-  afterEvaluators: EvaluatorResult[];
-  judgment: '改善' | '下降' | '无变化' | '无法比较';
+  outputs: Record<string, ComparisonOutputCell>;
+  judgment: '一致' | '有差异' | '无法比较';
   reason: string;
 };
 
 export type ComparisonRuntimeRow = {
   metric: string;
-  beforeResult: string;
-  afterResult: string;
-  delta: string;
-  judgment: '改善' | '下降' | '无变化' | '无法比较' | '参考差异';
-  coverage: string;
-  beforeValue?: number;
-  afterValue?: number;
+  cells: Record<string, ComparisonMetricCell>;
 };
 
 export type ComparisonRecord = {
   id: string;
   name: string;
-  baseTaskId: string;
-  candidateTaskId: string;
-  baseLabel: string;
-  candidateLabel: string;
+  controlTaskId: string;
+  experimentTaskIds: string[];
+  taskRefs: ComparisonTaskRef[];
   dataset: string;
   datasetId: string;
   datasetVersion: string;
@@ -269,10 +283,8 @@ export type ComparisonRecord = {
   tone: StatusTone;
   totalCases: number;
   comparableCases: number;
-  excludedCases: number;
-  improvedCases: number;
-  declinedCases: number;
-  unchangedCases: number;
+  differentCases: number;
+  sameCases: number;
   incomparableCases: number;
   createdAt: string;
   sharedFields: string[];

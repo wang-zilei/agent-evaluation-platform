@@ -2244,6 +2244,39 @@
   font-size: 11px;
   line-height: 1.5;
 }
+.eval-picker-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px 0;
+}
+.eval-picker-steps span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--eval-border);
+  border-radius: 6px;
+  color: var(--eval-muted);
+  background: #fafafa;
+  font-size: 10px;
+}
+.eval-picker-steps span.is-active {
+  color: var(--eval-violet-dark);
+  border-color: #c9caf7;
+  background: var(--eval-violet-soft);
+  font-weight: 700;
+}
+.eval-picker-steps span.is-complete {
+  color: var(--eval-green);
+}
+.eval-picker-dataset-step,
+.eval-picker-task-step {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
 .eval-picker-baseline {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -2340,6 +2373,23 @@
 .eval-picker-table input {
   accent-color: var(--eval-violet);
 }
+.eval-picker-dataset-table tbody tr {
+  cursor: pointer;
+}
+.eval-data-table tr.is-control-selected td {
+  background: #fafafa;
+}
+.eval-data-table tr.is-experiment-selected td {
+  background: #fafaff;
+}
+.eval-data-table tr.is-control-selected td:first-child,
+.eval-data-table tr.is-experiment-selected td:nth-child(2) {
+  box-shadow: inset 3px 0 0 var(--eval-violet);
+}
+.eval-data-table input[type="radio"],
+.eval-data-table input[type="checkbox"] {
+  accent-color: var(--eval-violet);
+}
 .eval-comparison-picker > footer {
   border-top: 1px solid var(--eval-border);
   background: #fafafa;
@@ -2380,14 +2430,13 @@
   color: var(--eval-muted);
   font-size: 11px;
 }
-.eval-comparison-task-pair {
-  min-width: 420px;
+.eval-comparison-task-strip {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
 }
-.eval-comparison-task-pair > div {
+.eval-comparison-task-strip > div {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -2397,22 +2446,23 @@
   border-radius: 8px;
   background: #fff;
 }
-.eval-comparison-task-pair > div:last-child {
+.eval-comparison-task-strip > div.is-experiment {
   border-color: #c9caf7;
   background: var(--eval-violet-soft);
 }
-.eval-comparison-task-pair span {
+.eval-comparison-task-strip span {
   color: var(--eval-muted);
   font-size: 9px;
 }
-.eval-comparison-task-pair strong {
+.eval-comparison-task-strip strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
 }
-.eval-comparison-task-pair > svg {
-  color: var(--eval-faint);
+.eval-comparison-task-strip small {
+  color: var(--eval-muted);
+  font-size: 9px;
 }
 .eval-comparison-tabs {
   display: flex;
@@ -2532,7 +2582,7 @@
   background: #fafafa;
   font-size: 8px;
 }
-.eval-compare-output-cell.is-candidate {
+.eval-compare-output-cell.is-experiment {
   padding-left: 10px;
   border-left: 3px solid var(--eval-violet);
 }
@@ -2544,7 +2594,7 @@
 }
 .eval-metrics-summary {
   display: grid;
-  grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   overflow: hidden;
   border: 1px solid var(--eval-border);
   border-radius: 10px;
@@ -2574,30 +2624,49 @@
   background: #fff;
 }
 
+
 .eval-metric-matrix {
-  overflow: hidden;
+  overflow-x: auto;
   border: 1px solid var(--eval-border);
   border-radius: 9px;
   background: #fff;
 }
 .eval-metric-matrix__head,
 .eval-metric-row {
+  min-width: 920px;
   display: grid;
-  grid-template-columns: minmax(180px, 1.3fr) minmax(112px, .7fr) minmax(112px, .7fr) minmax(132px, .8fr) 94px 68px;
-  align-items: center;
-  column-gap: 18px;
+  grid-template-columns: minmax(180px, 1.2fr) repeat(var(--metric-task-count), minmax(150px, 1fr));
+  align-items: stretch;
+  column-gap: 12px;
 }
 .eval-metric-matrix__head {
-  min-height: 38px;
-  padding: 0 16px;
+  min-height: 46px;
+  padding: 0 14px;
   color: var(--eval-muted);
   background: #fafafd;
   font-size: 10px;
   font-weight: 700;
 }
+.eval-metric-matrix__head > span {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+.eval-metric-matrix__head > span strong {
+  color: var(--eval-ink);
+  font-size: 9px;
+}
+.eval-metric-matrix__head > span small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 500;
+}
 .eval-metric-row {
-  min-height: 66px;
-  padding: 10px 16px;
+  min-height: 72px;
+  padding: 10px 14px;
   border-top: 1px solid #f0f0f2;
 }
 .eval-metric-row:hover {
@@ -2607,6 +2676,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 4px;
 }
 .eval-metric-row__name strong {
@@ -2616,75 +2686,50 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.eval-metric-row__name small,
-.eval-metric-row__coverage {
+.eval-metric-row__name small {
   color: var(--eval-muted);
   font-size: 9px;
 }
-.eval-metric-row__value {
-  color: var(--eval-text);
-  font: 700 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.eval-metric-row__value.is-candidate {
-  color: var(--eval-violet-dark);
-}
-.eval-metric-row__change {
+.eval-metric-task-cell {
   min-width: 0;
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding-left: 10px;
+  border-left: 2px solid var(--eval-border);
 }
-.eval-metric-row__change > strong {
+.eval-metric-task-cell.is-对照组 {
+  border-left-color: var(--eval-faint);
+}
+.eval-metric-task-cell.is-有效 {
+  border-left-color: var(--eval-violet);
+}
+.eval-metric-task-cell.is-未配置,
+.eval-metric-task-cell.is-未采集,
+.eval-metric-task-cell.is-无法比较 {
+  border-left-color: var(--eval-border-strong);
+}
+.eval-metric-task-cell > strong {
+  overflow: hidden;
   color: var(--eval-ink);
-  font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 700 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.eval-metric-rail {
-  position: relative;
-  width: 72px;
-  height: 18px;
+.eval-metric-task-cell > span {
+  min-height: 20px;
+  color: var(--eval-muted);
+  font-size: 9px;
 }
-.eval-metric-rail::before {
-  content: "";
-  position: absolute;
-  top: 8px;
-  right: 4px;
-  left: 4px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--eval-border);
+.eval-metric-task-cell small {
+  color: var(--eval-faint);
+  font-size: 8px;
 }
-.eval-metric-rail > span {
-  position: absolute;
-  top: 8px;
-  height: 2px;
-  margin-left: 4px;
-  border-radius: 1px;
-  background: var(--eval-violet);
-}
-.eval-metric-rail i {
-  position: absolute;
-  top: 5px;
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px var(--eval-border-strong);
-}
-.eval-metric-rail i.is-before {
-  background: var(--eval-faint);
-}
-.eval-metric-rail i.is-after {
-  background: var(--eval-violet);
-}
-.eval-metric-row .eval-pill {
-  justify-content: center;
-}
-.eval-metric-row__coverage {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.eval-metric-task-cell.is-未配置 > strong,
+.eval-metric-task-cell.is-未采集 > strong {
+  color: var(--eval-muted);
+  font-family: inherit;
 }
 .eval-comparison-case-preview {
   width: min(1120px, 100%);
@@ -2736,7 +2781,7 @@
 }
 .eval-compare-output-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
 }
 .eval-compare-output-grid > section {
@@ -2745,7 +2790,7 @@
   border: 1px solid var(--eval-border);
   border-radius: 9px;
 }
-.eval-compare-output-grid > section:last-child {
+.eval-compare-output-grid > section.is-experiment {
   border-color: #c9caf7;
   background: #fbfbff;
 }
@@ -2812,7 +2857,7 @@
   .eval-comparison-detail-header {
     flex-direction: column;
   }
-  .eval-comparison-task-pair {
+  .eval-comparison-task-strip {
     width: 100%;
     min-width: 0;
   }
@@ -2848,12 +2893,6 @@
     width: 100%;
     min-width: 0;
   }
-  .eval-comparison-task-pair {
-    grid-template-columns: 1fr;
-  }
-  .eval-comparison-task-pair > svg {
-    transform: rotate(90deg);
-  }
   .eval-metrics-summary,
   .eval-compare-output-grid,
   .eval-compare-case-context > div {
@@ -2864,7 +2903,7 @@
   }
   .eval-metric-matrix__head,
   .eval-metric-row {
-    min-width: 760px;
+    min-width: 920px;
   }
   .eval-comparison-case-preview {
     padding: 16px;

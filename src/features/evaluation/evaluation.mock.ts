@@ -5,7 +5,9 @@ import type {
   ComparisonRecord,
   ComparisonCaseRow,
   ComparisonEvaluatorRow,
+  ComparisonMetricCell,
   ComparisonRuntimeRow,
+  ComparisonTaskRef,
   Dataset,
   EvaluationState,
   EvaluationTask,
@@ -16,6 +18,7 @@ import type {
   HistoryTraceRecord,
   OptimizeExperiment,
   OptimizationResult,
+  ScoreType,
   TraceEvent,
 } from './evaluation.types';
 
@@ -197,7 +200,7 @@ const comparisonBaseResults: CaseResult[] = [
   }),
 ];
 
-const comparisonCandidateResults: CaseResult[] = [
+const comparisonExperimentResults: CaseResult[] = [
   comparisonResult(refundResults[0], '通过', '可以。商品签收后 7 天内，商品完好且不影响二次销售即可申请无理由退货。请在订单详情中提交退货，审核通过后按页面提示寄回；无理由退货通常由买家承担寄回运费，质量问题由商家承担。', '9.8 s', '720 ms', 2320, 690, {
     'P0-01': { status: '通过', score: 1, reason: '覆盖退货条件、寄回方式和运费承担。' },
     'P0-02': { status: '通过', score: 0.88, reason: '覆盖 4 个主要验收要点。' },
@@ -223,6 +226,41 @@ const comparisonCandidateResults: CaseResult[] = [
     'P0-12': { status: '执行失败', reason: '关键工具调用超时。' },
   }),
 ];
+
+const comparisonAlternateResults: CaseResult[] = comparisonExperimentResults.map((item, index) => {
+  const outputs = [
+    '可以退。商品签收后 7 天内，商品完好且不影响二次销售即可申请。请在订单详情提交退货。无理由退货的寄回运费由买家承担，质量问题由商家承担。',
+    '退款审核通过后会原路退回，一般需要 3-5 个工作日，具体到账时间以支付渠道为准。',
+    '请补充订单号。收到订单号后，我可以继续查询退款进度。',
+    '请先核实订单状态和跨境售后政策。若系统仍无法退款，可转人工处理。',
+  ];
+  return {
+    ...item,
+    agentOutput: outputs[index],
+    evaluatorResults: item.evaluatorResults.map((evaluatorResult) => {
+      if (evaluatorResult.evaluatorId !== 'P0-02' || typeof evaluatorResult.evaluationResult !== 'number') return evaluatorResult;
+      return { ...evaluatorResult, evaluationResult: Math.max(0, evaluatorResult.evaluationResult - 0.08) };
+    }),
+    runtime: item.runtime ? {
+      ...item.runtime,
+      agentDuration: ['8.9 s', '7.8 s', '5.4 s', '9.6 s'][index],
+      firstTokenLatency: ['680 ms', '640 ms', '510 ms', '820 ms'][index],
+      inputTokens: [2260, 2180, 1810, 2420][index],
+      outputTokens: [620, 500, 320, 560][index],
+      totalTokens: [2880, 2680, 2130, 2980][index],
+      evaluatorDuration: '1.8 s',
+    } : undefined,
+  };
+});
+
+const onlyEvaluators = (items: CaseResult[], evaluatorIds: string[]): CaseResult[] => items.map((item) => ({
+  ...item,
+  evaluatorResults: item.evaluatorResults.filter((evaluatorResult) => evaluatorIds.includes(evaluatorResult.evaluatorId)),
+}));
+
+const comparisonCoverageControlResults = onlyEvaluators(comparisonBaseResults, ['P0-01', 'P0-02', 'P0-05', 'P0-12']);
+const comparisonCoverageResultResults = onlyEvaluators(comparisonExperimentResults, ['P0-01', 'P0-02']);
+const comparisonCoverageProcessResults = onlyEvaluators(comparisonAlternateResults, ['P0-01', 'P0-05', 'P0-12']);
 
 const tenderResults: CaseResult[] = [
   {
@@ -534,8 +572,12 @@ datasets.forEach((dataset) => {
 const task = (input: Omit<EvaluationTask, 'totalCases' | 'executableCases' | 'completedCases' | 'failedCases'> & Pick<EvaluationTask, 'totalCases' | 'executableCases' | 'completedCases' | 'failedCases'>): EvaluationTask => input;
 
 const tasks: EvaluationTask[] = [
-  task({ id: 'TASK-20260922-001', name: '退款客服助手 V3｜退货政策基线', description: '作为退货政策优化前的基准任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 09:40', updatedAt: '2026-09-22 09:49', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonBaseResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260922-002', name: '退款客服助手 V4｜退货政策优化', description: '验证补充寄回方式、运费规则和异常兜底后的输出。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 10:12', updatedAt: '2026-09-22 10:23', totalCases: 4, executableCases: 4, completedCases: 3, failedCases: 1, results: comparisonCandidateResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260922-001', name: '退款客服助手 V3｜退货政策对照组', description: '退款问答评测集上的对照组任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 09:40', updatedAt: '2026-09-22 09:49', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonBaseResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260922-002', name: '退款客服助手 V4｜退货政策实验组 A', description: '退款问答评测集上的实验组任务 A。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 10:12', updatedAt: '2026-09-22 10:23', totalCases: 4, executableCases: 4, completedCases: 3, failedCases: 1, results: comparisonExperimentResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260923-003', name: '退款客服助手 V5｜简洁回答实验组 B', description: '退款问答评测集上的实验组任务 B。', agent: '退款客服助手', agentVersion: 'V5', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 09:16', updatedAt: '2026-09-23 09:25', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonAlternateResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260923-004', name: '退款客服助手 V3｜结果质量对照组', description: '评估器覆盖差异场景中的对照组任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:02', updatedAt: '2026-09-23 10:11', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageControlResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260923-005', name: '退款客服助手 V4｜结果质量实验组', description: '只配置结果质量评估器的实验组任务。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:18', updatedAt: '2026-09-23 10:27', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageResultResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260923-006', name: '退款客服助手 V4｜过程质量实验组', description: '只配置检索与轨迹评估器的实验组任务。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:35', updatedAt: '2026-09-23 10:44', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageProcessResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260825-001', name: '退款客服助手 V3｜回流问题评测', description: '验证退款问答的任务完成、检索证据和完整 Trace。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '部分失败', tone: 'warning', createdBy: '王子磊', createdAt: '2026-08-25 18:12', updatedAt: '2026-08-25 18:19', totalCases: 4, executableCases: 3, completedCases: 3, failedCases: 1, results: refundResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260823-003', name: '退款客服助手 V2｜工具稳定性检查', description: '验证订单查询工具异常时的失败边界。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-53346', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-10', 'P0-12'], status: '失败', tone: 'danger', createdBy: '王子磊', createdAt: '2026-08-23 11:16', updatedAt: '2026-08-23 11:18', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 1, results: failureResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260824-008', name: '招标文件覆盖评测', description: '验证文件分析和最终交付文件的完整性。', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: 'DS-24610', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-04', 'P0-08', 'P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-08-24 15:34', updatedAt: '2026-08-24 16:02', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 0, results: tenderResults, runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
@@ -576,129 +618,154 @@ const runtimeValue = (item: CaseResult, metric: string): number | undefined => {
 };
 
 export const createComparisonRecord = (
-  baseTask: EvaluationTask,
-  candidateTask: EvaluationTask,
+  controlTask: EvaluationTask,
+  experimentTasks: EvaluationTask[],
   dataset: Dataset,
   evaluatorCatalog: Evaluator[],
+  name?: string,
 ): ComparisonRecord => {
-  const candidateById = new Map(candidateTask.results.map((item) => [item.caseId, item]));
+  const selectedTasks = [controlTask, ...experimentTasks];
+  const taskResultMaps = selectedTasks.map((task) => new Map(task.results.map((item) => [item.caseId, item])));
   const datasetCases = new Map(dataset.cases.map((item) => [item.id, item]));
   const evaluatorById = new Map(evaluatorCatalog.map((item) => [item.id, item]));
-  const commonEvaluatorIds = baseTask.evaluatorIds.filter((id) => candidateTask.evaluatorIds.includes(id));
   const sharedFields = dataset.fields
     .filter((item) => !['Agent Output', 'Trace', 'Agent Configuration'].includes(item.semantic))
     .map((item) => item.semantic === 'Custom' ? item.name : item.semantic);
 
-  const paired = baseTask.results
-    .filter((item) => candidateById.has(item.caseId))
-    .map((base) => ({ base, candidate: candidateById.get(base.caseId) as CaseResult }));
+  const commonCaseIds = controlTask.results
+    .filter((item) => taskResultMaps.every((resultMap) => resultMap.has(item.caseId)))
+    .map((item) => item.caseId);
+  const rowsByCase = commonCaseIds.map((caseId) => Object.fromEntries(selectedTasks.map((task, index) => [task.id, taskResultMaps[index].get(caseId) as CaseResult])));
+  const taskRefs: ComparisonTaskRef[] = selectedTasks.map((task, index) => ({
+    taskId: task.id,
+    name: task.name,
+    label: `${task.name} · ${task.agentVersion}`,
+    role: index === 0 ? '对照组' : '实验组',
+    agent: task.agent,
+    agentVersion: task.agentVersion,
+    datasetVersion: task.datasetVersion,
+    evaluatorIds: task.evaluatorIds,
+  }));
 
-  const caseRows = paired.map(({ base, candidate }) => {
-    const pairedValues = commonEvaluatorIds
-      .map((id) => ({ before: metricValue(base.evaluatorResults.find((item) => item.evaluatorId === id)), after: metricValue(candidate.evaluatorResults.find((item) => item.evaluatorId === id)) }))
-      .filter((item): item is { before: number; after: number } => item.before !== undefined && item.after !== undefined);
-    const beforeAverage = average(pairedValues.map((item) => item.before));
-    const afterAverage = average(pairedValues.map((item) => item.after));
-    const judgment: ComparisonCaseRow['judgment'] = beforeAverage === undefined || afterAverage === undefined
+  const caseRows: ComparisonCaseRow[] = rowsByCase.map((resultsByTask) => {
+    const controlResult = resultsByTask[controlTask.id];
+    const outputs = Object.fromEntries(selectedTasks.map((task) => {
+      const item = resultsByTask[task.id];
+      return [task.id, { taskId: task.id, output: item.agentOutput, evaluatorResults: item.evaluatorResults }];
+    }));
+    const outputValues = selectedTasks.map((task) => outputs[task.id].output.trim());
+    const judgment: ComparisonCaseRow['judgment'] = outputValues.some((value) => !value)
       ? '无法比较'
-      : afterAverage - beforeAverage > 0.005 ? '改善' : beforeAverage - afterAverage > 0.005 ? '下降' : '无变化';
-    const datasetCase = datasetCases.get(base.caseId);
+      : outputValues.every((value) => value === outputValues[0]) ? '一致' : '有差异';
+    const datasetCase = datasetCases.get(controlResult.caseId);
     const sharedValues = Object.fromEntries(dataset.fields
       .filter((item) => !['Agent Output', 'Trace', 'Agent Configuration'].includes(item.semantic))
-      .map((item) => [item.semantic === 'Custom' ? item.name : item.semantic, item.semantic === 'Input' ? base.input : item.semantic === 'Expected Output' ? base.expectedOutput ?? '' : item.semantic === 'User Feedback' ? base.userFeedback ?? '' : datasetCase?.values[item.id] ?? '未采集']));
+      .map((item) => [item.semantic === 'Custom' ? item.name : item.semantic, item.semantic === 'Input' ? controlResult.input : item.semantic === 'Expected Output' ? controlResult.expectedOutput ?? '' : item.semantic === 'User Feedback' ? controlResult.userFeedback ?? '' : datasetCase?.values[item.id] ?? '未采集']));
     return {
-      caseId: base.caseId,
+      caseId: controlResult.caseId,
       sharedValues,
-      beforeOutput: base.agentOutput,
-      afterOutput: candidate.agentOutput,
-      beforeEvaluators: base.evaluatorResults.filter((item) => commonEvaluatorIds.includes(item.evaluatorId)),
-      afterEvaluators: candidate.evaluatorResults.filter((item) => commonEvaluatorIds.includes(item.evaluatorId)),
+      outputs,
       judgment,
-      reason: judgment === '无法比较'
-        ? '至少一侧缺少有效评估结果。'
-        : `共同评估器均值 ${beforeAverage?.toFixed(2)} → ${afterAverage?.toFixed(2)}。`,
+      reason: judgment === '有差异' ? '各任务的 Agent Output 存在内容差异。' : judgment === '一致' ? '各任务的 Agent Output 一致。' : '至少一个任务缺少有效 Agent Output。',
     };
   });
 
-  const evaluatorRows: ComparisonEvaluatorRow[] = commonEvaluatorIds.map((id) => {
-    const evaluator = evaluatorById.get(id);
-    const beforeResults = paired.map(({ base }) => base.evaluatorResults.find((item) => item.evaluatorId === id));
-    const afterResults = paired.map(({ candidate }) => candidate.evaluatorResults.find((item) => item.evaluatorId === id));
-    const beforeValues = beforeResults.map(metricValue).filter((item): item is number => item !== undefined);
-    const afterValues = afterResults.map(metricValue).filter((item): item is number => item !== undefined);
-    const pairedValues = beforeResults.map((item, index) => ({ before: metricValue(item), after: metricValue(afterResults[index]) })).filter((item): item is { before: number; after: number } => item.before !== undefined && item.after !== undefined);
-    const beforeAverage = average(pairedValues.map((item) => item.before));
-    const afterAverage = average(pairedValues.map((item) => item.after));
-    const delta = beforeAverage === undefined || afterAverage === undefined ? 0 : afterAverage - beforeAverage;
-    const judgment: ComparisonEvaluatorRow['judgment'] = beforeAverage === undefined || afterAverage === undefined ? '无法比较' : delta > 0.005 ? '改善' : delta < -0.005 ? '下降' : '无变化';
-    const scoreType = evaluator?.scoreType ?? 'numeric';
-    const format = (value: number | undefined) => value === undefined ? '未采集' : scoreType === 'pass_fail' ? `${Math.round(value * 100)}%` : value.toFixed(2);
+  const formatEvaluatorValue = (value: number | undefined, scoreType: ScoreType, passed = 0, valid = 0): string => {
+    if (value === undefined) return '未采集';
+    return scoreType === 'pass_fail' ? `${Math.round(value * 100)}% (${passed}/${valid})` : value.toFixed(2);
+  };
+
+  const evaluatorCell = (task: EvaluationTask, evaluatorId: string, scoreType: ScoreType, controlCell?: ComparisonMetricCell): ComparisonMetricCell => {
+    if (!task.evaluatorIds.includes(evaluatorId)) {
+      return { taskId: task.id, result: '未配置', coverage: `0/${rowsByCase.length}`, state: '未配置' };
+    }
+    const values: number[] = [];
+    const invalidStatuses: string[] = [];
+    let passed = 0;
+    rowsByCase.forEach((resultsByTask) => {
+      const evaluatorResult = resultsByTask[task.id].evaluatorResults.find((item) => item.evaluatorId === evaluatorId);
+      const value = metricValue(evaluatorResult);
+      if (value === undefined) {
+        if (evaluatorResult?.evaluationStatus) invalidStatuses.push(evaluatorResult.evaluationStatus);
+        return;
+      }
+      values.push(value);
+      if (value === 1) passed += 1;
+    });
+    const value = average(values);
+    const state: ComparisonMetricCell['state'] = task.id === controlTask.id ? '对照组' : value === undefined ? '无法比较' : '有效';
+    const result = value === undefined ? invalidStatuses[0] ?? '未采集' : formatEvaluatorValue(value, scoreType, passed, values.length);
+    const cell: ComparisonMetricCell = { taskId: task.id, result, value, coverage: `${values.length}/${rowsByCase.length}`, state };
+    if (!controlCell || task.id === controlTask.id || value === undefined || controlCell.value === undefined) return cell;
+    const delta = value - controlCell.value;
     return {
-      metric: evaluator?.name ?? id,
-      evaluatorName: evaluator?.name ?? id,
-      scoreType,
-      beforeResult: scoreType === 'pass_fail' ? `${Math.round((beforeAverage ?? 0) * 100)}% (${beforeValues.filter((item) => item === 1).length}/${beforeValues.length})` : format(beforeAverage),
-      afterResult: scoreType === 'pass_fail' ? `${Math.round((afterAverage ?? 0) * 100)}% (${afterValues.filter((item) => item === 1).length}/${afterValues.length})` : format(afterAverage),
+      ...cell,
       delta: scoreType === 'pass_fail' ? `${signed(delta * 100, 1)} pp` : signed(delta, 2),
-      judgment,
-      coverage: `${pairedValues.length}/${caseRows.length}`,
-      beforeValue: beforeAverage,
-      afterValue: afterAverage,
+      judgment: delta > 0.005 ? '改善' : delta < -0.005 ? '下降' : '无变化',
     };
+  };
+
+  const evaluatorIds = [...new Set(selectedTasks.flatMap((task) => task.evaluatorIds))];
+  const evaluatorRows: ComparisonEvaluatorRow[] = evaluatorIds.map((evaluatorId) => {
+    const evaluator = evaluatorById.get(evaluatorId);
+    const scoreType = evaluator?.scoreType ?? 'numeric';
+    const cells: Record<string, ComparisonMetricCell> = {};
+    selectedTasks.forEach((task) => {
+      const controlCell = cells[controlTask.id];
+      cells[task.id] = evaluatorCell(task, evaluatorId, scoreType, controlCell);
+    });
+    return { metric: evaluator?.name ?? evaluatorId, evaluatorName: evaluator?.name ?? evaluatorId, evaluatorId, scoreType, cells };
   });
 
-  const sameRuntimeSettings = JSON.stringify(baseTask.runtime) === JSON.stringify(candidateTask.runtime);
   const runtimeMetrics = ['Agent 耗时', '首字时延', 'Input Tokens', 'Output Tokens', 'Total Tokens', '评估器耗时'];
-  const runtimeRows: ComparisonRuntimeRow[] = runtimeMetrics.map((metric) => {
-    const pairs = paired.map(({ base, candidate }) => ({ before: runtimeValue(base, metric), after: runtimeValue(candidate, metric) })).filter((item): item is { before: number; after: number } => item.before !== undefined && item.after !== undefined);
-    const beforeAverage = average(pairs.map((item) => item.before));
-    const afterAverage = average(pairs.map((item) => item.after));
-    const delta = beforeAverage === undefined || afterAverage === undefined ? 0 : (afterAverage - beforeAverage) / (beforeAverage || 1);
-    const lowerIsBetter = true;
-    const judgment: ComparisonRuntimeRow['judgment'] = beforeAverage === undefined || afterAverage === undefined || !sameRuntimeSettings
-      ? '参考差异'
-      : lowerIsBetter && delta < -0.005 ? '改善' : lowerIsBetter && delta > 0.005 ? '下降' : '无变化';
-    const format = (value: number | undefined) => value === undefined ? '未采集' : metric.includes('Tokens') ? formatTokens(value) : formatSeconds(value, metric);
+  const sameRuntimeSettings = selectedTasks.every((task) => JSON.stringify(task.runtime) === JSON.stringify(controlTask.runtime));
+  const runtimeCell = (task: EvaluationTask, metric: string, controlCell?: ComparisonMetricCell): ComparisonMetricCell => {
+    const values = rowsByCase.map((resultsByTask) => runtimeValue(resultsByTask[task.id], metric)).filter((item): item is number => item !== undefined);
+    const value = average(values);
+    const format = (item?: number) => item === undefined ? '未采集' : metric.includes('Tokens') ? formatTokens(item) : formatSeconds(item, metric);
+    const state: ComparisonMetricCell['state'] = task.id === controlTask.id ? '对照组' : value === undefined ? '未采集' : '有效';
+    const cell: ComparisonMetricCell = { taskId: task.id, result: format(value), value, coverage: `${values.length}/${rowsByCase.length}`, state };
+    if (!controlCell || task.id === controlTask.id || value === undefined || controlCell.value === undefined) return cell;
+    const delta = (value - controlCell.value) / (controlCell.value || 1);
     return {
-      metric,
-      beforeResult: format(beforeAverage),
-      afterResult: format(afterAverage),
+      ...cell,
       delta: `${signed(delta * 100, 1)}%`,
-      judgment,
-      coverage: `${pairs.length}/${caseRows.length}`,
-      beforeValue: beforeAverage,
-      afterValue: afterAverage,
+      judgment: !sameRuntimeSettings ? '参考差异' : delta < -0.005 ? '改善' : delta > 0.005 ? '下降' : '无变化',
     };
+  };
+  const runtimeRows: ComparisonRuntimeRow[] = runtimeMetrics.map((metric) => {
+    const cells: Record<string, ComparisonMetricCell> = {};
+    selectedTasks.forEach((task) => {
+      const controlCell = cells[controlTask.id];
+      cells[task.id] = runtimeCell(task, metric, controlCell);
+    });
+    return { metric, cells };
   });
 
-  const summary = { improved: 0, declined: 0, unchanged: 0, incomparable: 0 };
+  const summary = { different: 0, same: 0, incomparable: 0 };
   caseRows.forEach((item) => {
-    if (item.judgment === '改善') summary.improved += 1;
-    else if (item.judgment === '下降') summary.declined += 1;
-    else if (item.judgment === '无变化') summary.unchanged += 1;
+    if (item.judgment === '有差异') summary.different += 1;
+    else if (item.judgment === '一致') summary.same += 1;
     else summary.incomparable += 1;
   });
 
   return {
-    id: `CMP-${baseTask.id}-${candidateTask.id}`,
-    name: `${baseTask.agent} ${baseTask.agentVersion} vs ${candidateTask.agentVersion}`,
-    baseTaskId: baseTask.id,
-    candidateTaskId: candidateTask.id,
-    baseLabel: `${baseTask.name} · ${baseTask.agentVersion}`,
-    candidateLabel: `${candidateTask.name} · ${candidateTask.agentVersion}`,
+    id: `CMP-${selectedTasks.map((task) => task.id).join('-')}`,
+    name: name ?? `${dataset.name}｜${selectedTasks.length} 个任务对比`,
+    controlTaskId: controlTask.id,
+    experimentTaskIds: experimentTasks.map((task) => task.id),
+    taskRefs,
     dataset: dataset.name,
     datasetId: dataset.id,
-    datasetVersion: baseTask.datasetVersion === candidateTask.datasetVersion ? baseTask.datasetVersion : `${baseTask.datasetVersion} / ${candidateTask.datasetVersion}`,
+    datasetVersion: [...new Set(selectedTasks.map((task) => task.datasetVersion))].join(' / '),
     status: '已完成',
     tone: 'success',
-    totalCases: paired.length,
-    comparableCases: paired.length - summary.incomparable,
-    excludedCases: Math.max(0, baseTask.results.length - paired.length),
-    improvedCases: summary.improved,
-    declinedCases: summary.declined,
-    unchangedCases: summary.unchanged,
+    totalCases: caseRows.length,
+    comparableCases: caseRows.length - summary.incomparable,
+    differentCases: summary.different,
+    sameCases: summary.same,
     incomparableCases: summary.incomparable,
-    createdAt: '2026-09-22 10:31',
+    createdAt: '2026-09-23 11:08',
     sharedFields,
     evaluatorRows,
     runtimeRows,
@@ -743,11 +810,23 @@ const experiments: OptimizeExperiment[] = [
 ];
 
 const comparisonDataset = datasets.find((item) => item.id === 'DS-53346');
-const comparisonBaseTask = tasks.find((item) => item.id === 'TASK-20260922-001');
-const comparisonCandidateTask = tasks.find((item) => item.id === 'TASK-20260922-002');
-const comparisons: ComparisonRecord[] = comparisonDataset && comparisonBaseTask && comparisonCandidateTask
-  ? [createComparisonRecord(comparisonBaseTask, comparisonCandidateTask, comparisonDataset, evaluators)]
-  : [];
+const findTask = (id: string) => tasks.find((item) => item.id === id);
+const comparisonControlTask = findTask('TASK-20260922-001');
+const comparisonExperimentATask = findTask('TASK-20260922-002');
+const comparisonExperimentBTask = findTask('TASK-20260923-003');
+const coverageControlTask = findTask('TASK-20260923-004');
+const coverageResultTask = findTask('TASK-20260923-005');
+const coverageProcessTask = findTask('TASK-20260923-006');
+const comparisons: ComparisonRecord[] = [];
+if (comparisonDataset && comparisonControlTask && comparisonExperimentATask) {
+  comparisons.push(createComparisonRecord(comparisonControlTask, [comparisonExperimentATask], comparisonDataset, evaluators, '退款退货条件｜2 个任务对比'));
+}
+if (comparisonDataset && comparisonControlTask && comparisonExperimentATask && comparisonExperimentBTask) {
+  comparisons.push(createComparisonRecord(comparisonControlTask, [comparisonExperimentATask, comparisonExperimentBTask], comparisonDataset, evaluators, '退款问答质量｜3 个任务对比'));
+}
+if (comparisonDataset && coverageControlTask && coverageResultTask && coverageProcessTask) {
+  comparisons.push(createComparisonRecord(coverageControlTask, [coverageResultTask, coverageProcessTask], comparisonDataset, evaluators, '评估器覆盖差异｜3 个任务对比'));
+}
 
 export const mockEvaluationState: EvaluationState = { agents, datasets, evaluators, tasks, experiments, comparisons };
 
