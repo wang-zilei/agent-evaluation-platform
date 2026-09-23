@@ -1994,12 +1994,9 @@
 .eval-case-status-grid > div { min-height: 58px; border: 1px solid var(--eval-border); background: #fafbfc; }
 .eval-conclusion-case-list button { min-height: 54px; }
 .eval-experiment-records { min-height: 280px; }
-.eval-experiment-record-list { display: flex; flex-direction: column; border-top: 1px solid var(--eval-border); }
-.eval-experiment-record { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 14px; min-height: 68px; padding: 12px 0; border: 0; border-bottom: 1px solid var(--eval-border); color: var(--eval-text); background: transparent; text-align: left; cursor: pointer; }
-.eval-experiment-record:hover { color: var(--eval-violet-dark); }
-.eval-experiment-record > div { display: flex; flex-direction: column; gap: 5px; }
-.eval-experiment-record strong { color: var(--eval-ink); font-size: 13px; }
-.eval-experiment-record small { color: var(--eval-muted); font-size: 10px; }
+.eval-experiment-records .eval-table-wrap { margin-top: 4px; border-top: 1px solid var(--eval-border); }
+.eval-experiment-records .eval-data-table tbody tr { cursor: pointer; }
+
 
 @media (max-width: 1100px) {
   .eval-conclusion-main { grid-template-columns: 1fr; }
@@ -2378,6 +2375,16 @@
   color: var(--eval-muted);
   font-size: 10px;
   white-space: nowrap;
+}
+.eval-picker-dataset-select {
+  width: 190px;
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--eval-border-strong);
+  border-radius: 7px;
+  color: var(--eval-text);
+  background: #fff;
+  font-size: 11px;
 }
 .eval-picker-table-wrap,
 .eval-comparison-table-wrap {

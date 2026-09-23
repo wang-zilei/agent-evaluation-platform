@@ -196,6 +196,7 @@ export default function EvaluationCenterPage() {
   const [editingEvaluatorId, setEditingEvaluatorId] = useState<string | null>(null);
   const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false);
   const [comparisonInitialControlId, setComparisonInitialControlId] = useState('');
+  const [taskDetailTab, setTaskDetailTab] = useState<'summary' | 'data' | 'optimize'>('summary');
   const notify = (message: string, tone: Toast['tone'] = 'success') => { const id = toastId + 1; setToastId(id); setToast({ id, message, tone }); window.setTimeout(() => setToast((current) => current?.id === id ? null : current), 2600); };
   const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks') { setTaskScreen('list'); setTaskTab('list'); } if (module === 'traces') setTraceScreen('list'); };
   const openDatasetCreate = (mode: DatasetCreateMode) => {
@@ -228,7 +229,8 @@ export default function EvaluationCenterPage() {
     const target = state.experiments.find((item) => item.followUpMode === followUpMode && item.agentType === agentType) ?? state.experiments[0];
     if (!target) return;
     setSelectedExperimentId(target.id);
-    setTaskScreen('experiment');
+    setTaskDetailTab('optimize');
+    setTaskScreen('detail');
     notify(`${caseIds.length} 个 Badcase 已进入${followUpMode === '直接实验对比' ? '自动复测流程' : followUpMode === '仅生成建议' ? '建议生成流程' : '配置审查流程'}`);
   };
   const openEvaluatorCreate = () => { setTaskReturn(module === 'tasks' && taskScreen === 'create'); setEditingEvaluatorId(null); setEvaluatorDraft(makeEvaluatorDraft()); setEvaluatorScreen('create'); setModule('evaluators'); };
@@ -407,11 +409,11 @@ export default function EvaluationCenterPage() {
       {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${item.name}（自建）`, description: item.description, model: item.model, scoreType: item.scoreType, prompt: item.prompt, variables: item.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft({ name: `${evaluator.name}（自建）`, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft({ name: evaluator.name, description: evaluator.description, model: evaluator.model, scoreType: evaluator.scoreType, prompt: evaluator.prompt, variables: evaluator.variables }); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'create' && <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />}
-      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
+      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
       {module === 'tasks' && taskScreen === 'comparison' && comparison && <ComparisonDetail comparison={comparison} onBack={() => { setTaskTab('compare'); setTaskScreen('list'); }} />}
-      {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail task={task} state={state} onBack={showList} onOpenCase={setCasePreview} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
+      {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={setCasePreview} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} search={traceSearch} setSearch={setTraceSearch} onOpen={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} />}
       {module === 'traces' && traceScreen === 'detail' && selectedTrace && <TraceDetail key={selectedTrace.id} trace={selectedTrace} onBack={showList} />}
       </main>
@@ -1127,13 +1129,13 @@ function OptimizationDetail({ experiment, comparison, onBack, onNotify, onViewCo
 }
 
 function ComparisonPicker({ initialControlTask, datasets, tasks, evaluators, onCancel, onCreate }: { initialControlTask?: EvaluationTask; datasets: Dataset[]; tasks: EvaluationTask[]; evaluators: Evaluator[]; onCancel: () => void; onCreate: (controlTaskId: string, experimentTaskIds: string[]) => void }) {
-  const [step, setStep] = useState<'dataset' | 'tasks'>(initialControlTask ? 'tasks' : 'dataset');
-  const [datasetId, setDatasetId] = useState(initialControlTask?.datasetId ?? '');
+  const terminalStatuses: EvaluationTask['status'][] = ['已完成', '部分失败'];
+  const firstDatasetId = datasets.find((dataset) => tasks.some((task) => task.datasetId === dataset.id && terminalStatuses.includes(task.status)))?.id ?? datasets[0]?.id ?? '';
+  const [datasetId, setDatasetId] = useState(initialControlTask?.datasetId ?? firstDatasetId);
   const [controlTaskId, setControlTaskId] = useState(initialControlTask?.id ?? '');
   const [experimentTaskIds, setExperimentTaskIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const selectedDataset = datasets.find((item) => item.id === datasetId);
-  const terminalStatuses: EvaluationTask['status'][] = ['已完成', '部分失败'];
   const eligibleTasks = tasks
     .filter((item) => item.datasetId === datasetId && terminalStatuses.includes(item.status))
     .filter((item) => !query || `${item.name} ${item.agent} ${item.agentVersion}`.toLowerCase().includes(query.toLowerCase()));
@@ -1144,8 +1146,15 @@ function ComparisonPicker({ initialControlTask, datasets, tasks, evaluators, onC
   const lockedControl = Boolean(initialControlTask);
   const canCreate = Boolean(controlTaskId && experimentTaskIds.length && commonCases > 0);
 
+  const changeDataset = (id: string) => {
+    setDatasetId(id);
+    if (!lockedControl) setControlTaskId('');
+    setExperimentTaskIds([]);
+  };
   const setControl = (id: string) => {
     if (lockedControl) return;
+    const task = tasks.find((item) => item.id === id);
+    if (task) setDatasetId(task.datasetId);
     setControlTaskId(id);
     setExperimentTaskIds((current) => current.filter((item) => item !== id));
   };
@@ -1157,40 +1166,22 @@ function ComparisonPicker({ initialControlTask, datasets, tasks, evaluators, onC
   return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="eval-comparison-picker" role="dialog" aria-modal="true" aria-label="创建对比实验">
       <header>
-        <div><span className="eval-eyebrow">CREATE COMPARISON</span><h2>创建对比实验</h2><p>{step === 'dataset' ? '先选择评测集，再从评测任务中选择对照组和实验组。' : '选择 1 个对照组和至少 1 个实验组任务。'}</p></div>
+        <div><span className="eval-eyebrow">CREATE COMPARISON</span><h2>创建对比实验</h2><p>筛选评测集后，选择 1 个对照组和至少 1 个实验组任务。</p></div>
         <IconButton label="关闭" onClick={onCancel}><X size={17} /></IconButton>
       </header>
-      <div className="eval-picker-steps"><span className={step === 'dataset' ? 'is-active' : 'is-complete'}>1 选择评测集</span><span className={step === 'tasks' ? 'is-active' : ''}>2 选择评测任务</span></div>
-      {step === 'dataset' && <div className="eval-picker-dataset-step">
-        <div className="eval-picker-notice"><CircleAlert size={15} /><span>对比实验只比较已经完成的评测任务，不涉及优化工作。</span></div>
-        <div className="eval-picker-table-wrap">
-          <table className="eval-picker-table eval-picker-dataset-table">
-            <thead><tr><th aria-label="选择" /><th>评测集</th><th>最新版本</th><th>Case 数</th><th>可选任务</th></tr></thead>
-            <tbody>{datasets.filter((item) => item.versions.some((version) => version.status === '已提交')).map((item) => <tr key={item.id} className={datasetId === item.id ? 'is-selected' : ''} onClick={() => setDatasetId(item.id)}>
-              <td><input type="radio" name="comparison-dataset" checked={datasetId === item.id} onChange={() => setDatasetId(item.id)} aria-label={`选择 ${item.name}`} /></td>
-              <td><div className="eval-primary-cell"><strong>{item.name}</strong><small>{item.id}</small></div></td>
-              <td>{item.versions.find((version) => version.status === '已提交')?.label}</td>
-              <td>{item.cases.length}</td>
-              <td>{tasks.filter((task) => task.datasetId === item.id && terminalStatuses.includes(task.status)).length}</td>
-            </tr>)}</tbody>
-          </table>
-        </div>
-      </div>}
-      {step === 'tasks' && <div className="eval-picker-task-step">
-        <div className="eval-picker-toolbar"><label className="eval-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称或 Agent" /></label><span>{eligibleTasks.length} 个可选任务</span></div>
-        <div className="eval-picker-table-wrap">
-          <EvaluationTaskTable tasks={eligibleTasks} datasets={datasets} evaluators={evaluators} selectable controlTaskId={controlTaskId} lockedControl={lockedControl} experimentTaskIds={experimentTaskIds} onSetControl={setControl} onToggleExperiment={toggleExperiment} />
-        </div>
-      </div>}
+      <div className="eval-picker-toolbar">
+        <label className="eval-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称或 Agent" /></label>
+        <select className="eval-picker-dataset-select" value={datasetId} disabled={lockedControl} onChange={(event) => changeDataset(event.target.value)} aria-label="筛选评测集">
+          {datasets.filter((item) => tasks.some((task) => task.datasetId === item.id && terminalStatuses.includes(task.status))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+        <span>{eligibleTasks.length} 个可选任务</span>
+      </div>
+      <div className="eval-picker-table-wrap">
+        <EvaluationTaskTable tasks={eligibleTasks} datasets={datasets} evaluators={evaluators} selectable controlTaskId={controlTaskId} lockedControl={lockedControl} experimentTaskIds={experimentTaskIds} onSetControl={setControl} onToggleExperiment={toggleExperiment} />
+      </div>
       <footer>
-        <div className="eval-picker-compatibility">{selectedDataset ? <><CircleCheck size={15} /><span>{selectedDataset.name} · 对照组 {controlTaskId ? 1 : 0} 个 · 实验组 {experimentTaskIds.length} 个 · 共同 Case {commonCases} 个。</span></> : <><Minus size={15} /><span>选择评测集后显示可比范围。</span></>}</div>
-        <div>
-          {step === 'tasks' && <button type="button" className="eval-button eval-button--ghost" disabled={lockedControl} onClick={() => setStep('dataset')}>上一步</button>}
-          <button type="button" className="eval-button eval-button--ghost" onClick={onCancel}>取消</button>
-          {step === 'dataset'
-            ? <button type="button" className="eval-button eval-button--primary" disabled={!datasetId} onClick={() => setStep('tasks')}>下一步<ChevronRight size={14} /></button>
-            : <button type="button" className="eval-button eval-button--primary" disabled={!canCreate} onClick={() => onCreate(controlTaskId, experimentTaskIds)}><GitCompare size={15} />创建对比实验</button>}
-        </div>
+        <div className="eval-picker-compatibility">{selectedDataset ? <><CircleCheck size={15} /><span>{selectedDataset.name} · 对照组 {controlTaskId ? 1 : 0} 个 · 实验组 {experimentTaskIds.length} 个 · 共同 Case {commonCases} 个。</span></> : <><Minus size={15} /><span>筛选评测集后显示可比范围。</span></>}</div>
+        <div><button type="button" className="eval-button eval-button--ghost" onClick={onCancel}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!canCreate} onClick={() => onCreate(controlTaskId, experimentTaskIds)}><GitCompare size={15} />创建对比实验</button></div>
       </footer>
     </section>
   </div>;
@@ -1419,8 +1410,7 @@ function OptimizationStartModal({ task, selectedCount, onCancel, onStart }: { ta
   </div>;
 }
 
-function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; onBack: () => void; onOpenCase: (item: CaseResult) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onOptimize: (caseIds: string[], mode: OptimizationFollowUpMode, agentType: '万智' | '外部') => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
-  const [tab, setTab] = useState<'summary' | 'data' | 'optimize'>('summary');
+function TaskDetail({ task, state, tab, onTabChange, onBack, onOpenCase, onNotify, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; tab: 'summary' | 'data' | 'optimize'; onTabChange: (tab: 'summary' | 'data' | 'optimize') => void; onBack: () => void; onOpenCase: (item: CaseResult) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onOptimize: (caseIds: string[], mode: OptimizationFollowUpMode, agentType: '万智' | '外部') => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
   const [selectedBadCaseIds, setSelectedBadCaseIds] = useState<string[]>([]);
   const [optimizeModalOpen, setOptimizeModalOpen] = useState(false);
   const dataset = getDatasetById(state, task.datasetId);
@@ -1497,14 +1487,14 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
         <div><span>描述</span><strong>{task.description || '未采集'}</strong></div>
       </div>
     </section>
-    <nav className="eval-task-detail-tabs" aria-label="任务详情内容"><button type="button" className={tab === 'summary' ? 'is-active' : ''} onClick={() => setTab('summary')}>统计结论</button><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => setTab('data')}>数据明细</button><button type="button" className={tab === 'optimize' ? 'is-active' : ''} onClick={() => setTab('optimize')}>优化实验</button></nav>
+    <nav className="eval-task-detail-tabs" aria-label="任务详情内容"><button type="button" className={tab === 'summary' ? 'is-active' : ''} onClick={() => onTabChange('summary')}>统计结论</button><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => onTabChange('data')}>数据明细</button><button type="button" className={tab === 'optimize' ? 'is-active' : ''} onClick={() => onTabChange('optimize')}>优化实验</button></nav>
     {tab === 'summary' && <div className="eval-task-conclusion">
       <section className="eval-conclusion-main"><div><span className="eval-eyebrow">TASK SUMMARY</span><h3>{task.status === '已完成' ? '评测完成' : task.status === '部分失败' ? '部分 Case 需要处理' : task.status === '失败' ? '评测失败' : '评测运行中'}</h3><p>共 {task.totalCases} 个 Case，已执行 {task.completedCases} 个，失败 {task.failedCases} 个。结果只覆盖当前任务范围。</p></div><div className="eval-conclusion-metrics"><div><span>可执行 Case</span><strong>{task.executableCases}</strong></div><div><span>已完成 Case</span><strong>{task.completedCases}</strong></div><div><span>失败 Case</span><strong>{task.failedCases}</strong></div><div><span>Badcase</span><strong>{badCases.length}</strong></div></div></section>
       <section className="eval-conclusion-data"><div className="eval-task-section-heading"><div><h3>评估器概览</h3><p>不同评估器独立统计，不合并为任务总分。</p></div></div>{evaluatorSummary.map(({ evaluator, valid, passed, average }) => <div className="eval-evaluator-conclusion-row" key={evaluator.id}><strong>{evaluator.name}</strong><div><span>有效 Case {valid}</span>{evaluator.scoreType === 'pass_fail' ? <span>通过 {passed}</span> : <span>平均分 {average === undefined ? '暂无' : average.toFixed(2)}</span>}</div><Status label={valid ? '已完成' : '暂无'} /></div>)}</section>
       <section className="eval-conclusion-cases"><div className="eval-task-section-heading"><div><h3>问题 Case</h3><p>勾选 Badcase 后，可从任务详情直接发起优化。</p></div><span>{selectedBadCaseIds.length} 个已选</span></div><div className="eval-conclusion-case-list">{badCases.map((item) => <button type="button" key={item.caseId} className={selectedBadCaseIds.includes(item.caseId) ? 'is-selected' : ''} onClick={() => toggleBadCase(item.caseId)}><input type="checkbox" checked={selectedBadCaseIds.includes(item.caseId)} readOnly /><span><strong>{item.caseId}</strong><small>{item.input}</small></span><Status label={item.status} /></button>)}</div></section>
     </div>}
     {tab === 'data' && <section className="eval-task-data-detail"><div className="eval-task-detail-table-wrap"><table className="eval-task-detail-table"><thead><tr><th className="is-sticky">选择 / ID</th>{dataset?.fields.map((field) => <th key={field.id}><strong>{field.semantic}</strong></th>)}{runtimeFields.map((field) => <th key={field.key}><strong>{field.label}</strong><small>运行指标</small></th>)}{taskEvaluators.map((evaluator) => <th key={evaluator.id}><strong>{evaluator.name}</strong><small>评估结果</small></th>)}<th className="is-sticky is-sticky-right">操作</th></tr></thead><tbody>{task.results.map((item) => <tr key={item.caseId} onClick={() => onOpenCase(item)}><td className="is-sticky"><div className="eval-case-select"><input type="checkbox" disabled={item.caseMark !== 'Badcase'} checked={selectedBadCaseIds.includes(item.caseId)} onChange={() => toggleBadCase(item.caseId)} onClick={(event) => event.stopPropagation()} /><span><strong className="eval-mono">{item.caseId}</strong></span></div></td>{dataset?.fields.map((field) => <td key={field.id} title={getFieldValue(item, field)}>{getFieldValue(item, field)}</td>)}{runtimeFields.map((field) => <td key={field.key} title={getRuntimeValue(item, field.key)}>getRuntimeValue(item, field.key)</td>)}{taskEvaluators.map((evaluator) => <td key={evaluator.id} title={getEvaluatorValue(item, evaluator.id)}>{getEvaluatorValue(item, evaluator.id)}</td>)}<td className="is-sticky is-sticky-right"><div className="eval-row-actions"><button type="button" className="eval-text-button" onClick={(event) => { event.stopPropagation(); onOpenCase(item); }}>详情</button><button type="button" className="eval-text-button" onClick={(event) => { event.stopPropagation(); onNotify(`${item.caseId} 已加入重试队列`); }}>重试</button></div></td></tr>)}</tbody></table></div></section>}
-    {tab === 'optimize' && <section className="eval-experiment-records"><div className="eval-task-section-heading"><div><h3>优化实验记录</h3><p>点击记录查看配置对比、优化建议和实验对比数据。</p></div><span>{taskExperiments.length} 条记录</span></div>{taskExperiments.length ? <div className="eval-experiment-record-list">{taskExperiments.map((item) => <button type="button" className="eval-experiment-record" key={item.id} onClick={() => onOpenExperiment(item)}><div><strong>{item.name}</strong><small>{item.createdAt} · {item.agentType} · {item.followUpMode} · 已选 {item.selectedCaseCount} 个 Badcase</small></div><Status label={item.status} /><ChevronRight size={16} /></button>)}</div> : <EmptyState title="暂无优化实验记录" description="在数据明细中勾选 Badcase 后发起优化。" />}</section>}
+    {tab === 'optimize' && <section className="eval-experiment-records"><div className="eval-task-section-heading"><div><h3>优化实验记录</h3><p>点击记录查看配置对比、优化建议和实验对比数据。</p></div><span>{taskExperiments.length} 条记录</span></div>{taskExperiments.length ? <div className="eval-table-wrap"><table className="eval-data-table"><thead><tr><th>优化任务</th><th>Agent 类型</th><th>优化后流程</th><th>Badcase</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{taskExperiments.map((item) => <tr key={item.id} onClick={() => onOpenExperiment(item)}><td><div className="eval-cell-title"><strong>{item.name}</strong><small>{item.id}</small></div></td><td>{item.agentType}</td><td>{item.followUpMode}</td><td>{item.selectedCaseCount}</td><td><Status label={item.status} /></td><td>{item.createdAt}</td><td><IconButton label="查看优化详情" onClick={() => onOpenExperiment(item)}><Eye size={15} /></IconButton></td></tr>)}</tbody></table></div> : <EmptyState title="暂无优化实验记录" description="在数据明细中勾选 Badcase 后发起优化。" />}</section>}
     {optimizeModalOpen && <OptimizationStartModal task={task} selectedCount={selectedBadCaseIds.length} onCancel={() => setOptimizeModalOpen(false)} onStart={(mode) => { setOptimizeModalOpen(false); onOptimize(selectedBadCaseIds, mode, task.agentType ?? '万智'); }} />}
   </div>;
 }
