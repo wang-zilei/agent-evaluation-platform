@@ -580,7 +580,7 @@ const tasks: EvaluationTask[] = [
   task({ id: 'TASK-20260923-006', name: '退款客服助手 V4｜过程质量实验组', description: '只配置检索与轨迹评估器的实验组任务。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:35', updatedAt: '2026-09-23 10:44', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageProcessResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260825-001', name: '退款客服助手 V3｜回流问题评测', description: '验证退款问答的任务完成、检索证据和完整 Trace。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '部分失败', tone: 'warning', createdBy: '王子磊', createdAt: '2026-08-25 18:12', updatedAt: '2026-08-25 18:19', totalCases: 4, executableCases: 3, completedCases: 3, failedCases: 1, results: refundResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260823-003', name: '退款客服助手 V2｜工具稳定性检查', description: '验证订单查询工具异常时的失败边界。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-53346', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-10', 'P0-12'], status: '失败', tone: 'danger', createdBy: '王子磊', createdAt: '2026-08-23 11:16', updatedAt: '2026-08-23 11:18', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 1, results: failureResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260824-008', name: '招标文件覆盖评测', description: '验证文件分析和最终交付文件的完整性。', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: 'DS-24610', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-04', 'P0-08', 'P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-08-24 15:34', updatedAt: '2026-08-24 16:02', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 0, results: tenderResults, runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
+  task({ id: 'TASK-20260824-008', name: '招标文件覆盖评测', description: '验证文件分析和最终交付文件的完整性。', agentType: '外部', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: 'DS-24610', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-04', 'P0-08', 'P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-08-24 15:34', updatedAt: '2026-08-24 16:02', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 0, results: tenderResults, runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
   task({ id: 'TASK-20260825-004', name: '退款问答回归检查', description: '基于历史对话回流验证退款回复的完整性。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-11490', datasetVersion: '草稿', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '运行中', tone: 'info', createdBy: '王子磊', createdAt: '2026-08-25 19:42', updatedAt: '2026-08-25 19:44', totalCases: 1, executableCases: 1, completedCases: 0, failedCases: 0, results: historyResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
 ];
 
@@ -785,16 +785,20 @@ const afterConfig: AgentConfigSnapshot = {
   skills: [{ id: 'refund-policy', name: '售后政策', content: '说明 7 天无理由退货、退款时效、寄回方式和运费承担。' }],
 };
 
-const optimizationResult = (selectedCaseCount: number): OptimizationResult => ({
+const optimizationResult = (selectedCaseCount: number, comparisonId?: string): OptimizationResult => ({
   status: '优化成功',
   selectedCaseCount,
   changeSummary: '针对退货条件说明不完整的问题，补充寄回方式、运费承担和转人工条件，并增加运费政策工具。',
   beforeConfig,
   afterConfig,
   changes: [
-    { target: 'system_prompt', changeType: '修改', before: beforeConfig.systemPrompt, after: afterConfig.systemPrompt, reason: '补齐 Badcase 中缺失的退货条件。' },
-    { target: 'tools', changeType: '新增', before: '订单查询', after: '订单查询、运费政策', reason: '支持回答运费承担问题。' },
-    { target: 'skills', changeType: '修改', before: beforeConfig.skills[0].content ?? '', after: afterConfig.skills[0].content ?? '', reason: '将寄回方式和运费承担写入售后政策。' },
+    { target: 'system_prompt', changeType: '修改', before: beforeConfig.systemPrompt, after: afterConfig.systemPrompt, reason: '补齐退货条件、寄回方式和运费承担。', caseIds: ['CASE-HIS-024'] },
+    { target: 'tools', changeType: '新增', before: '订单查询', after: '订单查询、运费政策', reason: '支持回答运费承担问题。', caseIds: ['CASE-HIS-024'] },
+    { target: 'skills', changeType: '修改', before: beforeConfig.skills[0].content ?? '', after: afterConfig.skills[0].content ?? '', reason: '将寄回方式和运费承担写入售后政策。', caseIds: ['CASE-HIS-024'] },
+  ],
+  suggestions: [
+    { id: 'SUG-001', problem: '缺少订单号时仍尝试查询退款进度。', caseIds: ['CASE-GEN-011'], suggestion: '在工作流中增加订单号缺失识别，先追问订单号再调用订单查询。' },
+    { id: 'SUG-002', problem: '跨境退款失败后没有明确转人工路径。', caseIds: ['CASE-UP-019'], suggestion: '补充跨境售后异常兜底策略，失败后返回人工处理入口。' },
   ],
   scoreRows: [
     { caseId: 'CASE-HIS-024', evaluatorName: '任务完成度', beforeResult: '不通过', afterResult: '通过', judgment: '改善', reason: '优化后覆盖寄回方式和运费承担。' },
@@ -802,11 +806,13 @@ const optimizationResult = (selectedCaseCount: number): OptimizationResult => ({
     { caseId: 'CASE-UP-019', evaluatorName: '任务完成度', beforeResult: '执行失败', afterResult: '无法比较', judgment: '无法比较', reason: '优化后仍依赖订单服务，当前无有效运行结果。' },
   ],
   summary: { improved: 2, declined: 0, unchanged: 0, incomparable: 1 },
+  comparisonId,
 });
 
 const experiments: OptimizeExperiment[] = [
-  { id: 'EXP-20260825-01', name: '退款客服助手 V3｜补齐退货政策说明', sourceTaskId: 'TASK-20260825-001', agent: '退款客服助手', baseVersion: 'V3', candidateVersion: '新建 Agent（待确认）', datasetVersion: '退款问答评测集 V2', status: '已完成', tone: 'success', createdAt: '2026-08-25 18:36', selectedCaseIds: ['CASE-HIS-024', 'CASE-UP-019'], selectedCaseCount: 2, result: optimizationResult(2) },
-  { id: 'EXP-20260824-02', name: '招标文件评估助手 V1｜文件交付优化', sourceTaskId: 'TASK-20260824-008', agent: '招标文件评估助手', baseVersion: 'V1', candidateVersion: '新建 Agent（待确认）', datasetVersion: '招标报告评测集 V1', status: '优化中', tone: 'info', createdAt: '2026-08-24 17:20', selectedCaseIds: ['CASE-FILE-001'], selectedCaseCount: 1, result: { ...optimizationResult(1), status: '无有效修改', changeSummary: '当前输入不足以确认文件交付问题，不生成无依据修改。', changes: [], scoreRows: [], summary: { improved: 0, declined: 0, unchanged: 0, incomparable: 1 } } },
+  { id: 'EXP-20260923-REVIEW', name: '退款客服助手 V4｜退货条件审查', sourceTaskId: 'TASK-20260922-002', agentType: '万智', agent: '退款客服助手', baseVersion: 'V3', candidateVersion: '优化后 Agent', datasetVersion: '退款问答评测集 V2', followUpMode: '先审查配置', status: '待继续实验', tone: 'info', createdAt: '2026-09-23 11:18', selectedCaseIds: ['CASE-HIS-024', 'CASE-UP-019'], selectedCaseCount: 2, result: optimizationResult(2, 'CMP-TASK-20260922-001-TASK-20260922-002') },
+  { id: 'EXP-20260923-DIRECT', name: '退款客服助手 V3｜退货条件直接对比', sourceTaskId: 'TASK-20260922-001', agentType: '万智', agent: '退款客服助手', baseVersion: 'V3', candidateVersion: '优化后 Agent', datasetVersion: '退款问答评测集 V2', followUpMode: '直接实验对比', status: '已完成', tone: 'success', createdAt: '2026-09-23 11:42', selectedCaseIds: ['CASE-HIS-024', 'CASE-UP-019'], selectedCaseCount: 2, result: optimizationResult(2, 'CMP-TASK-20260922-001-TASK-20260922-002') },
+  { id: 'EXP-20260923-EXTERNAL', name: '外部客服助手｜Badcase 优化建议', sourceTaskId: 'TASK-20260824-008', agentType: '外部', agent: '外部客服助手', baseVersion: 'V1', candidateVersion: '不生成配置', datasetVersion: '招标报告评测集 V1', followUpMode: '仅生成建议', status: '已完成', tone: 'success', createdAt: '2026-09-23 12:05', selectedCaseIds: ['CASE-FILE-001'], selectedCaseCount: 1, result: { ...optimizationResult(1), status: '无有效修改', changeSummary: '外部 Agent 不支持自动修改配置，本次只生成优化建议。', beforeConfig: { systemPrompt: '未采集', tools: [], skills: [] }, afterConfig: { systemPrompt: '未采集', tools: [], skills: [] }, changes: [], suggestions: [{ id: 'SUG-EXT-001', problem: '文件分析完成后没有说明报告生成范围。', caseIds: ['CASE-FILE-001'], suggestion: '在交付说明中补充分析范围、评分项和文件结构。' }], scoreRows: [], summary: { improved: 0, declined: 0, unchanged: 0, incomparable: 1 } } },
 ];
 
 const comparisonDataset = datasets.find((item) => item.id === 'DS-53346');
@@ -834,7 +840,7 @@ export const cloneEvaluationState = (): EvaluationState => structuredClone(mockE
 
 export const statusTone = (status: string): 'success' | 'warning' | 'info' | 'danger' | 'neutral' => {
   if (status === '已完成' || status === '通过' || status === '已提交') return 'success';
-  if (status === '运行中' || status === '待重新评测' || status === '待分析') return 'info';
+  if (status === '运行中' || status === '分析中' || status === '待继续实验' || status === '复测评测中' || status === '待查看实验对比' || status === '待重新评测' || status === '待分析') return 'info';
   if (status === '部分失败' || status === '无法执行' || status === '证据不足' || status === '草稿' || status === '待人工评估') return 'warning';
   if (status === '失败' || status === '不通过' || status === '执行失败') return 'danger';
   return 'neutral';

@@ -12,7 +12,7 @@ import { TraceDetail, TraceList } from './TraceWorkspace';
 import type {
   AgentOption, CaseResult, Dataset, DatasetCase, EvaluationModule, EvaluationState,
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
-  ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationResult, ScoreType, TaskTab,
+  ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationFollowUpMode, OptimizationResult, ScoreType, TaskTab,
   ComparisonCaseRow, ComparisonEvaluatorRow, ComparisonMetricCell, ComparisonRuntimeRow, ComparisonTaskRef, EvaluatorResult,
 } from './evaluation.types';
 import './evaluation.css';
@@ -224,7 +224,13 @@ export default function EvaluationCenterPage() {
     setModule('tasks');
     notify('对比实验已创建，已生成指标统计');
   };
-  const startOptimization = (caseIds: string[]) => { const target = state.experiments[0]; if (!target) return; setSelectedExperimentId(target.id); setTaskScreen('experiment'); notify(`已创建优化实验，等待 Agent Builder 处理 ${caseIds.length} 个 Badcase`); };
+  const startOptimization = (caseIds: string[], followUpMode: OptimizationFollowUpMode, agentType: '万智' | '外部') => {
+    const target = state.experiments.find((item) => item.followUpMode === followUpMode && item.agentType === agentType) ?? state.experiments[0];
+    if (!target) return;
+    setSelectedExperimentId(target.id);
+    setTaskScreen('experiment');
+    notify(`${caseIds.length} 个 Badcase 已进入${followUpMode === '直接实验对比' ? '自动复测流程' : followUpMode === '仅生成建议' ? '建议生成流程' : '配置审查流程'}`);
+  };
   const openEvaluatorCreate = () => { setTaskReturn(module === 'tasks' && taskScreen === 'create'); setEditingEvaluatorId(null); setEvaluatorDraft(makeEvaluatorDraft()); setEvaluatorScreen('create'); setModule('evaluators'); };
 
   const createDataset = (draft: DatasetDraft) => {
@@ -403,7 +409,7 @@ export default function EvaluationCenterPage() {
       {module === 'evaluators' && evaluatorScreen === 'create' && <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />}
       {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
-      {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} onBack={showList} onNotify={notify} />}
+      {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
       {module === 'tasks' && taskScreen === 'comparison' && comparison && <ComparisonDetail comparison={comparison} onBack={() => { setTaskTab('compare'); setTaskScreen('list'); }} />}
       {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail task={task} state={state} onBack={showList} onOpenCase={setCasePreview} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} search={traceSearch} setSearch={setTraceSearch} onOpen={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} />}
@@ -1054,42 +1060,69 @@ function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch,
 }
 
 function ConfigCompare({ experiment }: { experiment: OptimizeExperiment }) {
-  const sections: { key: 'systemPrompt' | 'tools' | 'skills'; label: string; before: string; after: string }[] = [
-    { key: 'systemPrompt', label: '系统提示词', before: experiment.result.beforeConfig.systemPrompt, after: experiment.result.afterConfig.systemPrompt },
-    { key: 'tools', label: '工具配置', before: experiment.result.beforeConfig.tools.map((item) => `${item.name}：${item.detail ?? item.content ?? ''}`).join('\n'), after: experiment.result.afterConfig.tools.map((item) => `${item.name}：${item.detail ?? item.content ?? ''}`).join('\n') },
-    { key: 'skills', label: 'Skills 内容', before: experiment.result.beforeConfig.skills.map((item) => `${item.name}：${item.content ?? item.detail ?? ''}`).join('\n'), after: experiment.result.afterConfig.skills.map((item) => `${item.name}：${item.content ?? item.detail ?? ''}`).join('\n') },
-  ];
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const labels: Record<string, string> = { system_prompt: '系统提示词', tools: '工具描述', skills: 'Skill 内容' };
+  const sections = experiment.result.changes.map((change) => ({
+    ...change,
+    label: labels[change.target] ?? change.target,
+  }));
+  if (!sections.length) return <EmptyState title="没有可直接修改的配置" description="本次只展示不能自动修改的问题建议。" />;
   return <div className="eval-config-compare">
-    {sections.map((section) => <section className="eval-config-compare__row" key={section.key}>
-      <div className="eval-config-compare__label"><strong>{section.label}</strong><span>{experiment.result.changes.find((item) => item.target === (section.key === 'systemPrompt' ? 'system_prompt' : section.key))?.changeType ?? '未变化'}</span></div>
-      <div className="eval-config-compare__side"><span>优化前</span><pre>{section.before || '未采集'}</pre></div>
-      <div className="eval-config-compare__side is-after"><span>优化后</span><pre>{section.after || '未采集'}</pre></div>
-    </section>)}
+    {sections.map((section) => <div key={section.target}>
+      <section className="eval-config-compare__row">
+        <div className="eval-config-compare__label"><strong>{section.label}</strong></div>
+        <div className="eval-config-compare__side"><span>优化前</span><pre>{section.before || '未采集'}</pre></div>
+        <div className="eval-config-compare__side is-after"><span>优化后</span><pre>{section.after || '未采集'}</pre></div>
+        <IconButton label={expanded === section.target ? '收起修改详情' : '查看修改详情'} onClick={() => setExpanded((current) => current === section.target ? null : section.target)}><ChevronDown size={15} /></IconButton>
+      </section>
+      {expanded === section.target && <div className="eval-config-compare__details"><div><span>修改原因</span><p>{section.reason}</p></div><div><span>关联 Case</span><p>{section.caseIds.map((caseId) => <Pill key={caseId}>{caseId}</Pill>)}</p></div></div>}
+    </div>)}
   </div>;
 }
 
-function ScoreCompare({ rows, summary }: { rows: OptimizationResult['scoreRows']; summary: OptimizationResult['summary'] }) {
-  return <div className="eval-score-compare">
-    <div className="eval-score-summary"><div><span>改善</span><strong>{summary.improved}</strong></div><div><span>下降</span><strong>{summary.declined}</strong></div><div><span>无变化</span><strong>{summary.unchanged}</strong></div><div><span>无法比较</span><strong>{summary.incomparable}</strong></div></div>
-    <div className="eval-compare-table">
-      <div><span>Case / 评估器</span><span>优化前</span><span>优化后</span><span>判断</span></div>
-      {rows.map((row) => <div key={`${row.caseId}-${row.evaluatorName}`}><span><strong>{row.caseId}</strong><small>{row.evaluatorName}</small></span><span>{row.beforeResult}</span><span>{row.afterResult}</span><span><Pill tone={row.judgment === '改善' ? 'green' : row.judgment === '下降' ? 'amber' : 'neutral'}>{row.judgment}</Pill></span></div>)}
-    </div>
+function OptimizationSuggestions({ suggestions }: { suggestions: OptimizationResult['suggestions'] }) {
+  if (!suggestions.length) return <EmptyState title="暂无优化建议" description="当前 Badcase 没有发现需要人工处理的问题。" />;
+  return <div className="eval-suggestion-list">{suggestions.map((suggestion) => <article className="eval-suggestion-row" key={suggestion.id}>
+    <div className="eval-suggestion-problem"><strong>{suggestion.problem}</strong><div>{suggestion.caseIds.map((caseId) => <Pill key={caseId}>{caseId}</Pill>)}</div></div>
+    <div className="eval-suggestion-advice"><span>修改建议</span><p>{suggestion.suggestion}</p></div>
+  </article>)}</div>;
+}
+
+function OptimizationComparison({ comparison }: { comparison?: ComparisonRecord }) {
+  if (!comparison) return null;
+  return <div className="eval-optimization-comparison">
+    <MetricCompareMatrix rows={comparison.evaluatorRows} tasks={comparison.taskRefs} />
+    <MetricCompareMatrix rows={comparison.runtimeRows} tasks={comparison.taskRefs} />
   </div>;
 }
 
-function OptimizationDetail({ experiment, onBack, onNotify }: { experiment: OptimizeExperiment; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void }) {
+function OptimizationDetail({ experiment, comparison, onBack, onNotify, onViewComparison }: { experiment: OptimizeExperiment; comparison?: ComparisonRecord; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void; onViewComparison: (comparison: ComparisonRecord) => void }) {
   const result = experiment.result;
+  const [evaluationState, setEvaluationState] = useState<'idle' | 'running' | 'ready'>(experiment.followUpMode === '直接实验对比' ? 'ready' : 'idle');
+  const continueExperiment = () => {
+    setEvaluationState('running');
+    onNotify('已创建优化后复测任务，正在运行评测');
+    window.setTimeout(() => {
+      setEvaluationState('ready');
+      onNotify('复测完成，已生成实验对比数据');
+    }, 1200);
+  };
+  const showComparison = evaluationState === 'ready' && Boolean(comparison);
   return <div className="eval-detail-page eval-optimization-detail">
-    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回任务列表</button><Pill tone={result.status === '优化成功' ? 'green' : 'amber'}>{result.status}</Pill></div>
-    <header className="eval-detail-hero eval-optimization-hero"><div><span className="eval-eyebrow">OPTIMIZATION RESULT</span><h2>{experiment.name}</h2><p>{experiment.agent} · {experiment.baseVersion} → {experiment.candidateVersion} · 已选 {result.selectedCaseCount} 个 Badcase</p></div><div className="eval-detail-hero__actions"><button type="button" className="eval-button eval-button--primary" onClick={() => onNotify('已使用优化配置创建新 Agent')}><Bot size={15} />新建 Agent</button><button type="button" className="eval-button eval-button--ghost" onClick={() => onNotify('已放弃优化结果')}>放弃</button></div></header>
-    <div className="eval-experiment-banner"><Sparkles size={18} /><div><strong>Agent Builder 已完成配置优化</strong><p>{result.changeSummary}</p></div></div>
-    <div className="eval-optimization-grid">
-      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>配置对比</h3><p>左侧优化前，右侧优化后；从上到下查看系统提示词、工具配置和 Skills 内容。</p></div></div><ConfigCompare experiment={experiment} /></section>
-      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>分数对比</h3><p>只比较本次选择的 Badcase，复用对比实验规则。</p></div></div><ScoreCompare rows={result.scoreRows} summary={result.summary} /></section>
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回优化记录</button><Pill tone={experiment.status === '已完成' ? 'green' : 'amber'}>{experiment.status}</Pill></div>
+    <header className="eval-detail-hero eval-optimization-hero"><div><span className="eval-eyebrow">OPTIMIZATION RESULT</span><h2>{experiment.name}</h2><p>{experiment.agentType} · {experiment.followUpMode} · 已选 {result.selectedCaseCount} 个 Badcase</p></div></header>
+    <div className="eval-optimization-flow"><span>优化后流程</span><strong>{experiment.followUpMode}</strong><span>{experiment.agentType === '外部' ? '外部 Agent 只生成优化建议' : '优化后 Agent 需要先完成复测任务'}</span></div>
+    <div className="eval-optimization-stack">
+      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>配置对比</h3><p>只展示优化前后的配置内容，展开查看修改原因和关联 Case。</p></div></div><ConfigCompare experiment={experiment} /></section>
+      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>优化建议</h3><p>展示不能自动修改、但由 Badcase 明确暴露的问题。</p></div></div><OptimizationSuggestions suggestions={result.suggestions} /></section>
+      {evaluationState === 'running' && <section className="eval-optimization-progress"><RefreshCw size={17} /><div><strong>优化后复测任务正在运行</strong><p>复测完成后生成实验对比数据。</p></div><Status label="复测评测中" /></section>}
+      {showComparison && comparison && <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>实验对比数据</h3><p>复测任务完成后，基于评测任务结果展示优化前后的指标。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => onViewComparison(comparison)}>查看完整对比实验</button></div><OptimizationComparison comparison={comparison} /></section>}
     </div>
-    <section className="eval-change-summary"><div className="eval-task-section-heading"><div><h3>修改说明</h3><p>每项修改对应 Agent Builder 返回的变化摘要。</p></div></div>{result.changes.map((change) => <div className="eval-change-row" key={`${change.target}-${change.changeType}`}><Pill tone={change.changeType === '新增' ? 'green' : change.changeType === '删除' ? 'amber' : 'violet'}>{change.changeType}</Pill><strong>{change.target === 'system_prompt' ? '系统提示词' : change.target === 'tools' ? '工具配置' : 'Skills 内容'}</strong><span>{change.reason}</span></div>)}</section>
-    <footer className="eval-sticky-footer"><span>新建 Agent 不覆盖原 Agent。</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>返回</button><button type="button" className="eval-button eval-button--primary" onClick={() => onNotify('已使用优化配置创建新 Agent')}><Bot size={15} />新建 Agent</button></div></footer>
+    <footer className="eval-sticky-footer"><span>{experiment.agentType === '外部' ? '外部 Agent 不修改配置，也不自动生成实验对比。' : '优化结果不会覆盖原 Agent。'}</span><div>
+      {experiment.agentType !== '外部' && evaluationState === 'idle' && <><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>暂不继续</button><button type="button" className="eval-button eval-button--primary" onClick={continueExperiment}><Zap size={15} />继续实验对比</button></>}
+      {evaluationState === 'running' && <button type="button" className="eval-button eval-button--primary" disabled>复测评测中</button>}
+      {showComparison && comparison && <button type="button" className="eval-button eval-button--primary" onClick={() => onViewComparison(comparison)}><GitCompare size={15} />查看完整对比实验</button>}
+    </div></footer>
   </div>;
 }
 
@@ -1373,9 +1406,23 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
   </div>;
 }
 
-function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; onBack: () => void; onOpenCase: (item: CaseResult) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onOptimize: (caseIds: string[]) => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
+function OptimizationStartModal({ task, selectedCount, onCancel, onStart }: { task: EvaluationTask; selectedCount: number; onCancel: () => void; onStart: (mode: OptimizationFollowUpMode) => void }) {
+  const agentType = task.agentType ?? '万智';
+  const external = agentType === '外部';
+  const [mode, setMode] = useState<OptimizationFollowUpMode>(external ? '仅生成建议' : '先审查配置');
+  return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+    <section className="eval-optimization-start" role="dialog" aria-modal="true" aria-label="开始优化">
+      <header><div><span className="eval-eyebrow">START OPTIMIZATION</span><h2>开始优化</h2><p>已选择 {selectedCount} 个 Badcase。</p></div><IconButton label="关闭" onClick={onCancel}><X size={17} /></IconButton></header>
+      {external ? <div className="eval-optimization-start__body"><div className="eval-inline-warning"><CircleAlert size={15} /><span>外部 Agent 只分析 Badcase 并生成优化建议，不修改配置，也不自动生成实验对比。</span></div></div> : <div className="eval-optimization-start__body"><span>优化后流程</span><label className={mode === '先审查配置' ? 'is-selected' : ''}><input type="radio" name="optimization-follow-up" checked={mode === '先审查配置'} onChange={() => setMode('先审查配置')} /><span><strong>先审查配置</strong><small>先查看优化前后的配置变化，再决定是否继续实验对比。</small></span></label><label className={mode === '直接实验对比' ? 'is-selected' : ''}><input type="radio" name="optimization-follow-up" checked={mode === '直接实验对比'} onChange={() => setMode('直接实验对比')} /><span><strong>直接实验对比</strong><small>优化完成后自动运行复测任务，并生成实验对比。</small></span></label></div>}
+      <footer><button type="button" className="eval-button eval-button--ghost" onClick={onCancel}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={() => onStart(mode)}><Sparkles size={15} />开始优化</button></footer>
+    </section>
+  </div>;
+}
+
+function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; onBack: () => void; onOpenCase: (item: CaseResult) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onOptimize: (caseIds: string[], mode: OptimizationFollowUpMode, agentType: '万智' | '外部') => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
   const [tab, setTab] = useState<'summary' | 'data' | 'optimize'>('summary');
   const [selectedBadCaseIds, setSelectedBadCaseIds] = useState<string[]>([]);
+  const [optimizeModalOpen, setOptimizeModalOpen] = useState(false);
   const dataset = getDatasetById(state, task.datasetId);
   const taskEvaluators = state.evaluators.filter((evaluator) => task.evaluatorIds.includes(evaluator.id));
   const badCases = task.results.filter((item) => item.caseMark === 'Badcase');
@@ -1434,7 +1481,7 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
         </div>
       </div>
       <div className="eval-task-detail-actions">
-        <button type="button" className="eval-button eval-button--primary" disabled={selectedBadCaseIds.length === 0} onClick={() => onOptimize(selectedBadCaseIds)}><Sparkles size={14} />优化 Badcase{selectedBadCaseIds.length > 0 ? `（${selectedBadCaseIds.length}）` : ''}</button>
+        <button type="button" className="eval-button eval-button--primary" disabled={selectedBadCaseIds.length === 0} onClick={() => setOptimizeModalOpen(true)}><Sparkles size={14} />优化 Badcase{selectedBadCaseIds.length > 0 ? `（${selectedBadCaseIds.length}）` : ''}</button>
         <button type="button" className="eval-button eval-button--ghost" disabled={!['已完成', '部分失败'].includes(task.status)} title={['已完成', '部分失败'].includes(task.status) ? '创建对比实验' : '任务执行完成后才能创建对比实验'} onClick={onCompare}><Layers3 size={14} />对比实验</button>
         <button type="button" className="eval-button eval-button--ghost" onClick={() => onNotify('已创建异常 Case 重试任务')}><RefreshCw size={14} />重试异常</button>
       </div>
@@ -1457,7 +1504,8 @@ function TaskDetail({ task, state, onBack, onOpenCase, onNotify, onOptimize, onC
       <section className="eval-conclusion-cases"><div className="eval-task-section-heading"><div><h3>问题 Case</h3><p>勾选 Badcase 后，可从任务详情直接发起优化。</p></div><span>{selectedBadCaseIds.length} 个已选</span></div><div className="eval-conclusion-case-list">{badCases.map((item) => <button type="button" key={item.caseId} className={selectedBadCaseIds.includes(item.caseId) ? 'is-selected' : ''} onClick={() => toggleBadCase(item.caseId)}><input type="checkbox" checked={selectedBadCaseIds.includes(item.caseId)} readOnly /><span><strong>{item.caseId}</strong><small>{item.input}</small></span><Status label={item.status} /></button>)}</div></section>
     </div>}
     {tab === 'data' && <section className="eval-task-data-detail"><div className="eval-task-detail-table-wrap"><table className="eval-task-detail-table"><thead><tr><th className="is-sticky">选择 / ID</th>{dataset?.fields.map((field) => <th key={field.id}><strong>{field.semantic}</strong></th>)}{runtimeFields.map((field) => <th key={field.key}><strong>{field.label}</strong><small>运行指标</small></th>)}{taskEvaluators.map((evaluator) => <th key={evaluator.id}><strong>{evaluator.name}</strong><small>评估结果</small></th>)}<th className="is-sticky is-sticky-right">操作</th></tr></thead><tbody>{task.results.map((item) => <tr key={item.caseId} onClick={() => onOpenCase(item)}><td className="is-sticky"><div className="eval-case-select"><input type="checkbox" disabled={item.caseMark !== 'Badcase'} checked={selectedBadCaseIds.includes(item.caseId)} onChange={() => toggleBadCase(item.caseId)} onClick={(event) => event.stopPropagation()} /><span><strong className="eval-mono">{item.caseId}</strong></span></div></td>{dataset?.fields.map((field) => <td key={field.id} title={getFieldValue(item, field)}>{getFieldValue(item, field)}</td>)}{runtimeFields.map((field) => <td key={field.key} title={getRuntimeValue(item, field.key)}>getRuntimeValue(item, field.key)</td>)}{taskEvaluators.map((evaluator) => <td key={evaluator.id} title={getEvaluatorValue(item, evaluator.id)}>{getEvaluatorValue(item, evaluator.id)}</td>)}<td className="is-sticky is-sticky-right"><div className="eval-row-actions"><button type="button" className="eval-text-button" onClick={(event) => { event.stopPropagation(); onOpenCase(item); }}>详情</button><button type="button" className="eval-text-button" onClick={(event) => { event.stopPropagation(); onNotify(`${item.caseId} 已加入重试队列`); }}>重试</button></div></td></tr>)}</tbody></table></div></section>}
-    {tab === 'optimize' && <section className="eval-experiment-records"><div className="eval-task-section-heading"><div><h3>优化实验记录</h3><p>记录从当前评测任务发起的 Badcase 优化实验。</p></div><span>{taskExperiments.length} 条记录</span></div>{taskExperiments.length ? <div className="eval-experiment-record-list">{taskExperiments.map((item) => <button type="button" className="eval-experiment-record" key={item.id} onClick={() => onOpenExperiment(item)}><div><strong>{item.name}</strong><small>{item.createdAt} · 已选 {item.selectedCaseCount} 个 Badcase</small></div><Status label={item.status === '已完成' ? '已完成' : item.status === '优化中' ? '运行中' : item.status} /><ChevronRight size={16} /></button>)}</div> : <EmptyState title="暂无优化实验记录" description="在数据明细中勾选 Badcase 后发起优化。" />}</section>}
+    {tab === 'optimize' && <section className="eval-experiment-records"><div className="eval-task-section-heading"><div><h3>优化实验记录</h3><p>点击记录查看配置对比、优化建议和实验对比数据。</p></div><span>{taskExperiments.length} 条记录</span></div>{taskExperiments.length ? <div className="eval-experiment-record-list">{taskExperiments.map((item) => <button type="button" className="eval-experiment-record" key={item.id} onClick={() => onOpenExperiment(item)}><div><strong>{item.name}</strong><small>{item.createdAt} · {item.agentType} · {item.followUpMode} · 已选 {item.selectedCaseCount} 个 Badcase</small></div><Status label={item.status} /><ChevronRight size={16} /></button>)}</div> : <EmptyState title="暂无优化实验记录" description="在数据明细中勾选 Badcase 后发起优化。" />}</section>}
+    {optimizeModalOpen && <OptimizationStartModal task={task} selectedCount={selectedBadCaseIds.length} onCancel={() => setOptimizeModalOpen(false)} onStart={(mode) => { setOptimizeModalOpen(false); onOptimize(selectedBadCaseIds, mode, task.agentType ?? '万智'); }} />}
   </div>;
 }
 function CasePreview({ item, onClose }: { item: CaseResult; onClose: () => void }) {

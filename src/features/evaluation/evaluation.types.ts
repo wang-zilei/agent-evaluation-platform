@@ -141,6 +141,7 @@ export type EvaluationTask = {
   id: string;
   name: string;
   description: string;
+  agentType?: '万智' | '外部';
   agent: string;
   agentVersion: string;
   datasetId: string;
@@ -182,6 +183,14 @@ export type ConfigChange = {
   before: string;
   after: string;
   reason: string;
+  caseIds: string[];
+};
+
+export type OptimizationSuggestion = {
+  id: string;
+  problem: string;
+  caseIds: string[];
+  suggestion: string;
 };
 
 export type ScoreComparisonRow = {
@@ -200,19 +209,25 @@ export type OptimizationResult = {
   beforeConfig: AgentConfigSnapshot;
   afterConfig: AgentConfigSnapshot;
   changes: ConfigChange[];
+  suggestions: OptimizationSuggestion[];
   scoreRows: ScoreComparisonRow[];
   summary: { improved: number; declined: number; unchanged: number; incomparable: number };
+  comparisonId?: string;
 };
+
+export type OptimizationFollowUpMode = '直接实验对比' | '先审查配置' | '仅生成建议';
 
 export type OptimizeExperiment = {
   id: string;
   name: string;
   sourceTaskId: string;
+  agentType: '万智' | '外部';
   agent: string;
   baseVersion: string;
   candidateVersion: string;
   datasetVersion: string;
-  status: '优化中' | '待重新评测' | '已完成' | '失败';
+  followUpMode: OptimizationFollowUpMode;
+  status: '分析中' | '待继续实验' | '复测评测中' | '待查看实验对比' | '已完成' | '失败';
   tone: StatusTone;
   createdAt: string;
   selectedCaseIds: string[];
