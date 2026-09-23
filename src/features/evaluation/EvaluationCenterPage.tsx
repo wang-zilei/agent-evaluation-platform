@@ -1428,6 +1428,7 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
 
 function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch, tab, setTab, onCreate, onCreateComparison, onOpen, onOpenComparison }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; comparisons: ComparisonRecord[]; search: string; setSearch: (value: string) => void; tab: TaskTab; setTab: (tab: TaskTab) => void; onCreate: () => void; onCreateComparison: () => void; onOpen: (task: EvaluationTask) => void; onOpenComparison: (item: ComparisonRecord) => void }) {
   const filtered = tasks.filter((task) => !search || `${task.name} ${task.agent}`.toLowerCase().includes(search.toLowerCase()));
+  const filteredComparisons = comparisons.filter((item) => !search || `${item.name} ${item.dataset} ${item.taskRefs.map((task) => `${task.name} ${task.agent}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="eval-list-page">
     <div className="eval-task-tabs">{(['list', 'compare'] as TaskTab[]).map((item) => <button type="button" key={item} className={tab === item ? 'is-active' : ''} onClick={() => setTab(item)}>{item === 'list' ? '任务列表' : '对比实验'}</button>)}</div>
     {tab === 'list' && <>
@@ -1438,11 +1439,11 @@ function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch,
       {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索条件。" />}
     </>}
     {tab === 'compare' && <section className="eval-record-page">
-      <div className="eval-section-head"><div><span className="eval-eyebrow">COMPARISON</span><h2>对比实验</h2><p>基于同一评测集，对已经完成的评测任务进行数据对比。</p></div><button type="button" className="eval-button eval-button--primary" onClick={onCreateComparison}><Plus size={15} />创建对比实验</button></div>
+      <div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索对比名称、任务或评测集" /></label><button type="button" className="eval-button eval-button--primary" onClick={onCreateComparison}><Plus size={15} />创建对比实验</button></div>
       <section className="eval-surface table-surface">
         <table className="eval-data-table">
           <thead><tr><th>对比名称</th><th>对照组</th><th>实验组</th><th>评测集</th><th>Case 对比</th><th>状态</th><th>操作</th></tr></thead>
-          <tbody>{comparisons.map((item) => <tr key={item.id} onClick={() => onOpenComparison(item)}>
+          <tbody>{filteredComparisons.map((item) => <tr key={item.id} onClick={() => onOpenComparison(item)}>
             <td><strong>{item.name}</strong></td>
             <td>{item.taskRefs.find((task) => task.role === '对照组')?.label}</td>
             <td><div className="eval-cell-pills">{item.taskRefs.filter((task) => task.role === '实验组').map((task) => <span key={task.taskId}>{task.name}</span>)}</div></td>
@@ -1453,7 +1454,7 @@ function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch,
           </tr>)}</tbody>
         </table>
       </section>
-      {comparisons.length === 0 && <EmptyState title="暂无对比实验" description="从同一评测集的已完成任务中选择对照组和实验组。" />}
+      {filteredComparisons.length === 0 && <EmptyState title={comparisons.length === 0 ? '暂无对比实验' : '没有匹配的对比实验'} description={comparisons.length === 0 ? '从同一评测集的已完成任务中选择对照组和实验组。' : '调整搜索条件。'} />}
     </section>}
   </div>;
 }

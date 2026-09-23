@@ -1824,7 +1824,7 @@
 .eval-dsh-row { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .eval-dsh-row.is-active { background: #f7f5ff; }
 .eval-trace-split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .8fr); gap: 24px; align-items: start; }
-.eval-trace-inspector { position: sticky; top: 16px; min-height: 420px; border: 1px solid var(--eval-border); border-radius: 10px; background: #fff; overflow: hidden; }
+.eval-trace-inspector { position: sticky; top: 16px; align-self: start; min-height: 420px; background: #fff; overflow: hidden; }
 .eval-trace-inspector__empty { min-height: 420px; display: grid; place-items: center; padding: 24px; color: var(--eval-muted); font-size: 13px; }
 .eval-inspector { display: flex; flex-direction: column; max-height: calc(100vh - 160px); overflow: auto; }
 .eval-inspector__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--eval-border); }
