@@ -1,4 +1,4 @@
-export type EvaluationModule = 'tasks' | 'datasets' | 'evaluators' | 'traces';
+export type EvaluationModule = 'tasks' | 'datasets' | 'evaluators' | 'applications' | 'traces';
 export type TaskTab = 'list' | 'compare';
 export type TaskScreen = 'list' | 'detail' | 'create' | 'experiment' | 'comparison';
 export type DatasetScreen = 'list' | 'workspace' | 'upload' | 'history';
@@ -338,6 +338,8 @@ export type AgentOption = {
   name: string;
   versions: string[];
   description: string;
+  source: '万智' | '外部';
+  protocol: 'Trace 回流' | 'Langfuse' | 'A2A';
 };
 
 export type HistoryTraceRecord = {

@@ -348,9 +348,10 @@ const evaluatorDefinitions: Array<Pick<Evaluator, 'id' | 'name' | 'purpose' | 'c
 ];
 
 export const agents: AgentOption[] = [
-  { id: 'agent-refund', name: '退款客服助手', versions: ['V4', 'V3', 'V2'], description: '处理退款政策、申请进度和售后咨询。' },
-  { id: 'agent-tender', name: '招标文件评估助手', versions: ['V1'], description: '分析招标文件并生成结构化评分报告。' },
-  { id: 'agent-research', name: '网页研究助手', versions: ['V2', 'V1'], description: '基于网页检索完成带来源的研究任务。' },
+  { id: 'agent-refund', name: '退款客服助手', versions: ['V4', 'V3', 'V2'], description: '处理退款政策、申请进度和售后咨询。', source: '万智', protocol: 'Trace 回流' },
+  { id: 'agent-tender', name: '招标文件评估助手', versions: ['V1'], description: '分析招标文件并生成结构化评分报告。', source: '外部', protocol: 'Langfuse' },
+  { id: 'agent-research', name: '网页研究助手', versions: ['V2', 'V1'], description: '基于网页检索完成带来源的研究任务。', source: '万智', protocol: 'Trace 回流' },
+  { id: 'agent-external-service', name: '外部客服助手', versions: ['V1'], description: '处理账户、订单和售后服务问题。', source: '外部', protocol: 'A2A' },
 ];
 
 const replayTrace = (id: string, name: string, summary: string, input: string, agentOutput: string, userFeedback: string, occurredAt: string): HistoryTraceRecord => ({ id, name, summary, input, agentOutput, userFeedback, occurredAt });

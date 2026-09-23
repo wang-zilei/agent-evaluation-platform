@@ -27,6 +27,7 @@ src/
   App.tsx                          独立平台路由
   main.tsx                         应用入口
   index.css                        平台级全局样式
+  features/applications/           注册应用 Mock 页面
   platform/
     PlatformShell.tsx              独立平台外壳，替代原 DashboardLayout
     platform-shell.css             外壳样式与页面内边距
@@ -47,5 +48,5 @@ src/
 ## 当前边界
 
 - 仍为可点击的产品原型，数据全部来自 `evaluation.mock.ts`，没有真实后端接口。
-- 尚未接入多 Agent 来源（万智 + 第三方）、账号体系或 Langfuse 轨迹读取。
+- 已用 Mock 展示万智和外部 Agent 来源；尚未接入真实注册、账号权限或 Langfuse 轨迹读取。
 - 未推送远端。本仓库为本地 Git 仓库。

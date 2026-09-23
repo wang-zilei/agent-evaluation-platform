@@ -3,9 +3,10 @@ import * as XLSX from 'xlsx';
 import {
   Activity, ArrowLeft, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, CircleCheck, ClipboardCheck, Copy, Database, Download, Eye, FileSpreadsheet, GitCompare, History,
-  Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, Trash2, Upload,
+  Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Package, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, Trash2, Upload,
   X, Zap,
 } from 'lucide-react';
+import ApplicationRegistryPage from '../applications/ApplicationRegistryPage';
 import { cloneEvaluationState, createComparisonRecord, getDatasetById, historyConversations, statusTone } from './evaluation.mock';
 import { observedTraces } from './trace.data';
 import { TraceDetail, TraceList } from './TraceWorkspace';
@@ -152,9 +153,9 @@ const makeEvaluatorDraft = (): EvaluatorDraft => ({
   prompt: '',
   variables: [],
 });
-const makeTaskDraft = (state: EvaluationState): TaskDraft => {
+const makeTaskDraft = (state: EvaluationState, preferredAgentId?: string): TaskDraft => {
   const dataset = state.datasets.find((item) => item.versions.some((version) => version.status === '已提交')) ?? state.datasets[0];
-  const firstAgent = state.agents[0];
+  const firstAgent = state.agents.find((item) => item.id === preferredAgentId) ?? state.agents[0];
   return { agentTargets: firstAgent ? [{ agentId: firstAgent.id, agentVersion: firstAgent.versions[0] ?? '' }] : [], datasetId: dataset?.id ?? '', datasetVersion: dataset?.versions.find((version) => version.status === '已提交')?.id ?? '', evaluatorIds: [], name: '', description: '', concurrency: 2, timeout: 60, continueOnError: true };
 };
 
@@ -210,7 +211,7 @@ export default function EvaluationCenterPage() {
     setDatasetScreen(mode === '用户上传' ? 'upload' : mode === '智能生成' ? 'generate' : 'history');
     setModule('datasets');
   };
-  const openTaskCreate = () => { setTaskDraft(makeTaskDraft(state)); setTaskScreen('create'); setModule('tasks'); };
+  const openTaskCreate = (preferredAgentId?: string) => { setTaskDraft(makeTaskDraft(state, preferredAgentId)); setTaskScreen('create'); setModule('tasks'); };
   const openComparison = (item: ComparisonRecord) => { setSelectedComparisonId(item.id); setTaskScreen('comparison'); setModule('tasks'); };
   const openComparisonPicker = (controlTaskId?: string) => {
     setComparisonInitialControlId(controlTaskId ?? '');
@@ -465,6 +466,7 @@ export default function EvaluationCenterPage() {
   const selectModule = (next: EvaluationModule) => { setModule(next); if (next === 'tasks') setTaskScreen('list'); if (next === 'datasets') setDatasetScreen('list'); if (next === 'evaluators') setEvaluatorScreen('list'); if (next === 'traces') setTraceScreen('list'); };
   const moduleGroups = [
     { label: '评测', items: [{ id: 'tasks' as const, label: '评测任务', icon: ListChecks }, { id: 'datasets' as const, label: '评测集', icon: Database }, { id: 'evaluators' as const, label: '评估器', icon: ClipboardCheck }] },
+    { label: '应用', items: [{ id: 'applications' as const, label: '注册应用', icon: Package }] },
     { label: '数据', items: [{ id: 'traces' as const, label: '观测', icon: Activity }] },
   ];
   return <div className="evaluation-app">
@@ -474,8 +476,9 @@ export default function EvaluationCenterPage() {
       <div className="eval-sidebar-footer"><Pill>本地 Mock</Pill></div>
     </aside>
     <div className="evaluation-main">
-      <header className="eval-app-header"><div className="eval-app-title"><h1>{module === 'tasks' && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { tasks: '评测任务', datasets: '评测集', evaluators: '评估器', traces: '观测' }[module]}</h1></div><div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div></header>
+      <header className="eval-app-header"><div className="eval-app-title"><h1>{module === 'tasks' && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { tasks: '评测任务', datasets: '评测集', evaluators: '评估器', applications: '注册应用', traces: '观测' }[module]}</h1></div><div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div></header>
       <main className="eval-content">
+      {module === 'applications' && <ApplicationRegistryPage agents={state.agents} onOpenObservability={() => selectModule('traces')} onStartEvaluation={(agentId) => openTaskCreate(agentId)} onNotify={(message) => notify(message)} />}
       {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} />}
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}

@@ -34,14 +34,14 @@ npm run test
 ## 当前代码边界
 
 - 全部数据来自 `src/features/evaluation/evaluation.mock.ts`，没有真实后端、模型或 Agent 调用。
-- 评测对象仍是 Mock 的万智 Agent，尚未体现多来源 Agent 接入。
+- 评测对象使用 Mock 数据展示万智和外部 Agent 来源，但没有真实注册、鉴权或 Trace 读取。
 - 未接入账号体系、组织权限或 Langfuse。
 - `src/features/evaluation/` 下的 4 个文件是从原仓库逐字节复制，除必要修复外不要改写既有交互逻辑。
 
 ## 已知待办
 
-1. 按独立平台重做 Agent 接入与权限模型（对应 PRD 2.3）。
-2. 增加数据来源标识，区分万智 Agent 与第三方 Agent。
+1. 按独立平台落地 Agent 注册、来源标识和权限模型（对应 PRD 2.3）。
+2. 补齐注册表单校验、编辑、停用和权限控制。
 3. 真实轨迹接入方案（Langfuse 读取 API / OTLP）待确认后实现。
 
 ## 协作约束
