@@ -68,3 +68,15 @@ export type ObservedTrace = {
   context: TraceContext;
   events: TraceEvent[];
 };
+
+export type ObservedSession = {
+  id: string;
+  sessionId: string | null;
+  agent: string | null;
+  startedAt: string | null;
+  feedback: string | null;
+  abnormal: boolean | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  turns: ObservedTrace[];
+};

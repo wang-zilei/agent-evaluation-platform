@@ -8,8 +8,8 @@ import {
 } from 'lucide-react';
 import ApplicationRegistryPage from '../applications/ApplicationRegistryPage';
 import { cloneEvaluationState, createComparisonRecord, getDatasetById, historyConversations, statusTone } from './evaluation.mock';
-import { observedTraces } from './trace.data';
-import { TraceDetail, TraceList } from './TraceWorkspace';
+import { observedSessions, observedTraces } from './trace.data';
+import { SessionDetail, TraceDetail, TraceList, type ObservationView } from './TraceWorkspace';
 import type {
   AgentOption, CaseResult, Dataset, DatasetCase, EvaluationModule, EvaluationState,
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
@@ -183,6 +183,7 @@ export default function EvaluationCenterPage() {
   const [datasetScreen, setDatasetScreen] = useState<DatasetScreen>('list');
   const [evaluatorScreen, setEvaluatorScreen] = useState<EvaluatorScreen>('list');
   const [traceScreen, setTraceScreen] = useState<TraceScreen>('list');
+  const [observationView, setObservationView] = useState<ObservationView>('trace');
   const [evaluatorMode, setEvaluatorMode] = useState<EvaluatorMode>('preset');
   const [evaluatorKind, setEvaluatorKind] = useState<EvaluatorKind>('模型评估器');
   const [datasetDraft, setDatasetDraft] = useState<DatasetDraft>(() => makeDatasetDraft(INITIAL_EVALUATION_STATE));
@@ -197,6 +198,7 @@ export default function EvaluationCenterPage() {
   const [toast, setToast] = useState<Toast | null>(null); const [toastId, setToastId] = useState(0); const [casePreview, setCasePreview] = useState<CaseResult | null>(null);
   const [taskReturn, setTaskReturn] = useState(false);
   const [selectedTraceId, setSelectedTraceId] = useState(observedTraces[0]?.id ?? '');
+  const [selectedSessionId, setSelectedSessionId] = useState(observedSessions[0]?.id ?? '');
   const [datasetEntryFromTask, setDatasetEntryFromTask] = useState(false);
   const [editingEvaluatorId, setEditingEvaluatorId] = useState<string | null>(null);
   const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false);
@@ -463,7 +465,18 @@ export default function EvaluationCenterPage() {
   const comparison = state.comparisons.find((item) => item.id === selectedComparisonId) ?? state.comparisons[0];
   const evaluator = state.evaluators.find((item) => item.id === selectedEvaluatorId) ?? state.evaluators[0];
   const selectedTrace = observedTraces.find((item) => item.id === selectedTraceId) ?? observedTraces[0];
-  const selectModule = (next: EvaluationModule) => { setModule(next); if (next === 'tasks') setTaskScreen('list'); if (next === 'datasets') setDatasetScreen('list'); if (next === 'evaluators') setEvaluatorScreen('list'); if (next === 'traces') setTraceScreen('list'); };
+  const selectedSession = observedSessions.find((item) => item.id === selectedSessionId) ?? observedSessions[0];
+  const selectModule = (next: EvaluationModule) => {
+    setModule(next);
+    if (next === 'tasks') setTaskScreen('list');
+    if (next === 'datasets') setDatasetScreen('list');
+    if (next === 'evaluators') setEvaluatorScreen('list');
+    if (next === 'traces') {
+      setTraceScreen('list');
+      setObservationView('trace');
+      setTraceSearch('');
+    }
+  };
   const moduleGroups = [
     { label: '评测', items: [{ id: 'tasks' as const, label: '评测任务', icon: ListChecks }, { id: 'datasets' as const, label: '评测集', icon: Database }, { id: 'evaluators' as const, label: '评估器', icon: ClipboardCheck }] },
     { label: '应用', items: [{ id: 'applications' as const, label: '注册应用', icon: Package }] },
@@ -492,8 +505,9 @@ export default function EvaluationCenterPage() {
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
       {module === 'tasks' && taskScreen === 'comparison' && comparison && <ComparisonDetail comparison={comparison} onBack={() => { setTaskTab('compare'); setTaskScreen('list'); }} />}
       {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={setCasePreview} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
-      {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} search={traceSearch} setSearch={setTraceSearch} onOpen={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} />}
-      {module === 'traces' && traceScreen === 'detail' && selectedTrace && <TraceDetail key={selectedTrace.id} trace={selectedTrace} onBack={showList} />}
+      {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} sessions={observedSessions} view={observationView} onViewChange={setObservationView} search={traceSearch} setSearch={setTraceSearch} onOpenTrace={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} onOpenSession={(item) => { setSelectedSessionId(item.id); setTraceScreen('detail'); }} />}
+      {module === 'traces' && traceScreen === 'detail' && observationView === 'trace' && selectedTrace && <TraceDetail key={selectedTrace.id} trace={selectedTrace} onBack={showList} />}
+      {module === 'traces' && traceScreen === 'detail' && observationView === 'session' && selectedSession && <SessionDetail key={selectedSession.id} session={selectedSession} onBack={showList} />}
       </main>
     </div>
     {comparisonPickerOpen && <ComparisonPicker initialControlTask={state.tasks.find((item) => item.id === comparisonInitialControlId)} datasets={state.datasets} tasks={state.tasks} evaluators={state.evaluators} onCancel={() => setComparisonPickerOpen(false)} onCreate={createComparison} />}
