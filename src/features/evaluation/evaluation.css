@@ -1466,6 +1466,7 @@
 .eval-task-form-row--action { grid-template-columns: minmax(0, 1.2fr) minmax(220px, .8fr) auto; }
 .eval-task-form-row .eval-field > span { color: var(--eval-ink); font-size: 14px; }
 .eval-task-form-row .eval-field select { height: 44px; font-size: 14px; }
+.eval-task-form-row--action .eval-create-trigger { height: 44px; min-height: 44px; padding: 0 16px; border-radius: 8px; font-size: 14px; }
 .eval-agent-target-list { display: flex; flex-direction: column; gap: 14px; }
 .eval-agent-target-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, .65fr) 32px; align-items: end; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--eval-border); }
 .eval-agent-target-row .eval-agent-target-description { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 7px; margin-top: -2px; }
