@@ -19,6 +19,16 @@ npm run lint
 npm run test
 ```
 
+## 线上预览与发布
+
+- 短期线上地址：`https://wang-zilei.github.io/agent-evaluation-platform/`。
+- 源码分支：`codex/code-evaluator-redesign`；发布仓库：`wang-zilei/agent-evaluation-platform`，只放静态构建产物，`main` 作为 GitHub Pages 来源。
+- 发布前构建：`npx tsc -b && npx vite build --base=/agent-evaluation-platform/`。
+- 发布目录：`/tmp/agent-evaluation-platform-pages`。复制新的 `dist/index.html` 和 `dist/assets/*` 到该目录；不要用 `rm -rf` 清空。对不再被 `index.html` 引用的旧 hash 资源用 `git rm`，保留 `.nojekyll` 和 `404.html`。
+- 临时目录里的 git credential helper 可能指向失效的旧 gh 路径；推送用 `git -c credential.helper='!/opt/homebrew/bin/gh auth git-credential' push origin main`。
+- `src/App.tsx` 的 Router basename 使用 `import.meta.env.BASE_URL`，这是 GitHub Pages 子路径可用所必需的，不要回退。
+- 发布后用 HTTP 200 校验 `index.html`、新 JS 和新 CSS；CSS 校验完成不代表页面一定已刷新，交互改动还要实际打开页面确认。
+
 ## 产品背景（最高优先级）
 
 评测平台已从「万智平台内部功能模块」调整为「独立平台」：
@@ -49,4 +59,5 @@ npm run test
 - 默认使用简体中文。
 - 先读取当前代码，再做局部修改；不擅自接入后端、真实模型或在线服务。
 - 修改后至少运行 `npm run build` 和 `npm run lint`；涉及交互时用浏览器实际点击验证。
+- 局部样式修复必须限定作用域。例如评测任务向导内的按钮对齐只改 `.eval-task-form-row--action` 下的选择器，不能顺带改评测集列表工具栏的同名按钮。
 - 每次修改前端代码后创建一次本地 Git commit；不推送远端，除非用户明确要求。
