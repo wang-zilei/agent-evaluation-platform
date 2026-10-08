@@ -4,6 +4,16 @@ import type { ObservedSession, ObservedTrace, TraceEvent } from './trace.types';
 
 export type ObservationView = 'trace' | 'session';
 
+const OBSERVATION_LABELS: Record<ObservationView, string> = { trace: 'Trace', session: 'Session' };
+export function ObservationTabs({ view, onViewChange, onResetSearch }: { view: ObservationView; onViewChange: (view: ObservationView) => void; onResetSearch?: () => void }) {
+  return <div className="eval-view-switch">
+    <span>视图</span>
+    <div className="eval-view-switch__control" role="group" aria-label="观测视图">
+      {(Object.keys(OBSERVATION_LABELS) as ObservationView[]).map((item) => <button type="button" key={item} className={view === item ? 'is-active' : ''} aria-pressed={view === item} onClick={() => { if (view === item) return; onResetSearch?.(); onViewChange(item); }}>{OBSERVATION_LABELS[item]}</button>)}
+    </div>
+  </div>;
+}
+
 const toolLine = (event: Extract<TraceEvent, { kind: 'tool' }>) => {
   const input = event.input || '无输入';
   const output = event.output || '无输出';
@@ -70,23 +80,11 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
     return (!search || haystack.includes(search.toLowerCase())) && matchesFilters({ agent: session.agent, abnormal: session.abnormal, occurredAt: session.startedAt });
   });
 
-  const switchView = (next: ObservationView) => {
-    if (next === view) return;
-    setSearch('');
-    onViewChange(next);
-  };
-
   return <div className="eval-list-page eval-trace-page">
-    <div className="eval-section-head"><div><span className="eval-eyebrow">OBSERVATION</span><h2>{view === 'trace' ? 'Trace' : 'Session'}</h2></div></div>
+    <div className="eval-section-head"><div><span className="eval-eyebrow">OBSERVATION</span><h2>{OBSERVATION_LABELS[view]}</h2></div></div>
     <div className="eval-toolbar eval-obs-toolbar">
-      <div className="eval-view-switch">
-        <span>视图</span>
-        <div className="eval-view-switch__control" role="group" aria-label="观测视图">
-          <button type="button" className={view === 'trace' ? 'is-active' : ''} aria-pressed={view === 'trace'} onClick={() => switchView('trace')}>Trace</button>
-          <button type="button" className={view === 'session' ? 'is-active' : ''} aria-pressed={view === 'session'} onClick={() => switchView('session')}>Session</button>
-        </div>
-      </div>
-      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={view === 'trace' ? '搜索 Trace ID、Agent 或输入' : '搜索 Session ID、Agent 或输入'} /></label>
+      <ObservationTabs view={view} onViewChange={onViewChange} onResetSearch={() => setSearch('')} />
+      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={view === 'session' ? '搜索 Session ID、Agent 或输入' : '搜索 Trace ID、Agent 或输入'} /></label>
       <select aria-label="时间筛选" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="全部">全部时间</option><option value="1">近 1 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option></select>
       <select aria-label="Agent 筛选" value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>{agents.map((agent) => <option key={agent} value={agent}>{agent === '全部' ? '全部 Agent' : agent}</option>)}</select>
       <select aria-label="是否异常筛选" value={abnormalFilter} onChange={(event) => setAbnormalFilter(event.target.value)}><option>全部</option><option>正常</option><option>异常</option></select>
@@ -130,7 +128,10 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
   </div>;
 }
 
-export function TraceDetail({ trace, onBack }: { trace: ObservedTrace; onBack: () => void }) {
+export function TraceDetail({ trace, onBack }: {
+  trace: ObservedTrace;
+  onBack: () => void;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(trace.events[0]?.id ?? null);
   const selected = trace.events.find((event) => event.id === selectedId);
 

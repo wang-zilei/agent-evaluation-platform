@@ -1,0 +1,168 @@
+.evaluation-app .is-clamp {
+  max-width: 240px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  line-height: 1.5;
+}
+
+/* 评测任务中的评估器结果 */
+.eval-evaluator-column-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.eval-evaluator-column-head > span { min-width: 0; }
+.eval-evaluator-column-head button,
+.eval-evaluator-calibrate {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--eval-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.eval-evaluator-column-head button:hover,
+.eval-evaluator-calibrate:hover {
+  color: var(--eval-violet-dark);
+  border-color: var(--eval-border-strong);
+  background: #fff;
+}
+.eval-evaluator-result-cell { display: flex; align-items: center; gap: 6px; overflow: visible; }
+.eval-evaluator-score {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-bottom: 1px dotted var(--eval-muted);
+  color: var(--eval-ink);
+  font-weight: 650;
+  cursor: help;
+}
+.eval-evaluator-score > i {
+  color: var(--eval-violet-dark);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 600;
+}
+.eval-evaluator-reason-popover {
+  position: fixed;
+  z-index: 120;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--eval-border);
+  border-radius: 8px;
+  color: var(--eval-text);
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(24, 24, 27, .14);
+  white-space: normal;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.eval-evaluator-reason-popover strong { display: block; margin-bottom: 4px; color: var(--eval-ink); font-size: 10px; }
+.eval-evaluator-reason-popover p { margin: 0; }
+.eval-evaluator-result-cell.is-calibrated .eval-evaluator-calibrate { color: var(--eval-violet-dark); background: var(--eval-violet-soft); }
+.eval-muted-value { color: var(--eval-faint); }
+
+/* 人工校准 */
+.eval-calibration-modal { width: min(620px, 100%); }
+.eval-calibration-modal > header,
+.eval-eo-start > header {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--eval-border);
+}
+.eval-calibration-modal > header h2,
+.eval-eo-start > header h2 { margin: 0; font-size: 17px; }
+.eval-calibration-context {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 0 16px;
+  border: 1px solid var(--eval-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.eval-calibration-context > div { padding: 10px 12px; border-bottom: 1px solid var(--eval-border); background: #fafafd; }
+.eval-calibration-context > div:nth-child(odd) { border-right: 1px solid var(--eval-border); }
+.eval-calibration-context > div:nth-last-child(-n + 2) { border-bottom: 0; }
+.eval-calibration-context dt { margin-bottom: 4px; color: var(--eval-muted); font-size: 9px; }
+.eval-calibration-context dd { margin: 0; color: var(--eval-text); font-size: 11px; line-height: 1.5; }
+.eval-calibration-modal .eval-field + .eval-field { margin-top: 14px; }
+.eval-calibration-modal .eval-field > small { align-self: flex-end; }
+
+/* 发起评估器优化 */
+.eval-eo-start { width: min(880px, 100%); }
+.eval-eo-start__summary,
+.eval-eo-experiment-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 16px;
+  border: 1px solid var(--eval-border);
+  border-radius: 8px;
+  background: var(--eval-border);
+  overflow: hidden;
+  gap: 1px;
+}
+.eval-eo-start__summary > div,
+.eval-eo-experiment-meta > div { display: flex; flex-direction: column; gap: 5px; padding: 11px 13px; background: #fff; }
+.eval-eo-start__summary span,
+.eval-eo-experiment-meta dt { color: var(--eval-muted); font-size: 9px; }
+.eval-eo-start__summary strong,
+.eval-eo-experiment-meta dd { margin: 0; color: var(--eval-ink); font-size: 12px; font-weight: 650; }
+.eval-eo-diagnosis { margin-bottom: 16px; padding: 12px 14px; border-left: 3px solid var(--eval-violet); background: var(--eval-violet-soft); }
+.eval-eo-diagnosis h3 { margin: 0 0 5px; font-size: 12px; }
+.eval-eo-diagnosis p { margin: 0; color: var(--eval-text); font-size: 11px; line-height: 1.55; }
+
+/* 评估器优化实验 */
+.eval-eo-workbench { display: flex; flex-direction: column; gap: 14px; }
+.eval-eo-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.eval-eo-hero h2 { margin: 0; font-size: 22px; }
+.eval-eo-hero__actions { display: flex; align-items: center; gap: 8px; }
+.eval-eo-experiment-meta { margin-bottom: 0; }
+.eval-eo-contract,
+.eval-eo-plan { padding: 16px 18px; border: 1px solid var(--eval-border); border-radius: 8px; background: #fff; }
+.eval-eo-contract h3,
+.eval-eo-plan h3 { margin: 0 0 13px; font-size: 14px; }
+.eval-eo-contract dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; }
+.eval-eo-contract dt { margin-bottom: 5px; color: var(--eval-muted); font-size: 9px; }
+.eval-eo-contract dd { margin: 0; color: var(--eval-text); font-size: 11px; line-height: 1.5; }
+.eval-eo-plan > p { margin: 0; color: var(--eval-text); font-size: 12px; line-height: 1.65; }
+.eval-eo-diff { margin-top: 14px; border: 1px solid var(--eval-border); border-radius: 8px; overflow: hidden; }
+.eval-eo-diff > div { display: flex; gap: 8px; padding: 7px 10px; border-bottom: 1px solid #f0f0f2; color: var(--eval-green); background: var(--eval-green-soft); font-size: 11px; }
+.eval-eo-diff > div:last-child { border-bottom: 0; }
+.eval-eo-diff code { color: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.eval-eo-metrics { margin-bottom: 0; }
+.eval-eo-table,
+.eval-eo-record-table { min-width: 1120px; }
+.eval-eo-table td,
+.eval-eo-record-table td { font-size: 11px; }
+.eval-eo-notebar { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-radius: 8px; font-size: 11px; }
+.eval-eo-notebar.is-done { color: var(--eval-green); background: var(--eval-green-soft); }
+.eval-evaluator-detail-tabs { margin: 16px 0 0; }
+.eval-evaluator-detail-tabs + .eval-evaluator-prompt-card { margin-top: 0; }
+.eval-case-preview__evaluators h3 { margin: 0 0 10px; font-size: 13px; }
+
+@media (max-width: 760px) {
+  .eval-calibration-context,
+  .eval-eo-start__summary,
+  .eval-eo-experiment-meta,
+  .eval-eo-contract dl { grid-template-columns: 1fr; }
+  .eval-calibration-context > div,
+  .eval-calibration-context > div:nth-child(odd),
+  .eval-calibration-context > div:nth-last-child(-n + 2) { border-right: 0; border-bottom: 1px solid var(--eval-border); }
+  .eval-calibration-context > div:last-child { border-bottom: 0; }
+  .eval-eo-hero { align-items: flex-start; flex-direction: column; }
+}

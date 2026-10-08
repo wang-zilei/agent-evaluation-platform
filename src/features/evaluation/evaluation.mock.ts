@@ -1,4 +1,5 @@
 import { demoComparisons, demoDataset, demoEvaluators, demoExperiments, demoTasks } from './evaluation-demo';
+import { evaluatorOptimizations } from './auto-eval.mock';
 import type {
   AgentOption,
   AgentConfigSnapshot,
@@ -59,6 +60,8 @@ const result = (
 ): EvaluatorResult => ({
   evaluatorId,
   evaluatorName,
+  evaluatorVersion: '0.1.0',
+  attemptId: 'attempt-1',
   scoreType,
   evaluationResult: scoreType === 'numeric' ? (score ?? 0) : status === '通过' ? '通过' : status,
   evaluationReason: evaluatorId.startsWith('code-') ? '' : reason,
@@ -155,6 +158,13 @@ const refundResults: CaseResult[] = [
     ],
   },
 ].map(withRuntime);
+
+const automationResults: CaseResult[] = refundResults.map((item, index) => ({
+  ...item,
+  caseId: `SESSION-AUTO-${String(index + 1).padStart(3, '0')}`,
+  userFeedback: undefined,
+  evaluatorResults: item.evaluatorResults.filter((result) => ['P0-07', 'P0-12'].includes(result.evaluatorId)),
+}));
 
 const comparisonResult = (
   source: CaseResult,
@@ -669,6 +679,7 @@ const task = (input: Omit<EvaluationTask, 'totalCases' | 'executableCases' | 'co
 
 const tasks: EvaluationTask[] = [
   ...demoTasks,
+  task({ id: 'TASK-AUTO-20261008-001', name: '退款会话质量监测', description: '监测退款会话的回答与执行轨迹。', taskType: '自动化', automation: { objectType: '对话', collectStartAt: '2026-10-08 09:00', collectEndAt: '2026-10-15 09:00', sessionIdleMinutes: 30, filterMode: '全部满足', filters: [{ id: 'seed-filter-1', field: 'Input', operator: '包含', value: '退款' }], sampleRatio: 20, sampleCap: 500, repeat: '每天', candidateCount: 21, sampledCount: automationResults.length, evaluatedCount: automationResults.length }, agent: '退款客服助手', agentVersion: 'V4', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-07', 'P0-12'], status: '运行中', tone: 'info', createdBy: '演示账户', createdAt: '2026-10-08 09:00', updatedAt: '2026-10-08 14:20', totalCases: automationResults.length, executableCases: automationResults.length, completedCases: automationResults.length, failedCases: 0, results: automationResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260922-001', name: '退款客服助手 V3｜退货政策对照组', description: '退款问答评测集上的对照组任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 09:40', updatedAt: '2026-09-22 09:49', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonBaseResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260922-002', name: '退款客服助手 V4｜退货政策实验组 A', description: '退款问答评测集上的实验组任务 A。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 10:12', updatedAt: '2026-09-22 10:23', totalCases: 4, executableCases: 4, completedCases: 3, failedCases: 1, results: comparisonExperimentResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-20260923-003', name: '退款客服助手 V5｜简洁回答实验组 B', description: '退款问答评测集上的实验组任务 B。', agent: '退款客服助手', agentVersion: 'V5', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 09:16', updatedAt: '2026-09-23 09:25', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonAlternateResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
@@ -680,6 +691,66 @@ const tasks: EvaluationTask[] = [
   task({ id: 'TASK-20260824-008', name: '招标文件覆盖评测', description: '验证文件分析和最终交付文件的完整性。', agentType: '外部', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: 'DS-24610', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-04', 'P0-08', 'P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-08-24 15:34', updatedAt: '2026-08-24 16:02', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 0, results: tenderResults, runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
   task({ id: 'TASK-20260825-004', name: '退款问答回归检查', description: '基于历史对话回流验证退款回复的完整性。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-11490', datasetVersion: '草稿', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '运行中', tone: 'info', createdBy: '王子磊', createdAt: '2026-08-25 19:42', updatedAt: '2026-08-25 19:44', totalCases: 1, executableCases: 1, completedCases: 0, failedCases: 0, results: historyResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
 ];
+
+tasks.forEach((item) => {
+  item.results = structuredClone(item.results);
+  item.evaluatorVersions = Object.fromEntries(item.evaluatorIds.map((id) => [id, evaluators.find((evaluator) => evaluator.id === id)?.version ?? '0.1.0']));
+  item.evaluatorSnapshots = Object.fromEntries(item.evaluatorIds.flatMap((id) => {
+    const evaluator = evaluators.find((entry) => entry.id === id);
+    if (!evaluator) return [];
+    return [[id, {
+      evaluatorId: evaluator.id,
+      name: evaluator.name,
+      version: item.evaluatorVersions?.[id] ?? evaluator.version,
+      purpose: evaluator.purpose,
+      prompt: evaluator.prompt,
+      variables: structuredClone(evaluator.variables),
+      scoreType: evaluator.scoreType,
+      passThreshold: evaluator.passThreshold,
+    }]];
+  }));
+  item.results.forEach((caseResult) => {
+    caseResult.currentAttemptId = caseResult.currentAttemptId ?? 'attempt-1';
+    caseResult.evaluatorResults.forEach((evaluatorResult) => {
+      evaluatorResult.evaluatorVersion = item.evaluatorVersions?.[evaluatorResult.evaluatorId] ?? evaluatorResult.evaluatorVersion ?? '0.1.0';
+      evaluatorResult.attemptId = caseResult.currentAttemptId;
+    });
+  });
+});
+
+const seedCalibration = (taskId: string, caseId: string, evaluatorId: string, calibratedResult: number, reason: string) => {
+  const targetTask = tasks.find((item) => item.id === taskId);
+  const targetCase = targetTask?.results.find((item) => item.caseId === caseId);
+  const targetResult = targetCase?.evaluatorResults.find((item) => item.evaluatorId === evaluatorId);
+  if (!targetTask || !targetCase || !targetResult) return;
+  const originalResult = targetResult.evaluationResult;
+  const originalReason = targetResult.evaluationReason;
+  const originalStatus = targetResult.evaluationStatus;
+  const evaluator = evaluators.find((item) => item.id === evaluatorId);
+  const status = calibratedResult >= (evaluator?.passThreshold ?? 0.7) ? '通过' : '不通过';
+  targetResult.calibration = {
+    taskId,
+    caseId,
+    evaluatorId,
+    evaluatorVersion: targetTask.evaluatorVersions?.[evaluatorId] ?? targetResult.evaluatorVersion ?? '0.1.0',
+    attemptId: targetResult.attemptId ?? 'attempt-1',
+    originalResult,
+    originalReason,
+    originalStatus,
+    result: calibratedResult,
+    reason,
+    status,
+    updatedAt: '2026-10-08 14:10',
+    updatedBy: '演示账户',
+  };
+  targetResult.evaluationResult = calibratedResult;
+  targetResult.evaluationReason = reason;
+  targetResult.evaluationStatus = status;
+};
+
+seedCalibration('TASK-20260922-001', 'CASE-HIS-024', 'P0-02', 0.5, '“未使用且不影响二次销售”已经表达商品完好条件，实际覆盖 2 个要点。');
+seedCalibration('TASK-20260922-002', 'CASE-UP-018', 'P0-02', 0.98, '已覆盖审核后、3-5 个工作日、原路退回三个必选要点。');
+seedCalibration('TASK-20260923-003', 'CASE-UP-018', 'P0-02', 0.98, '表达不同但语义完整，应按全部覆盖计算。');
 
 const metricValue = (item?: EvaluatorResult): number | undefined => {
   if (!item || !['通过', '不通过'].includes(item.evaluationStatus)) return undefined;
@@ -932,15 +1003,24 @@ if (comparisonDataset && coverageControlTask && coverageResultTask && coveragePr
   comparisons.push(createComparisonRecord(coverageControlTask, [coverageResultTask, coverageProcessTask], comparisonDataset, evaluators, '评估器覆盖差异｜3 个任务对比'));
 }
 
-export const mockEvaluationState: EvaluationState = { agents, datasets, evaluators, humanLabels, tasks, experiments, comparisons };
+export const mockEvaluationState: EvaluationState = {
+  agents,
+  datasets,
+  evaluators,
+  humanLabels,
+  tasks,
+  experiments,
+  comparisons,
+  evaluatorOptimizations,
+};
 
 export const cloneEvaluationState = (): EvaluationState => structuredClone(mockEvaluationState);
 
 export const statusTone = (status: string): 'success' | 'warning' | 'info' | 'danger' | 'neutral' => {
-  if (status === '已完成' || status === '通过' || status === '已提交') return 'success';
-  if (status === '运行中' || status === '分析中' || status === '待继续实验' || status === '复测评测中' || status === '待查看实验对比' || status === '待重新评测' || status === '待分析') return 'info';
-  if (status === '部分失败' || status === '无法执行' || status === '证据不足' || status === '草稿' || status === '待人工评估') return 'warning';
-  if (status === '失败' || status === '不通过' || status === '执行失败') return 'danger';
+  if (['已完成', '通过', '已提交', '已保存新版本', '已生成版本', '符合人工校准'].includes(status)) return 'success';
+  if (['待启动', '运行中', '分析中', '待继续实验', '复测评测中', '待查看实验对比', '待重新评测', '待分析', '待确认', '验证中', '结果一致'].includes(status)) return 'info';
+  if (['已暂停', '部分失败', '无法执行', '证据不足', '草稿', '待人工评估', '新增影响'].includes(status)) return 'warning';
+  if (['失败', '不通过', '执行失败'].includes(status)) return 'danger';
   return 'neutral';
 };
 

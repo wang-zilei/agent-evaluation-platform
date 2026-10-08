@@ -1,4 +1,4 @@
-export type EvaluationModule = 'tasks' | 'datasets' | 'evaluators' | 'applications' | 'traces';
+export type EvaluationModule = 'tasks' | 'datasets' | 'evaluators' | 'applications' | 'traces' | 'automation';
 export type TaskTab = 'list' | 'compare';
 export type TaskScreen = 'list' | 'detail' | 'create' | 'experiment' | 'comparison';
 export type DatasetScreen = 'list' | 'workspace' | 'upload' | 'history';
@@ -6,7 +6,7 @@ export type EvaluatorMode = 'preset' | 'custom';
 export type ScoreType = 'pass_fail' | 'numeric';
 export type EvaluatorKind = '模型评估器' | '代码评估' | '人工评估';
 export type StatusTone = 'success' | 'warning' | 'info' | 'danger' | 'neutral';
-export type TaskStatus = '运行中' | '已完成' | '部分失败' | '失败';
+export type TaskStatus = '待启动' | '运行中' | '已暂停' | '已完成' | '部分失败' | '失败';
 export type ResultStatus = '通过' | '不通过' | '无法执行' | '证据不足' | '执行失败' | '待人工评估';
 export type DatasetStatus = '已提交' | '草稿';
 export type SourceType = '用户上传' | '智能生成' | '历史对话回流' | '手动添加';
@@ -66,6 +66,33 @@ export type TaskAgentTarget = {
   agentVersion: string;
 };
 
+export type AutomationObjectType = '对话' | 'Trace';
+export type AutomationFilterMode = '全部满足' | '任一满足';
+export type AutomationFilterField = 'Input' | 'Output' | 'Trace' | '耗时' | 'Input Tokens' | 'Output Tokens';
+export type AutomationFilterOperator = '包含' | '不包含' | '属于' | '不属于' | '等于' | '大于' | '小于' | '为空' | '不为空';
+
+export type AutomationFilter = {
+  id: string;
+  field: AutomationFilterField;
+  operator: AutomationFilterOperator;
+  value: string;
+};
+
+export type AutomationConfig = {
+  objectType: AutomationObjectType;
+  collectStartAt: string;
+  collectEndAt: string;
+  sessionIdleMinutes: number;
+  filterMode: AutomationFilterMode;
+  filters: AutomationFilter[];
+  sampleRatio: number;
+  sampleCap: number;
+  repeat: '一次性' | '每天';
+  candidateCount: number;
+  sampledCount: number;
+  evaluatedCount: number;
+};
+
 export type CodeEvaluatorImplementation = '内置规则' | 'Python' | 'JavaScript';
 export type CodeEvaluatorRule = { condition: string; output: string };
 export type CodeEvaluatorDiagnostic = {
@@ -101,6 +128,17 @@ export type Evaluator = {
   rules?: CodeEvaluatorRule[];
   outputExample?: string;
   dependencies?: string;
+};
+
+export type EvaluatorSnapshot = {
+  evaluatorId: string;
+  name: string;
+  version: string;
+  purpose: string;
+  prompt: string;
+  variables: VariableDefinition[];
+  scoreType: ScoreType;
+  passThreshold?: number;
 };
 
 export type HumanEvaluation = {
@@ -155,6 +193,8 @@ export type RuntimeMetrics = {
 export type EvaluatorResult = {
   evaluatorId: string;
   evaluatorName: string;
+  evaluatorVersion?: string;
+  attemptId?: string;
   scoreType: ScoreType;
   evaluationResult: string | number;
   evaluationReason: string;
@@ -163,11 +203,38 @@ export type EvaluatorResult = {
   evaluationKind?: EvaluatorKind;
   diagnostics?: CodeEvaluatorDiagnostic[];
   observations?: Record<string, string | number>;
+  calibration?: EvaluatorCalibration;
+};
+
+export type EvaluatorCalibration = {
+  taskId: string;
+  caseId: string;
+  evaluatorId: string;
+  evaluatorVersion: string;
+  attemptId: string;
+  originalResult: string | number;
+  originalReason: string;
+  originalStatus: ResultStatus;
+  result: string | number;
+  reason: string;
+  status: ResultStatus;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+export type CaseAttemptSnapshot = {
+  attemptId: string;
+  status: ResultStatus;
+  agentOutput: string;
+  evaluatorResults: EvaluatorResult[];
+  createdAt: string;
 };
 
 export type CaseResult = {
   caseId: string;
   status: ResultStatus;
+  currentAttemptId?: string;
+  attemptHistory?: CaseAttemptSnapshot[];
   caseMark?: 'Goodcase' | 'Badcase';
   input: string;
   agentOutput: string;
@@ -186,12 +253,16 @@ export type EvaluationTask = {
   id: string;
   name: string;
   description: string;
+  taskType?: '普通评测' | '自动化';
+  automation?: AutomationConfig;
   agentType?: '万智' | '外部';
   agent: string;
   agentVersion: string;
   datasetId: string;
   datasetVersion: string;
   evaluatorIds: string[];
+  evaluatorVersions?: Record<string, string>;
+  evaluatorSnapshots?: Record<string, EvaluatorSnapshot>;
   status: TaskStatus;
   tone: StatusTone;
   createdBy: string;
@@ -392,6 +463,55 @@ export type HistoryConversation = {
   traces: HistoryTraceRecord[];
 };
 
+/* ===== 6.8 评估器优化 ===== */
+export type EvaluatorRejudgeKind = '符合人工校准' | '结果一致' | '新增影响' | '无法执行';
+
+export type EvaluatorOptimizationRow = {
+  taskId: string;
+  taskName: string;
+  caseId: string;
+  cohort: '人工校准' | '影响检查';
+  input: string;
+  agentOutput: string;
+  originalResult: string | number;
+  originalReason: string;
+  calibratedResult?: string | number;
+  calibratedReason?: string;
+  candidateResult?: string | number;
+  candidateReason: string;
+  judgment: EvaluatorRejudgeKind;
+  confirmed?: boolean;
+};
+
+export type EvaluatorOptimizationExperiment = {
+  id: string;
+  name: string;
+  evaluatorId: string;
+  evaluatorName: string;
+  evaluatorKind: EvaluatorKind;
+  baseVersion: string;
+  candidateVersion: string;
+  sourceTaskIds: string[];
+  taskCount: number;
+  calibrationCount: number;
+  issuePattern: string;
+  frozenAt: string;
+  baseContent: string;
+  candidateContent: string;
+  changeSummary: string;
+  contract: {
+    target: string;
+    inputSemantics: FieldSemantic[];
+    scoreType: ScoreType;
+    passThreshold?: number;
+  };
+  rows: EvaluatorOptimizationRow[];
+  summary: { corrected: number; unchanged: number; affected: number; blocked: number };
+  status: '待分析' | '验证中' | '待确认' | '已生成版本';
+  savedVersion?: string;
+  createdAt: string;
+};
+
 export type EvaluationState = {
   agents: AgentOption[];
   datasets: Dataset[];
@@ -400,4 +520,5 @@ export type EvaluationState = {
   tasks: EvaluationTask[];
   experiments: OptimizeExperiment[];
   comparisons: ComparisonRecord[];
+  evaluatorOptimizations: EvaluatorOptimizationExperiment[];
 };
