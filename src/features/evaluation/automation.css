@@ -1,6 +1,8 @@
 .eval-automation-page .eval-toolbar .eval-button { margin-left: auto; }
 .eval-automation-table td { white-space: nowrap; }
 .eval-automation-table td.is-clip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.eval-auto-actions { display: flex; align-items: center; gap: 3px; }
+.eval-auto-action-tooltip { position: fixed; z-index: 120; width: 280px; padding: 10px 12px; border-radius: 7px; color: #fff; background: #343a4a; box-shadow: 0 12px 30px rgba(20, 20, 28, .2); font-size: 12px; line-height: 1.55; transform: translate(-100%, -100%); pointer-events: none; }
 .eval-auto-empty { padding: 40px 20px; color: var(--eval-muted); text-align: center; font-size: 12px; }
 .eval-auto-wizard .eval-task-step-panel { min-height: 520px; }
 .eval-auto-object-step { display: flex; flex-direction: column; gap: 28px; }
@@ -22,10 +24,17 @@
 .eval-auto-filter-row select,
 .eval-auto-filter-row input { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--eval-border-strong); border-radius: 8px; color: var(--eval-text); background: #fff; outline: 0; }
 .eval-auto-filter-row input:disabled { background: #f7f7f8; }
+.eval-auto-filter-value { position: relative; min-width: 0; }
+.eval-auto-filter-value > span { position: absolute; top: 11px; right: 10px; color: var(--eval-muted); font-size: 11px; pointer-events: none; }
+.eval-auto-filter-value:has(> span) input { padding-right: 62px; }
 .eval-auto-add-filter { margin-top: 8px; }
-.eval-auto-percentage { position: relative; }
-.eval-auto-percentage input { padding-right: 34px; }
-.eval-auto-percentage > span { position: absolute; right: 12px; top: 11px; color: var(--eval-muted); }
+.eval-auto-sampling { display: flex; flex-direction: column; gap: 20px; }
+.eval-auto-ratio { width: 100%; }
+.eval-auto-range-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) 52px; align-items: center; gap: 12px; }
+.eval-auto-range-row > span,
+.eval-auto-range-row output { color: var(--eval-muted); font-size: 11px; }
+.eval-auto-range-row output { color: var(--eval-ink); font-weight: 700; text-align: right; }
+.eval-auto-range-row input[type="range"] { width: 100%; height: 6px; padding: 0; border: 0; border-radius: 3px; background: transparent; accent-color: var(--eval-violet); cursor: pointer; }
 .eval-auto-evaluator-table { border: 1px solid var(--eval-border); border-radius: 10px; overflow: hidden; }
 .eval-auto-evaluator-table tr { cursor: pointer; }
 .eval-auto-summary { margin: 0; }

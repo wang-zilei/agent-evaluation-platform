@@ -86,7 +86,7 @@ export type AutomationConfig = {
   filterMode: AutomationFilterMode;
   filters: AutomationFilter[];
   sampleRatio: number;
-  sampleCap: number;
+  totalDataLimit: number;
   repeat: '一次性' | '每天';
   candidateCount: number;
   sampledCount: number;
