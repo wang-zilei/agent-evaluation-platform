@@ -122,6 +122,8 @@
 .eval-eo-experiment-meta dt { color: var(--eval-muted); font-size: 9px; }
 .eval-eo-start__summary strong,
 .eval-eo-experiment-meta dd { margin: 0; color: var(--eval-ink); font-size: 12px; font-weight: 650; }
+.eval-eo-start-note { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding: 12px 13px; border: 1px solid var(--eval-border); border-radius: 8px; color: var(--eval-muted); background: #fafafa; font-size: 11px; }
+.eval-eo-start-note svg { flex: 0 0 auto; color: var(--eval-violet-dark); }
 .eval-eo-diagnosis { margin-bottom: 16px; padding: 12px 14px; border-left: 3px solid var(--eval-violet); background: var(--eval-violet-soft); }
 .eval-eo-diagnosis h3 { margin: 0 0 5px; font-size: 12px; }
 .eval-eo-diagnosis p { margin: 0; color: var(--eval-text); font-size: 11px; line-height: 1.55; }
@@ -134,9 +136,10 @@
 .eval-eo-diagnosis__numbers small { color: var(--eval-muted); font-size: 9px; font-weight: 500; }
 
 /* 评估器优化实验 */
-.eval-eo-workbench { display: flex; flex-direction: column; gap: 14px; }
+.eval-eo-workbench { max-width: none; display: flex; flex-direction: column; gap: 14px; padding-bottom: 28px; }
 .eval-eo-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .eval-eo-hero h2 { margin: 0; font-size: 22px; }
+.eval-eo-hero p { margin: 7px 0 0; color: var(--eval-muted); font-size: 11px; line-height: 1.5; }
 .eval-eo-hero__actions { display: flex; align-items: center; gap: 8px; }
 .eval-eo-experiment-meta { margin-bottom: 0; }
 .eval-eo-contract,
@@ -199,6 +202,23 @@
 .eval-eo-row-detail__grid p { margin: 4px 0 0; color: var(--eval-text); font-size: 10px; line-height: 1.6; }
 .eval-eo-notebar { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-radius: 8px; font-size: 11px; }
 .eval-eo-notebar.is-done { color: var(--eval-green); background: var(--eval-green-soft); }
+.eval-evaluator-config-compare .eval-config-compare__row { grid-template-columns: 142px minmax(0, 1fr) minmax(0, 1fr); }
+.eval-evaluator-config-compare .eval-config-compare__side pre { min-height: 280px; max-height: 430px; }
+.eval-evaluator-detail-table { width: 100%; min-width: 960px; table-layout: fixed; }
+.eval-evaluator-detail-table th,
+.eval-evaluator-detail-table td { min-width: 0; }
+.eval-evaluator-detail-table th:first-child,
+.eval-evaluator-detail-table td:first-child { width: 130px; min-width: 130px; }
+.eval-evaluator-detail-table th:nth-child(2),
+.eval-evaluator-detail-table td:nth-child(2) { width: 230px; min-width: 230px; }
+.eval-evaluator-detail-table th:nth-child(3),
+.eval-evaluator-detail-table td:nth-child(3) { width: 320px; min-width: 320px; }
+.eval-evaluator-detail-table th:nth-child(4),
+.eval-evaluator-detail-table td:nth-child(4),
+.eval-evaluator-detail-table th:nth-child(5),
+.eval-evaluator-detail-table td:nth-child(5) { width: 100px; min-width: 100px; }
+.eval-evaluator-detail-table th:nth-child(6),
+.eval-evaluator-detail-table td:nth-child(6) { width: 110px; min-width: 110px; }
 .eval-evaluator-detail-tabs { margin: 16px 0 0; }
 .eval-evaluator-detail-tabs + .eval-evaluator-prompt-card { margin-top: 0; }
 .eval-case-preview__evaluators h3 { margin: 0 0 10px; font-size: 13px; }
