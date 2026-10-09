@@ -87,6 +87,13 @@ const rows: EvaluatorOptimizationRow[] = [
   }),
 ];
 
+const publishedRows: EvaluatorOptimizationRow[] = rows.map((item) => item.judgment === '新增影响' ? {
+  ...item,
+  candidateResult: item.originalResult,
+  candidateReason: '已收紧语义判断边界，未改变该样本原有结论。',
+  judgment: '结果一致' as const,
+} : item);
+
 export const evaluatorOptimizations: EvaluatorOptimizationExperiment[] = [{
   id: 'EVO-20261008-001', name: '参考答案遵从度｜语义覆盖判断', evaluatorId: 'P0-02', evaluatorName: '参考答案遵从度',
   evaluatorKind: '模型评估器', baseVersion: '0.1.0', candidateVersion: '0.1.1 草稿',
@@ -95,4 +102,12 @@ export const evaluatorOptimizations: EvaluatorOptimizationExperiment[] = [{
   changeSummary: '判断要点覆盖时改为比较语义，不再要求与参考答案逐字一致。',
   contract: { target: '判断回答是否覆盖参考答案中的明确要求', inputSemantics: ['Input', 'Expected Output', 'Agent Output'], scoreType: 'numeric', passThreshold: 0.7 },
   rows, summary: { corrected: 3, unchanged: 2, affected: 1, blocked: 0 }, status: '待确认', createdAt: '2026-10-08 14:30',
+}, {
+  id: 'EVO-20261007-003', name: '参考答案遵从度｜语义覆盖判断（已发布）', evaluatorId: 'P0-02', evaluatorName: '参考答案遵从度',
+  evaluatorKind: '模型评估器', baseVersion: '0.1.0', candidateVersion: '0.1.1', savedVersion: '0.1.1',
+  sourceTaskIds: ['TASK-20260922-001', 'TASK-20260922-002', 'TASK-20260923-003'], taskCount: 3, calibrationCount: 3,
+  issuePattern: '同义表达被判为未覆盖', frozenAt: '2026-10-07 16:40', baseContent: basePrompt, candidateContent: candidatePrompt,
+  changeSummary: '判断要点覆盖时改为比较语义，不再要求与参考答案逐字一致；新增影响已在发布前确认。',
+  contract: { target: '判断回答是否覆盖参考答案中的明确要求', inputSemantics: ['Input', 'Expected Output', 'Agent Output'], scoreType: 'numeric', passThreshold: 0.7 },
+  rows: publishedRows, summary: { corrected: 3, unchanged: 3, affected: 0, blocked: 0 }, status: '已生成版本', createdAt: '2026-10-07 16:40',
 }];

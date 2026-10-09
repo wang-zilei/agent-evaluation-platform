@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ArrowLeft, Check, FileDiff, Save, Wand2, X } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { ArrowLeft, Check, CheckCircle2, ChevronDown, FileDiff, Save, Wand2, X } from 'lucide-react';
 import { EmptyState, IconButton, Pill, Status } from './eval-ui';
 import { nextMockId } from './auto-eval.mock';
 import type {
@@ -25,6 +25,10 @@ const nextVersion = (version: string) => {
   if (parts.length !== 3 || Number.isNaN(Number(parts[2]))) return '0.1.1';
   return `${parts[0]}.${parts[1]}.${Number(parts[2]) + 1}`;
 };
+
+const scoreValue = (value: string | number | undefined) => value === '通过' ? 1 : value === '不通过' ? 0 : typeof value === 'number' ? value : undefined;
+const passValue = (value: string | number | undefined, threshold?: number) => typeof value === 'number' ? value >= (threshold ?? 0.7) : value === '通过';
+const percent = (passed: number, total: number) => total ? `${Math.round((passed / total) * 100)}%` : '未采集';
 
 export function EvaluatorCalibrationModal({ task, item, evaluator, result, onCancel, onSave }: {
   task: EvaluationTask;
@@ -135,8 +139,29 @@ export function EvaluatorOptimizationWorkbench({ experiment, onExperiments, onVe
 }) {
   const [tab, setTab] = useState<WorkbenchTab>('plan');
   const [running, setRunning] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<string[]>([]);
   const current = experiment;
   const update = (next: EvaluatorOptimizationExperiment) => onExperiments((items) => items.map((item) => item.id === next.id ? next : item));
+  const calibrationRows = current.rows.filter((row) => row.cohort === '人工校准');
+  const impactRows = current.rows.filter((row) => row.cohort === '影响检查');
+  const threshold = current.contract.passThreshold;
+  const cohortSummary = (rows: EvaluatorOptimizationRow[]) => {
+    const originalScores = rows.map((row) => scoreValue(row.originalResult)).filter((value): value is number => value !== undefined);
+    const candidateScores = rows.map((row) => scoreValue(row.candidateResult)).filter((value): value is number => value !== undefined);
+    const originalPassed = rows.filter((row) => passValue(row.originalResult, threshold)).length;
+    const candidatePassed = rows.filter((row) => passValue(row.candidateResult, threshold)).length;
+    return {
+      count: rows.length,
+      original: percent(originalPassed, rows.length),
+      candidate: percent(candidatePassed, rows.length),
+      originalScore: originalScores.length ? (originalScores.reduce((sum, value) => sum + value, 0) / originalScores.length).toFixed(2) : '未采集',
+      candidateScore: candidateScores.length ? (candidateScores.reduce((sum, value) => sum + value, 0) / candidateScores.length).toFixed(2) : '未采集',
+    };
+  };
+  const calibrationSummary = cohortSummary(calibrationRows);
+  const impactSummary = cohortSummary(impactRows);
+  const unconfirmedImpact = impactRows.filter((row) => row.judgment === '新增影响' && !row.confirmed).length;
+  const toggleRow = (rowKey: string) => setExpandedRows((currentRows) => currentRows.includes(rowKey) ? currentRows.filter((item) => item !== rowKey) : [...currentRows, rowKey]);
   const run = () => {
     setRunning(true);
     window.setTimeout(() => {
@@ -164,11 +189,16 @@ export function EvaluatorOptimizationWorkbench({ experiment, onExperiments, onVe
     <dl className="eval-eo-experiment-meta"><div><dt>实验 ID</dt><dd>{current.id}</dd></div><div><dt>基线版本</dt><dd>{current.baseVersion}</dd></div><div><dt>候选版本</dt><dd>{current.savedVersion ?? current.candidateVersion}</dd></div><div><dt>来源任务</dt><dd>{current.taskCount}</dd></div></dl>
     <nav className="eval-task-detail-tabs"><button type="button" className={tab === 'plan' ? 'is-active' : ''} onClick={() => setTab('plan')}>优化方案</button><button type="button" className={tab === 'metrics' ? 'is-active' : ''} onClick={() => setTab('metrics')}>验证统计</button><button type="button" className={tab === 'details' ? 'is-active' : ''} onClick={() => setTab('details')}>实验明细</button></nav>
     {tab === 'plan' && <>
-      <section className="eval-eo-contract"><h3>功能契约</h3><dl><div><dt>评估目标</dt><dd>{current.contract.target}</dd></div><div><dt>输入字段</dt><dd>{current.contract.inputSemantics.join('、')}</dd></div><div><dt>评分类型</dt><dd>{current.contract.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</dd></div><div><dt>通过阈值</dt><dd>{current.contract.passThreshold ?? '不适用'}</dd></div></dl></section>
-      <section className="eval-eo-plan"><div className="eval-task-section-heading"><h3>候选规则</h3></div><p>{current.changeSummary}</p><PromptDiff base={current.baseContent} candidate={current.candidateContent} /></section>
+      <section className="eval-eo-diagnosis eval-eo-diagnosis--hero"><div><span className="eval-eo-kicker">为什么进入优化</span><h3>{current.issuePattern}</h3><p>同一评估器版本在不同任务中出现同方向误判。系统只根据已保存的人工校准生成候选规则，不修改评估目标和评分契约。</p></div><div className="eval-eo-diagnosis__numbers"><strong>{current.calibrationCount}<small>条校准</small></strong><strong>{current.taskCount}<small>个来源任务</small></strong></div></section>
+      <section className="eval-eo-evidence"><div className="eval-task-section-heading"><div><h3>人工校准依据</h3><p>候选规则必须能解释每一条校准，并在影响检查样本上保持原有判断。</p></div><span>{calibrationRows.length} 条纠错样本</span></div><div className="eval-eo-evidence-list">{calibrationRows.map((row) => <article key={`${row.taskId}-${row.caseId}`} className="eval-eo-evidence-card"><header><div><Pill tone="violet">人工校准</Pill><strong>{row.caseId}</strong></div><span>{valueText(row.originalResult)} <b>→</b> {valueText(row.calibratedResult)}</span></header><dl><div><dt>Input</dt><dd>{row.input}</dd></div><div><dt>Agent Output</dt><dd>{row.agentOutput}</dd></div></dl><div className="eval-eo-reason-pair"><div><span>原判断</span><p>{row.originalReason}</p></div><div><span>人工校准</span><p>{row.calibratedReason}</p></div></div></article>)}</div></section>
+      <section className="eval-eo-contract"><div className="eval-eo-section-title"><div><h3>功能契约</h3><p>优化只补充判断规则，以下字段保持不变。</p></div><Pill>不可变</Pill></div><dl><div><dt>评估目标</dt><dd>{current.contract.target}</dd></div><div><dt>输入字段</dt><dd>{current.contract.inputSemantics.join('、')}</dd></div><div><dt>评分类型</dt><dd>{current.contract.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</dd></div><div><dt>通过阈值</dt><dd>{current.contract.passThreshold ?? '不适用'}</dd></div></dl></section>
+      <section className="eval-eo-plan"><div className="eval-eo-section-title"><div><h3>候选判断规则</h3><p>{current.changeSummary}</p></div><Pill tone="green">系统生成</Pill></div><PromptDiff base={current.baseContent} candidate={current.candidateContent} /></section>
     </>}
-    {tab === 'metrics' && <div className="eval-stat-strip eval-eo-metrics"><div><span>人工校准</span><strong>{current.calibrationCount}</strong></div><div><span>已修正</span><strong>{current.summary.corrected}</strong></div><div><span>结果一致</span><strong>{current.summary.unchanged}</strong></div><div><span>新增影响</span><strong>{current.summary.affected}</strong></div></div>}
-    {tab === 'details' && <div className="eval-table-wrap"><table className="eval-data-table eval-eo-table"><thead><tr><th>来源任务</th><th>Case</th><th>样本类型</th><th>原结果</th><th>人工校准</th><th>候选结果</th><th>判断</th><th>确认</th></tr></thead><tbody>{current.rows.map((row) => <tr key={`${row.taskId}-${row.caseId}-${row.cohort}`}><td><div className="eval-cell-title"><strong>{row.taskName}</strong><small>{row.taskId}</small></div></td><td className="eval-mono">{row.caseId}</td><td><Pill tone={row.cohort === '人工校准' ? 'violet' : 'neutral'}>{row.cohort}</Pill></td><td title={row.originalReason}>{valueText(row.originalResult)}</td><td title={row.calibratedReason}>{valueText(row.calibratedResult)}</td><td title={row.candidateReason}>{valueText(row.candidateResult)}</td><td><Status label={row.judgment} /></td><td>{row.judgment === '新增影响' ? <button type="button" className="eval-text-button" disabled={row.confirmed} onClick={() => confirmImpact(row.taskId, row.caseId)}>{row.confirmed ? '已确认' : '确认合理'}</button> : '无需确认'}</td></tr>)}</tbody></table></div>}
+    {tab === 'metrics' && <>
+      <div className="eval-stat-strip eval-eo-metrics"><div><span>人工校准</span><strong>{current.calibrationCount}</strong><small>候选规则的输入</small></div><div><span>符合人工校准</span><strong>{current.summary.corrected}</strong><small>纠错样本全部复测</small></div><div><span>结果一致</span><strong>{current.summary.unchanged}</strong><small>影响检查未改变</small></div><div className={current.summary.affected ? 'is-warning' : ''}><span>新增影响</span><strong>{current.summary.affected}</strong><small>{unconfirmedImpact ? '确认后才能生成版本' : '已完成逐条确认'}</small></div></div>
+      <section className="eval-eo-cohort-panel"><div className="eval-task-section-heading"><div><h3>验证集分组统计</h3><p>纠错样本验证候选规则是否修正误判；影响检查样本验证是否引入新变化。</p></div><span>阈值 {threshold ?? '不适用'}</span></div><div className="eval-eo-cohort-grid"><article><header><Pill tone="violet">纠错样本</Pill><strong>{calibrationSummary.count} 条</strong></header><dl><div><dt>原版本通过率</dt><dd>{calibrationSummary.original}</dd></div><div><dt>候选版本通过率</dt><dd>{calibrationSummary.candidate}</dd></div><div><dt>平均分</dt><dd>{calibrationSummary.originalScore} <b>→</b> {calibrationSummary.candidateScore}</dd></div></dl><footer><CheckCircle2 size={14} />{current.summary.corrected} 条符合人工校准</footer></article><article><header><Pill>影响检查</Pill><strong>{impactSummary.count} 条</strong></header><dl><div><dt>原版本通过率</dt><dd>{impactSummary.original}</dd></div><div><dt>候选版本通过率</dt><dd>{impactSummary.candidate}</dd></div><div><dt>平均分</dt><dd>{impactSummary.originalScore} <b>→</b> {impactSummary.candidateScore}</dd></div></dl><footer className={current.summary.affected ? 'is-warning' : ''}>{current.summary.affected ? <><Wand2 size={14} />{current.summary.affected} 条新增影响，待确认</> : <><CheckCircle2 size={14} />未改变原有判断</>}</footer></article></div></section>
+    </>}
+    {tab === 'details' && <section className="eval-eo-details"><div className="eval-task-section-heading"><div><h3>实验明细</h3><p>展开 Case 查看输入、回答和评估器理由。新增影响需要逐条确认，确认前不能生成版本。</p></div><span>{current.rows.length} 条复测样本</span></div><div className="eval-table-wrap"><table className="eval-data-table eval-eo-table"><thead><tr><th>来源任务</th><th>Case</th><th>样本类型</th><th>原结果</th><th>人工校准</th><th>候选结果</th><th>判断</th><th>确认</th></tr></thead><tbody>{current.rows.map((row) => { const rowKey = `${row.taskId}-${row.caseId}-${row.cohort}`; const expanded = expandedRows.includes(rowKey); return <Fragment key={rowKey}><tr className={expanded ? 'is-expanded' : ''} onClick={() => toggleRow(rowKey)}><td><div className="eval-cell-title"><strong>{row.taskName}</strong><small>{row.taskId}</small></div></td><td className="eval-mono"><span className="eval-eo-case-toggle"><ChevronDown size={13} className={expanded ? 'is-open' : ''} />{row.caseId}</span></td><td><Pill tone={row.cohort === '人工校准' ? 'violet' : 'neutral'}>{row.cohort}</Pill></td><td title={row.originalReason}>{valueText(row.originalResult)}</td><td title={row.calibratedReason}>{valueText(row.calibratedResult)}</td><td title={row.candidateReason}>{valueText(row.candidateResult)}</td><td><Status label={row.judgment} /></td><td>{row.judgment === '新增影响' ? <button type="button" className="eval-text-button" disabled={row.confirmed} onClick={(event) => { event.stopPropagation(); confirmImpact(row.taskId, row.caseId); }}>{row.confirmed ? '已确认' : '确认合理'}</button> : '无需确认'}</td></tr>{expanded && <tr className="eval-eo-row-detail"><td colSpan={8}><div className="eval-eo-row-detail__grid"><div><span>Input</span><p>{row.input}</p></div><div><span>Agent Output</span><p>{row.agentOutput}</p></div><div><span>原判断理由</span><p>{row.originalReason}</p></div><div><span>{row.cohort === '人工校准' ? '人工校准理由' : '候选判断理由'}</span><p>{row.cohort === '人工校准' ? row.calibratedReason : row.candidateReason}</p></div></div></td></tr>}</Fragment>; })}</tbody></table></div></section>}
     {current.status === '已生成版本' && <div className="eval-eo-notebar is-done"><Check size={14} /><span>已生成 {current.savedVersion}。原评测任务仍使用 {current.baseVersion}。</span></div>}
   </div>;
 }
