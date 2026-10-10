@@ -202,6 +202,8 @@
 .eval-eo-row-detail__grid p { margin: 4px 0 0; color: var(--eval-text); font-size: 10px; line-height: 1.6; }
 .eval-eo-notebar { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-radius: 8px; font-size: 11px; }
 .eval-eo-notebar.is-done { color: var(--eval-green); background: var(--eval-green-soft); }
+.eval-evaluator-metric-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.eval-evaluator-outcome { display: flex; align-items: center; gap: 6px; }
 .eval-evaluator-config-compare .eval-config-compare__row { grid-template-columns: 142px minmax(0, 1fr) minmax(0, 1fr); }
 .eval-evaluator-config-compare .eval-config-compare__side pre { min-height: 280px; max-height: 430px; }
 .eval-evaluator-detail-table { width: 100%; min-width: 960px; table-layout: fixed; }
@@ -239,4 +241,5 @@
   .eval-eo-cohort-grid { grid-template-columns: 1fr; }
   .eval-eo-cohort-grid dl,
   .eval-eo-row-detail__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eval-evaluator-metric-summary { grid-template-columns: 1fr; }
 }

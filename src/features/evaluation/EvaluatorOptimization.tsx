@@ -2,6 +2,13 @@ import { useMemo, useState } from 'react';
 import { ArrowLeft, Check, FileDiff, Save, Wand2, X } from 'lucide-react';
 import { EmptyState, IconButton, Pill, Status } from './eval-ui';
 import { nextMockId } from './auto-eval.mock';
+import {
+  EVALUATOR_SCORE_TOLERANCE,
+  calibrationBatchPassed,
+  evaluatorResultError,
+  matchesCalibrationResult,
+  regressionResultStable,
+} from './evaluator-optimization';
 import type {
   EvaluationTask,
   Evaluator,
@@ -26,7 +33,6 @@ const nextVersion = (version: string) => {
   return `${parts[0]}.${parts[1]}.${Number(parts[2]) + 1}`;
 };
 
-const scoreValue = (value: string | number | undefined) => value === '通过' ? 1 : value === '不通过' ? 0 : typeof value === 'number' ? value : undefined;
 const passValue = (value: string | number | undefined, threshold?: number) => typeof value === 'number' ? value >= (threshold ?? 0.7) : value === '通过';
 
 export function EvaluatorCalibrationModal({ task, item, evaluator, result, onCancel, onSave }: {
@@ -41,7 +47,7 @@ export function EvaluatorCalibrationModal({ task, item, evaluator, result, onCan
   const [reason, setReason] = useState(result.calibration?.reason ?? '');
   const numericValue = Number(value);
   const validResult = evaluator.scoreType === 'numeric' ? value.trim() !== '' && Number.isFinite(numericValue) && numericValue >= 0 && numericValue <= 1 : ['通过', '不通过'].includes(value);
-  const canSave = validResult && reason.trim().length > 0;
+  const canSave = validResult;
   const parsedResult = evaluator.scoreType === 'numeric' ? numericValue : value;
 
   return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
@@ -55,9 +61,9 @@ export function EvaluatorCalibrationModal({ task, item, evaluator, result, onCan
           <div><dt>原原因</dt><dd>{result.calibration?.originalReason ?? result.evaluationReason}</dd></div>
         </dl>
         <label className="eval-field"><span>评分 *</span>{evaluator.scoreType === 'numeric'
-          ? <input type="number" min="0" max="1" step="0.01" value={value} onChange={(event) => setValue(event.target.value)} />
+          ? <input type="number" min="0" max="1" step="0.1" value={value} onChange={(event) => setValue(event.target.value)} />
           : <select value={value} onChange={(event) => setValue(event.target.value)}><option value="通过">通过</option><option value="不通过">不通过</option></select>}</label>
-        <label className="eval-field"><span>原因 *</span><textarea rows={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="说明为什么需要调整，以及正确的判断应是什么" /><small>{reason.length}/500</small></label>
+        <label className="eval-field"><span>原因（选填）</span><textarea rows={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="补充校准原因" /><small>{reason.length}/500</small></label>
       </div>
       <footer className="eval-modal__footer"><button type="button" className="eval-button eval-button--ghost" onClick={onCancel}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!canSave} onClick={() => onSave({
         taskId: task.id,
@@ -78,7 +84,7 @@ export function EvaluatorCalibrationModal({ task, item, evaluator, result, onCan
   </div>;
 }
 
-const candidatePrompt = (evaluator: Evaluator, calibrations: EvaluatorCalibration[]) => `${evaluator.prompt.trim()}\n\n# 判断补充\n\n根据 ${calibrations.length} 条人工校准中重复出现的问题，判断内容是否满足要求时应比较语义，不要求与参考文本逐字一致；条件、动作或数值实质缺失时仍判为未覆盖。`;
+const candidatePrompt = (evaluator: Evaluator, calibrations: EvaluatorCalibration[]) => `${evaluator.prompt.trim()}\n\n# 判断补充\n\n根据 ${calibrations.length} 条人工校准中重复出现的结果偏差，判断内容是否满足要求时应比较语义，不要求与参考文本逐字一致；条件、动作或数值实质缺失时仍判为未覆盖。`;
 
 export function EvaluatorOptimizationStartModal({ evaluator, baseVersion, tasks, onCancel, onCreate }: {
   evaluator: Evaluator;
@@ -98,7 +104,7 @@ export function EvaluatorOptimizationStartModal({ evaluator, baseVersion, tasks,
   const rows: EvaluatorOptimizationRow[] = related.map(({ task, item, calibration }) => ({
     taskId: task.id, taskName: task.name, caseId: item.caseId, cohort: '人工校准', input: item.input, agentOutput: item.agentOutput,
     originalResult: calibration.originalResult, originalReason: calibration.originalReason, calibratedResult: calibration.result,
-    calibratedReason: calibration.reason, candidateResult: calibration.result, candidateReason: '候选规则按人工校准原因重新判断。', judgment: '符合人工校准',
+    calibratedReason: calibration.reason, candidateResult: calibration.result, candidateReason: '候选规则按人工校准结果重新判断。', judgment: '符合人工校准',
   }));
   const canCreate = related.length > 0;
 
@@ -123,57 +129,52 @@ export function EvaluatorOptimizationStartModal({ evaluator, baseVersion, tasks,
 }
 
 const evaluatorCohortLabel = (cohort: EvaluatorOptimizationRow['cohort']) => cohort === '人工校准' ? '验证集' : '回归集';
-const evaluatorOutcome = (row: EvaluatorOptimizationRow) => row.cohort === '人工校准'
-  ? row.judgment === '符合人工校准' ? '符合校准' : '仍需优化'
-  : row.judgment === '新增影响' ? '回归退化' : '回归稳定';
-const sameEvaluatorResult = (left: string | number | undefined, right: string | number | undefined) => {
-  if (typeof left === 'number' && typeof right === 'number') return Math.abs(left - right) < 0.001;
-  return left === right;
-};
-const matchesExpectedResult = (row: EvaluatorOptimizationRow, key: 'originalResult' | 'candidateResult') => sameEvaluatorResult(
-  row[key],
-  row.cohort === '人工校准' ? row.calibratedResult : row.originalResult,
-);
+const matchesExpectedResult = (row: EvaluatorOptimizationRow, key: 'originalResult' | 'candidateResult', threshold?: number) => row.cohort === '人工校准'
+  ? matchesCalibrationResult(row[key], row.calibratedResult)
+  : regressionResultStable(row[key], row.originalResult, threshold);
+const evaluatorOutcome = (row: EvaluatorOptimizationRow, threshold?: number) => row.cohort === '人工校准'
+  ? matchesExpectedResult(row, 'candidateResult', threshold) ? '命中' : '未命中'
+  : matchesExpectedResult(row, 'candidateResult', threshold) ? '回归稳定' : '新增影响';
 
 function EvaluatorResultValue({ value }: { value: string | number | undefined }) {
   const tone = (value: string | number | undefined) => passValue(value, 0.7) ? 'green' : value === undefined ? 'neutral' : 'amber';
   return <Pill tone={tone(value)}>{valueText(value)}</Pill>;
 }
 
-function EvaluatorMetricSummary({ rows }: { rows: EvaluatorOptimizationRow[] }) {
+function EvaluatorMetricSummary({ rows, threshold }: { rows: EvaluatorOptimizationRow[]; threshold?: number }) {
   const validation = rows.filter((row) => row.cohort === '人工校准');
   const regression = rows.filter((row) => row.cohort === '影响检查');
   const summarize = (items: EvaluatorOptimizationRow[]) => {
-    const beforeMatched = items.filter((row) => matchesExpectedResult(row, 'originalResult')).length;
-    const afterMatched = items.filter((row) => matchesExpectedResult(row, 'candidateResult')).length;
+    const beforeMatched = items.filter((row) => matchesExpectedResult(row, 'originalResult', threshold)).length;
+    const afterMatched = items.filter((row) => matchesExpectedResult(row, 'candidateResult', threshold)).length;
     return { total: items.length, beforeMatched, afterMatched, afterRate: items.length ? Math.round((afterMatched / items.length) * 100) : 0 };
   };
   const validationSummary = summarize(validation);
   const regressionSummary = summarize(regression);
-  const corrected = validation.filter((row) => !matchesExpectedResult(row, 'originalResult') && matchesExpectedResult(row, 'candidateResult')).length;
-  const regressions = regression.filter((row) => !matchesExpectedResult(row, 'candidateResult')).length;
-  return <div className="eval-optimization-summary">
-    <div><span>校准一致率</span><strong>{validationSummary.afterRate}%</strong><em>{validationSummary.beforeMatched}/{validationSummary.total} → {validationSummary.afterMatched}/{validationSummary.total}</em></div>
-    <div><span>已修正</span><strong>{corrected}</strong><em>符合人工校准</em></div>
+  const errors = validation.map((row) => evaluatorResultError(row.candidateResult, row.calibratedResult)).filter((value): value is number => value !== undefined);
+  const averageError = errors.length ? errors.reduce((sum, value) => sum + value, 0) / errors.length : undefined;
+  const regressions = regression.filter((row) => !matchesExpectedResult(row, 'candidateResult', threshold)).length;
+  return <div className="eval-optimization-summary eval-evaluator-metric-summary">
+    <div><span>校准命中率</span><strong>{validationSummary.afterRate}%</strong><em>{validationSummary.afterMatched}/{validationSummary.total} 命中</em></div>
+    <div><span>平均误差</span><strong>{averageError === undefined ? '不适用' : averageError.toFixed(2)}</strong><em>允许误差 {EVALUATOR_SCORE_TOLERANCE.toFixed(1)}</em></div>
     <div><span>回归一致率</span><strong>{regressionSummary.afterRate}%</strong><em>{regressionSummary.beforeMatched}/{regressionSummary.total} → {regressionSummary.afterMatched}/{regressionSummary.total}</em></div>
     <div><span>新增影响</span><strong className={regressions ? 'is-danger' : ''}>{regressions}</strong><em>候选结果发生变化</em></div>
-    <div><span>有效对比</span><strong>{rows.length}</strong><em>共 {rows.length} 条 Case</em></div>
   </div>;
 }
 
-function EvaluatorMetricBreakdown({ rows, evaluatorName }: { rows: EvaluatorOptimizationRow[]; evaluatorName: string }) {
-  const averageScore = (items: EvaluatorOptimizationRow[], key: 'originalResult' | 'candidateResult') => {
-    const values = items.map((row) => scoreValue(row[key])).filter((value): value is number => value !== undefined);
-    return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2) : '未采集';
+function EvaluatorMetricBreakdown({ rows, evaluatorName, threshold }: { rows: EvaluatorOptimizationRow[]; evaluatorName: string; threshold?: number }) {
+  const averageDifference = (items: EvaluatorOptimizationRow[], key: 'originalResult' | 'candidateResult') => {
+    const values = items.map((row) => evaluatorResultError(row[key], row.cohort === '人工校准' ? row.calibratedResult : row.originalResult)).filter((value): value is number => value !== undefined);
+    return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2) : '不适用';
   };
-  const consistency = (items: EvaluatorOptimizationRow[], key: 'originalResult' | 'candidateResult') => `${items.filter((row) => matchesExpectedResult(row, key)).length}/${items.length} 一致`;
+  const consistency = (items: EvaluatorOptimizationRow[], key: 'originalResult' | 'candidateResult') => `${items.filter((row) => matchesExpectedResult(row, key, threshold)).length}/${items.length} ${items[0]?.cohort === '人工校准' ? '命中' : '一致'}`;
   const validation = rows.filter((row) => row.cohort === '人工校准');
   const regression = rows.filter((row) => row.cohort === '影响检查');
   return <div className="eval-optimization-breakdown table-surface"><table className="eval-data-table">
     <thead><tr><th>指标</th><th>验证集 · 优化前</th><th>验证集 · 优化后</th><th>回归集 · 优化前</th><th>回归集 · 优化后</th></tr></thead>
     <tbody>
-      <tr><td><div className="eval-cell-title"><strong>结果一致率</strong><small>{evaluatorName}</small></div></td><td>{consistency(validation, 'originalResult')}</td><td className="is-improved">{consistency(validation, 'candidateResult')}</td><td>{consistency(regression, 'originalResult')}</td><td className={regression.some((row) => !matchesExpectedResult(row, 'candidateResult')) ? 'is-regression' : ''}>{consistency(regression, 'candidateResult')}</td></tr>
-      <tr><td><div className="eval-cell-title"><strong>平均得分</strong><small>0-1 数值</small></div></td><td>{averageScore(validation, 'originalResult')}</td><td className="is-improved">{averageScore(validation, 'candidateResult')}</td><td>{averageScore(regression, 'originalResult')}</td><td>{averageScore(regression, 'candidateResult')}</td></tr>
+      <tr><td><div className="eval-cell-title"><strong>结果一致率</strong><small>{evaluatorName}</small></div></td><td>{consistency(validation, 'originalResult')}</td><td className="is-improved">{consistency(validation, 'candidateResult')}</td><td>{consistency(regression, 'originalResult')}</td><td className={regression.some((row) => !matchesExpectedResult(row, 'candidateResult', threshold)) ? 'is-regression' : ''}>{consistency(regression, 'candidateResult')}</td></tr>
+      <tr><td><div className="eval-cell-title"><strong>平均误差</strong><small>数值型评估器</small></div></td><td>{averageDifference(validation, 'originalResult')}</td><td className="is-improved">{averageDifference(validation, 'candidateResult')}</td><td>{averageDifference(regression, 'originalResult')}</td><td>{averageDifference(regression, 'candidateResult')}</td></tr>
     </tbody>
   </table></div>;
 }
@@ -189,7 +190,7 @@ function EvaluatorConfigCompare({ experiment }: { experiment: EvaluatorOptimizat
   </div>;
 }
 
-function EvaluatorOptimizationDetailTable({ rows }: { rows: EvaluatorOptimizationRow[] }) {
+function EvaluatorOptimizationDetailTable({ rows, threshold, onConfirmImpact }: { rows: EvaluatorOptimizationRow[]; threshold?: number; onConfirmImpact: (taskId: string, caseId: string) => void }) {
   return <div className="eval-optimization-detail-panel eval-evaluator-detail-panel">
     <div className="eval-task-section-heading"><div><h3>实验明细</h3><p>展示同一批 Case 在评估器规则优化前后的结果。</p></div><span>{rows.length} 条 Case</span></div>
     <div className="eval-optimization-detail-table-wrap"><table className="eval-optimization-detail-table eval-evaluator-detail-table">
@@ -200,7 +201,7 @@ function EvaluatorOptimizationDetailTable({ rows }: { rows: EvaluatorOptimizatio
         <td><p>{row.agentOutput || '未采集'}</p></td>
         <td><EvaluatorResultValue value={row.originalResult} /></td>
         <td><EvaluatorResultValue value={row.candidateResult} /></td>
-        <td><Pill tone={evaluatorOutcome(row).includes('退化') || evaluatorOutcome(row).includes('仍') ? 'amber' : 'green'}>{evaluatorOutcome(row)}</Pill></td>
+        <td><div className="eval-evaluator-outcome"><Pill tone={evaluatorOutcome(row, threshold).includes('影响') || evaluatorOutcome(row, threshold).includes('未') ? 'amber' : 'green'}>{evaluatorOutcome(row, threshold)}</Pill>{row.cohort === '影响检查' && !matchesExpectedResult(row, 'candidateResult', threshold) && <button type="button" className="eval-text-button" disabled={row.confirmed} onClick={() => onConfirmImpact(row.taskId, row.caseId)}>{row.confirmed ? '已确认' : '确认影响'}</button>}</div></td>
       </tr>)}</tbody>
     </table></div>
   </div>;
@@ -216,6 +217,7 @@ export function EvaluatorOptimizationWorkbench({ experiment, onExperiments, onVe
   const [tab, setTab] = useState<WorkbenchTab>('config');
   const [running, setRunning] = useState(false);
   const current = experiment;
+  const threshold = current.contract.passThreshold;
   const update = (next: EvaluatorOptimizationExperiment) => onExperiments((items) => items.map((item) => item.id === next.id ? next : item));
   const run = () => {
     setRunning(true);
@@ -224,16 +226,25 @@ export function EvaluatorOptimizationWorkbench({ experiment, onExperiments, onVe
         ...current.rows,
         { taskId: current.sourceTaskIds[0] ?? 'TASK', taskName: '同版本关联任务', caseId: 'CASE-CHECK-001', cohort: '影响检查' as const, input: '订单号缺失，帮我查询退款进度。', agentOutput: '请先补充订单号。', originalResult: 0.86, originalReason: '满足主要要求。', candidateResult: 0.86, candidateReason: '候选规则没有改变判断。', judgment: '结果一致' as const },
       ];
-      const next = { ...current, rows: impactRows, summary: { corrected: current.calibrationCount, unchanged: impactRows.filter((row) => row.judgment === '结果一致').length, affected: impactRows.filter((row) => row.judgment === '新增影响').length, blocked: 0 }, status: '待确认' as const };
+      const nextRows = impactRows.map((row) => ({ ...row, judgment: row.cohort === '人工校准'
+        ? matchesExpectedResult(row, 'candidateResult', threshold) ? '符合人工校准' as const : '无法执行' as const
+        : matchesExpectedResult(row, 'candidateResult', threshold) ? '结果一致' as const : '新增影响' as const }));
+      const next = { ...current, rows: nextRows, summary: { corrected: nextRows.filter((row) => row.judgment === '符合人工校准').length, unchanged: nextRows.filter((row) => row.judgment === '结果一致').length, affected: nextRows.filter((row) => row.judgment === '新增影响').length, blocked: 0 }, status: '待确认' as const };
       update(next); setRunning(false); setTab('metrics'); onNotify('验证完成');
     }, 500);
   };
   const save = () => {
+    const validationRows = current.rows.filter((row) => row.cohort === '人工校准');
+    const matched = validationRows.filter((row) => matchesExpectedResult(row, 'candidateResult', threshold)).length;
+    if (!calibrationBatchPassed(matched, validationRows.length)) { onNotify('校准命中率未达到成功标准', 'warning'); setTab('metrics'); return; }
+    const unconfirmedImpact = current.rows.filter((row) => row.cohort === '影响检查' && !matchesExpectedResult(row, 'candidateResult', threshold) && !row.confirmed).length;
+    if (unconfirmedImpact > 0) { onNotify('存在未确认的新增影响', 'warning'); setTab('details'); return; }
     const version = nextVersion(current.baseVersion);
     update({ ...current, status: '已生成版本', candidateVersion: version, savedVersion: version });
     onVersionCreated(current.evaluatorId, version, current.candidateContent);
     onNotify(`已生成评估器版本 ${version}`);
   };
+  const confirmImpact = (taskId: string, caseId: string) => update({ ...current, rows: current.rows.map((row) => row.taskId === taskId && row.caseId === caseId ? { ...row, confirmed: true } : row) });
   return <div className="eval-detail-page eval-eo-workbench">
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回优化记录</button><Status label={current.status} /></div>
     <header className="eval-detail-hero eval-eo-hero"><div><h2>{current.name}</h2><p>{current.evaluatorName} · {current.baseVersion} → {current.savedVersion ?? current.candidateVersion} · 验证集 {current.rows.filter((row) => row.cohort === '人工校准').length} 条 · 回归集 {current.rows.filter((row) => row.cohort === '影响检查').length} 条</p></div><div className="eval-eo-hero__actions">{current.status === '待分析' && <button type="button" className="eval-button eval-button--primary" disabled={running} onClick={run}><Wand2 size={15} />{running ? '验证中' : '运行验证'}</button>}{current.status === '待确认' && <button type="button" className="eval-button eval-button--primary" onClick={save}><Save size={15} />生成新版本</button>}</div></header>
@@ -241,8 +252,8 @@ export function EvaluatorOptimizationWorkbench({ experiment, onExperiments, onVe
     <div className="eval-optimization-flow"><span>单次优化</span><strong>验证集 + 回归集</strong><span>候选规则不覆盖原评估器</span></div>
     <nav className="eval-optimization-tabs" aria-label="优化详情内容"><button type="button" className={tab === 'config' ? 'is-active' : ''} onClick={() => setTab('config')}>配置对比</button><button type="button" className={tab === 'metrics' ? 'is-active' : ''} onClick={() => setTab('metrics')}>指标统计</button><button type="button" className={tab === 'details' ? 'is-active' : ''} onClick={() => setTab('details')}>实验明细</button></nav>
     {tab === 'config' && <div className="eval-optimization-stack"><section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>评估器规则</h3><p>左侧为优化前，右侧为优化后。</p></div></div><EvaluatorConfigCompare experiment={current} /></section></div>}
-    {tab === 'metrics' && <div className="eval-optimization-stack"><section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>指标统计</h3><p>按验证集和回归集分别展示结果一致率与评估器得分。</p></div></div><EvaluatorMetricSummary rows={current.rows} /><EvaluatorMetricBreakdown rows={current.rows} evaluatorName={current.evaluatorName} /></section></div>}
-    {tab === 'details' && <EvaluatorOptimizationDetailTable rows={current.rows} />}
+    {tab === 'metrics' && <div className="eval-optimization-stack"><section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>指标统计</h3><p>{current.rows.filter((row) => row.cohort === '人工校准').length < 5 ? '当前校准样本少于 5 条，需全部命中。' : '校准命中率达到 80% 视为成功。'}</p></div></div><EvaluatorMetricSummary rows={current.rows} threshold={threshold} /><EvaluatorMetricBreakdown rows={current.rows} evaluatorName={current.evaluatorName} threshold={threshold} /></section></div>}
+    {tab === 'details' && <EvaluatorOptimizationDetailTable rows={current.rows} threshold={threshold} onConfirmImpact={confirmImpact} />}
     {current.status === '已生成版本' && <div className="eval-eo-notebar is-done"><Check size={14} /><span>已生成 {current.savedVersion}。原评测任务仍使用 {current.baseVersion}。</span></div>}
   </div>;
 }

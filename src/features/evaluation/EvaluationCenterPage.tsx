@@ -2028,7 +2028,7 @@ function EvaluatorResultCell({ result, onCalibrate }: { result?: EvaluatorResult
   };
   return <div className={`eval-evaluator-result-cell${result.calibration ? ' is-calibrated' : ''}`}>
     <span className="eval-evaluator-score" tabIndex={0} onMouseEnter={(event) => showReason(event.currentTarget)} onMouseLeave={() => setTooltip(null)} onFocus={(event) => showReason(event.currentTarget)} onBlur={() => setTooltip(null)}>{value}{result.calibration && <i>已校准</i>}</span>
-    {tooltip && createPortal(<div className="eval-evaluator-reason-popover" style={{ top: tooltip.top, left: tooltip.left }}><strong>{result.calibration ? '人工校准原因' : '得分原因'}</strong><p>{result.evaluationReason}</p></div>, document.body)}
+    {tooltip && createPortal(<div className="eval-evaluator-reason-popover" style={{ top: tooltip.top, left: tooltip.left }}><strong>{result.calibration ? '人工校准原因' : '得分原因'}</strong><p>{result.evaluationReason || '未填写'}</p></div>, document.body)}
     <button type="button" className="eval-evaluator-calibrate" title="人工校准" aria-label={`人工校准 ${result.evaluatorName}`} onClick={(event) => { event.stopPropagation(); onCalibrate(); }}><Pencil size={12} /></button>
   </div>;
 }

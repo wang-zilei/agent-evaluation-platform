@@ -753,8 +753,8 @@ const seedCalibration = (taskId: string, caseId: string, evaluatorId: string, ca
 };
 
 seedCalibration('TASK-20260922-001', 'CASE-HIS-024', 'P0-02', 0.5, '“未使用且不影响二次销售”已经表达商品完好条件，实际覆盖 2 个要点。');
-seedCalibration('TASK-20260922-002', 'CASE-UP-018', 'P0-02', 0.98, '已覆盖审核后、3-5 个工作日、原路退回三个必选要点。');
-seedCalibration('TASK-20260923-003', 'CASE-UP-018', 'P0-02', 0.98, '表达不同但语义完整，应按全部覆盖计算。');
+seedCalibration('TASK-20260922-002', 'CASE-UP-018', 'P0-02', 1, '已覆盖审核后、3-5 个工作日、原路退回三个必选要点。');
+seedCalibration('TASK-20260923-003', 'CASE-UP-018', 'P0-02', 1, '表达不同但语义完整，应按全部覆盖计算。');
 
 const metricValue = (item?: EvaluatorResult): number | undefined => {
   if (!item || !['通过', '不通过'].includes(item.evaluationStatus)) return undefined;
