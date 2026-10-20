@@ -2343,7 +2343,7 @@
 .eval-optimization-detail,
 .eval-comparison-detail { max-width: none; padding-bottom: 28px; }
 .eval-optimization-hero { align-items: center; }
-.eval-optimization-hero h2 { max-width: 760px; }
+.eval-optimization-hero h2 { max-width: 760px; margin-top: 0; }
 .eval-optimization-grid { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(360px, .82fr); gap: 16px; margin-top: 16px; }
 .eval-optimization-panel { min-width: 0; padding: 18px; border: 1px solid var(--eval-border); border-radius: 10px; background: #fff; }
 .eval-optimization-stack {
@@ -2498,8 +2498,7 @@
 .eval-conclusion-metrics strong { margin-top: 3px; font-size: 19px; }
 .eval-conclusion-data,
 .eval-conclusion-cases,
-.eval-task-data-detail,
-.eval-experiment-records { padding: 20px; border: 1px solid var(--eval-border); border-radius: 12px; background: #fff; }
+.eval-task-data-detail { padding: 20px; border: 1px solid var(--eval-border); border-radius: 12px; background: #fff; }
 .eval-conclusion-data { grid-column: 1; }
 .eval-conclusion-cases { grid-column: 2; }
 .eval-task-section-heading { align-items: flex-start; margin-bottom: 12px; }
@@ -2510,9 +2509,7 @@
 .eval-case-status-grid { gap: 8px; }
 .eval-case-status-grid > div { min-height: 58px; border: 1px solid var(--eval-border); background: #fafbfc; }
 .eval-conclusion-case-list button { min-height: 54px; }
-.eval-experiment-records { min-height: 280px; }
-.eval-experiment-records .eval-table-wrap { margin-top: 4px; border-top: 1px solid var(--eval-border); }
-.eval-experiment-records .eval-data-table tbody tr { cursor: pointer; }
+.eval-experiment-table { border-radius: 10px; background: #fff; }
 
 
 @media (max-width: 1100px) {
