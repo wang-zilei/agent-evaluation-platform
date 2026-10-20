@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Clock3, Coins, Cpu, Footprints, Search, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Clock3, Coins, Cpu, Footprints, Layers3, Search, Wrench, X, type LucideIcon } from 'lucide-react';
 import type { ObservedSession, ObservedTrace, TraceEvent } from './trace.types';
 
 export type ObservationView = 'trace' | 'session';
@@ -143,7 +143,7 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
       <table className="eval-data-table eval-obs-table">
         <thead><tr><th>开始时间</th><th>Agent</th><th>Input</th><th>Output</th><th>耗时</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
         <tbody>{filteredTraces.map((trace) => <tr key={trace.id} role="button" tabIndex={0} aria-label={`查看 Trace ${trace.traceId ?? trace.id}`} onClick={() => onOpenTrace(trace)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenTrace(trace); } }}>
-          <td><div className="eval-obs-date"><strong>{formatTime(trace.occurredAt)}</strong><small>Turn {trace.turn}</small></div></td>
+          <td><div className="eval-obs-date"><strong>{formatTime(trace.occurredAt)}</strong></div></td>
           <td className="is-nowrap">{formatValue(trace.agent)}</td>
           <td className="is-clip" title={trace.input}>{trace.input || '未采集'}</td>
           <td className="is-clip" title={trace.output}>{trace.output || '未采集'}</td>
@@ -159,7 +159,7 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
       <table className="eval-data-table eval-obs-table eval-session-table">
         <thead><tr><th>开始时间</th><th>Agent</th><th>Traces</th><th>Input</th><th>Output</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
         <tbody>{filteredSessions.map((session) => <tr key={session.id} role="button" tabIndex={0} aria-label={`查看 Session ${session.id}`} onClick={() => onOpenSession(session)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenSession(session); } }}>
-          <td><div className="eval-obs-date"><strong>{formatTime(session.startedAt)}</strong><small>{session.turns.length} 轮对话</small></div></td>
+          <td><div className="eval-obs-date"><strong>{formatTime(session.startedAt)}</strong></div></td>
           <td className="is-nowrap">{formatValue(session.agent)}</td>
           <td className="is-nowrap">{session.turns.length}</td>
           <td className="is-clip" title={session.turns[0]?.input}>{session.turns[0]?.input || '未采集'}</td>
@@ -189,7 +189,7 @@ export function TraceDetail({ trace, onBack }: {
   return <div className="eval-detail-page eval-trace-detail-page">
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Trace</button></div>
     <header className="eval-trace-detail-head">
-      <div><span className="eval-eyebrow">TRACE · TURN {trace.turn}</span><h2>{trace.traceId ?? trace.id}</h2></div>
+      <div><span className="eval-eyebrow">TRACE</span><h2>{trace.traceId ?? trace.id}</h2></div>
       <span className="eval-trace-source">{trace.sourceFile}</span>
     </header>
     <ObservationSummary ariaLabel="Trace 运行摘要" items={[
@@ -202,7 +202,6 @@ export function TraceDetail({ trace, onBack }: {
     {trace.compressed && <p className="eval-trace-note">首条为会话摘要，前序消息未完整提供。</p>}
     <div className="eval-trace-split">
       <section className="eval-dsh-ledger" aria-label="执行轨迹">
-        <div className="eval-dsh-turn">Turn {trace.turn}</div>
         <div className="eval-dsh-stream">
           {trace.events.map((event) => <EventRow key={event.id} event={event} selectionId={event.id} active={event.id === selectedId} onSelect={setSelectedId} />)}
         </div>
@@ -237,7 +236,8 @@ export function SessionDetail({ session, onBack }: { session: ObservedSession; o
       <span className="eval-trace-source">{formatTime(session.startedAt)}</span>
     </header>
     <ObservationSummary ariaLabel="Session 运行摘要" items={[
-      { label: 'Steps', value: String(sessionEvents.length), detail: `${session.turns.length} 个 Turn / USER ${eventSummary.user} / ASSISTANT ${eventSummary.assistant}`, icon: Footprints, tone: 'blue' },
+      { label: 'Turn', value: String(session.turns.length), detail: 'Session 内对话轮次', icon: Layers3, tone: 'blue' },
+      { label: 'Steps', value: String(sessionEvents.length), detail: `USER ${eventSummary.user} / ASSISTANT ${eventSummary.assistant}`, icon: Footprints, tone: 'violet' },
       { label: '工具调用', value: String(toolSummary.total), detail: `成功 ${toolSummary.succeeded} / 失败 ${toolSummary.failed}`, icon: Wrench, tone: 'amber' },
       { label: 'Tokens', value: formatNumber(totalTokens), detail: `输入 ${formatNumber(session.inputTokens)} / 输出 ${formatNumber(session.outputTokens)}`, icon: Coins, tone: 'violet' },
       { label: '耗时', value: formatDuration(totalDuration), detail: `${formatClock(session.startedAt ? new Date(session.startedAt) : null)} → ${formatClock(sessionEnd)}`, icon: Clock3, tone: 'green' },
