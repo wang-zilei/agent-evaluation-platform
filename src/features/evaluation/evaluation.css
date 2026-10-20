@@ -1990,7 +1990,9 @@
   .eval-task-wizard-header h2 { font-size: 21px; }
   .eval-task-wizard-step-meta { align-self: flex-start; }
   .eval-task-stepper { grid-template-columns: repeat(4, minmax(92px, 1fr)); overflow-x: auto; }
+  .eval-task-wizard--create .eval-task-stepper { grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; }
   .eval-task-stepper button { min-height: 56px; gap: 6px; padding: 0 6px; }
+  .eval-task-wizard--create .eval-task-stepper button { padding: 0 2px; }
   .eval-task-stepper button > span { width: 24px; height: 24px; flex-basis: 24px; }
   .eval-task-stepper button > strong { font-size: 11px; }
   .eval-task-step-panel { min-height: 430px; padding: 20px 16px; }
@@ -2018,6 +2020,8 @@
   .eval-task-wizard-footer { align-items: stretch; flex-direction: column; }
   .eval-task-wizard-footer > div { justify-content: flex-end; }
   .eval-task-wizard--create .eval-task-wizard-footer { position: static; padding: 12px 0 0; border: 0; border-top: 1px solid var(--eval-border); border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+  .eval-task-wizard--create .eval-task-wizard-footer { align-items: center; flex-direction: row; }
+  .eval-task-wizard--create .eval-task-wizard-footer > div { margin-left: auto; }
 }
 
 /* ── Task detail: compact header, basic information, conclusion and data tabs ── */
