@@ -256,6 +256,7 @@ const evidenceFor = (rawCase: RawCase): QueryEvidence => ({
   rawTrace: rawCase.raw_trace ?? undefined,
   rawTraceMessageCount: messageLists(rawCase).input.length + messageLists(rawCase).output.length,
   traceId: rawCase.trace_id ?? undefined,
+  sessionId: rawCase.session_id ?? undefined,
   tags: rawCase.tags ?? [],
 });
 

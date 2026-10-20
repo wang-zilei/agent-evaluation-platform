@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSPropert
 import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import {
-  Activity, ArrowLeft, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  Activity, ArrowLeft, ArrowUpRight, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, CircleCheck, ClipboardCheck, Clock3, Copy, Database, Download, Eye, FileSpreadsheet, Gauge, GitCompare, History,
   Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Package, Pencil, Percent, PlugZap, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, Target, TimerReset, Trash2, Upload,
   Tag, Wand2, X, Zap,
@@ -20,6 +20,7 @@ import { SessionDetail, TraceDetail, TraceList, type ObservationView } from './T
 import { AutoEvaluationPanel } from './AutoEvaluation';
 import { EvaluatorCalibrationModal, EvaluatorOptimizationList, EvaluatorOptimizationStartModal, EvaluatorOptimizationWorkbench } from './EvaluatorOptimization';
 import type { EvaluatorCalibration, EvaluatorOptimizationExperiment } from './evaluation.types';
+import type { ObservedSession, ObservedTrace, TraceEvent as ObservationTraceEvent } from './trace.types';
 import type {
   AgentMcpConnection,
   AgentSkillBinding,
@@ -41,6 +42,7 @@ type AddDataMode = 'choose' | 'manual' | 'file' | 'trace';
 type HistoryDatePreset = '3' | '5' | '7' | '30' | 'custom';
 type TaskCreateStep = 1 | 2 | 3 | 4;
 type TraceScreen = 'list' | 'detail';
+type CaseObservationView = 'trace' | 'session';
 type OptimizationDetailTab = 'config' | 'metrics' | 'details';
 type TaskEvaluatorMetric = {
   name: string;
@@ -320,6 +322,7 @@ export default function EvaluationCenterPage() {
   const [selectedComparisonId, setSelectedComparisonId] = useState(INITIAL_EVALUATION_STATE.comparisons[0]?.id ?? '');
   const [search, setSearch] = useState(''); const [datasetSearch, setDatasetSearch] = useState(''); const [taskSearch, setTaskSearch] = useState(''); const [traceSearch, setTraceSearch] = useState(''); const [scoreFilter, setScoreFilter] = useState('全部结果类型');
   const [toast, setToast] = useState<Toast | null>(null); const [toastId, setToastId] = useState(0); const [casePreview, setCasePreview] = useState<{ item: CaseResult; taskId: string } | null>(null);
+  const [caseObservation, setCaseObservation] = useState<{ item: CaseResult; task: EvaluationTask; view: CaseObservationView } | null>(null);
   const [taskReturn, setTaskReturn] = useState(false);
   const [selectedTraceId, setSelectedTraceId] = useState(observedTraces[0]?.id ?? '');
   const [selectedSessionId, setSelectedSessionId] = useState(observedSessions[0]?.id ?? '');
@@ -332,7 +335,7 @@ export default function EvaluationCenterPage() {
   const [calibrationTarget, setCalibrationTarget] = useState<{ taskId: string; caseId: string; evaluatorId: string } | null>(null);
   const [optimizationStart, setOptimizationStart] = useState<{ evaluatorId: string; version: string } | null>(null);
   const notify = (message: string, tone: Toast['tone'] = 'success') => { const id = toastId + 1; setToastId(id); setToast({ id, message, tone }); window.setTimeout(() => setToast((current) => current?.id === id ? null : current), 2600); };
-  const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks' || module === 'automation') { setTaskScreen('list'); if (module === 'tasks') setTaskTab('list'); } if (module === 'traces') setTraceScreen('list'); };
+  const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks' || module === 'automation') { setTaskScreen('list'); if (module === 'tasks') setTaskTab('list'); } if (module === 'traces') { setTraceScreen('list'); setCaseObservation(null); } };
   const openDatasetCreate = (mode: DatasetCreateMode) => {
     setTaskReturn(module === 'tasks' && taskScreen === 'create');
     setDatasetEntryFromTask(module === 'tasks' && taskScreen === 'create');
@@ -715,9 +718,22 @@ export default function EvaluationCenterPage() {
   const calibrationEvaluator = state.evaluators.find((item) => item.id === calibrationTarget?.evaluatorId);
   const optimizationStartEvaluator = state.evaluators.find((item) => item.id === optimizationStart?.evaluatorId);
   const selectedTrace = observedTraces.find((item) => item.id === selectedTraceId) ?? observedTraces[0];
+  const casePreviewTask = casePreview ? state.tasks.find((item) => item.id === casePreview.taskId) : undefined;
+  const caseObservationTrace = caseObservation ? caseResultToObservedTrace(caseObservation.item, caseObservation.task) : null;
+  const caseObservationSession = caseObservation && caseObservationTrace ? caseResultToObservedSession(caseObservation.task, caseObservationTrace) : null;
   const selectedOptimization = state.evaluatorOptimizations.find((item) => item.id === selectedOptimizationId) ?? null;
+  const openCaseObservation = (view: CaseObservationView) => {
+    if (!casePreview || !casePreviewTask) return;
+    setCaseObservation({ item: casePreview.item, task: casePreviewTask, view });
+    setCasePreview(null);
+    setModule('traces');
+    setObservationView(view);
+    setTraceScreen('detail');
+    setTraceSearch('');
+  };
   const openOptimization = (item: EvaluatorOptimizationExperiment) => { setSelectedOptimizationId(item.id); setSelectedEvaluatorId(item.evaluatorId); setEvaluatorScreen('optimization'); setModule('evaluators'); };
   const selectModule = (next: EvaluationModule) => {
+    setCaseObservation(null);
     setModule(next);
     if (next === 'tasks') setTaskScreen('list');
     if (next === 'datasets') setDatasetScreen('list');
@@ -762,12 +778,12 @@ export default function EvaluationCenterPage() {
       {module === 'automation' && taskScreen === 'list' && <AutoEvaluationPanel tasks={state.tasks} agents={state.agents} evaluators={state.evaluators} onCreate={(item) => setState((current) => ({ ...current, tasks: [item, ...current.tasks] }))} onUpdate={(item) => setState((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === item.id ? item : task) }))} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('data'); setTaskScreen('detail'); }} onNotify={notify} />}
       {module === 'automation' && taskScreen === 'detail' && task && <TaskDetail task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} backLabel="返回自动化" onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} sessions={observedSessions} view={observationView} onViewChange={setObservationView} search={traceSearch} setSearch={setTraceSearch} onOpenTrace={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} onOpenSession={(item) => { setSelectedSessionId(item.id); setTraceScreen('detail'); }} />}
-      {module === 'traces' && traceScreen === 'detail' && observationView === 'trace' && selectedTrace && <TraceDetail key={selectedTrace.id} trace={selectedTrace} onBack={showList} />}
-      {module === 'traces' && traceScreen === 'detail' && observationView === 'session' && selectedSession && <SessionDetail key={selectedSession.id} session={selectedSession} onBack={showList} />}
+      {module === 'traces' && traceScreen === 'detail' && observationView === 'trace' && (caseObservationTrace ?? selectedTrace) && <TraceDetail key={(caseObservationTrace ?? selectedTrace)?.id} trace={caseObservationTrace ?? selectedTrace} onBack={showList} />}
+      {module === 'traces' && traceScreen === 'detail' && observationView === 'session' && (caseObservationSession ?? selectedSession) && <SessionDetail key={(caseObservationSession ?? selectedSession)?.id} session={caseObservationSession ?? selectedSession} onBack={showList} />}
       </main>
     </div>
     {comparisonPickerOpen && <ComparisonPicker initialControlTask={state.tasks.find((item) => item.id === comparisonInitialControlId)} datasets={state.datasets} tasks={state.tasks} evaluators={state.evaluators} onCancel={() => setComparisonPickerOpen(false)} onCreate={createComparison} />}
-    {casePreview && <CasePreview item={casePreview.item} onClose={() => setCasePreview(null)} />}
+    {casePreview && casePreviewTask && <CasePreview item={casePreview.item} task={casePreviewTask} onOpenTrace={() => openCaseObservation('trace')} onOpenSession={() => openCaseObservation('session')} onClose={() => setCasePreview(null)} />}
     {calibrationTarget && calibrationTask && calibrationCase && calibrationResult && calibrationEvaluator && <EvaluatorCalibrationModal task={calibrationTask} item={calibrationCase} evaluator={calibrationEvaluator} result={calibrationResult} onCancel={() => setCalibrationTarget(null)} onSave={saveCalibration} />}
     {optimizationStart && optimizationStartEvaluator && <EvaluatorOptimizationStartModal evaluator={optimizationStartEvaluator} baseVersion={optimizationStart.version} tasks={state.tasks} onCancel={() => setOptimizationStart(null)} onCreate={(item) => { setState((current) => ({ ...current, evaluatorOptimizations: [item, ...current.evaluatorOptimizations] })); setOptimizationStart(null); openOptimization(item); notify('评估器优化实验已创建'); }} />}
     {toast && <div className={`eval-toast eval-toast--${toast.tone}`}><CheckCircle2 size={15} />{toast.message}</div>}
@@ -1828,7 +1844,7 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
 }) {
   const datasetName = (task: EvaluationTask) => task.taskType === '自动化' ? '动态采集' : datasets.find((item) => item.id === task.datasetId)?.name ?? task.datasetId;
   const evaluatorNames = (task: EvaluationTask) => task.evaluatorIds.map((id) => evaluators.find((item) => item.id === id)?.name ?? id);
-  return <table className="eval-data-table">
+  return <table className={`eval-data-table${selectable ? ' is-selectable' : ''} eval-task-list-table`}>
     <thead><tr>{selectable && <><th>对照组</th><th>实验组</th></>}<th>任务名称</th><th>任务类型</th><th>任务状态</th><th>评测对象</th><th>数据来源</th><th>评估器</th><th>创建时间</th><th>操作</th></tr></thead>
     <tbody>{tasks.map((task) => {
       const isControl = task.id === controlTaskId;
@@ -1841,7 +1857,7 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
         <td><strong className="eval-task-list-name">{task.name}</strong></td>
         <td>{task.taskType ?? '普通评测'}</td>
         <td><Status label={task.status} /></td>
-        <td><div className="eval-task-entity"><span className="eval-task-entity__icon is-agent"><Braces size={14} /></span><div className="eval-task-entity__content"><div className="eval-task-entity__line"><strong>{task.agent}</strong><span className="eval-task-entity__version">{task.agentVersion}</span></div></div></div></td>
+        <td><div className="eval-task-entity"><span className="eval-task-entity__icon is-agent"><Bot size={14} /></span><div className="eval-task-entity__content"><div className="eval-task-entity__line"><strong>{task.agent}</strong><span className="eval-task-entity__version">{task.agentVersion}</span></div></div></div></td>
         <td><div className="eval-task-entity"><span className="eval-task-entity__icon is-dataset"><Database size={14} /></span><div className="eval-task-entity__content"><div className="eval-task-entity__line"><strong>{datasetName(task)}</strong><span className="eval-task-entity__version">{task.taskType === '自动化' ? task.automation?.objectType : task.datasetVersion}</span></div></div></div></td>
         <td><div className="eval-cell-pills">{evaluatorNames(task).map((name) => <span key={name}>{name}</span>)}</div></td>
         <td>{task.createdAt.slice(0, 10)}</td>
@@ -1852,16 +1868,25 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
 }
 
 function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch, tab, setTab, onCreate, onCreateComparison, onOpen, onOpenComparison }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; comparisons: ComparisonRecord[]; search: string; setSearch: (value: string) => void; tab: TaskTab; setTab: (tab: TaskTab) => void; onCreate: () => void; onCreateComparison: () => void; onOpen: (task: EvaluationTask) => void; onOpenComparison: (item: ComparisonRecord) => void }) {
-  const filtered = tasks.filter((task) => !search || `${task.name} ${task.agent} ${task.taskType ?? '普通评测'}`.toLowerCase().includes(search.toLowerCase()));
+  const [taskStatusFilter, setTaskStatusFilter] = useState('全部状态');
+  const filtered = tasks.filter((task) => {
+    const searchMatched = !search || `${task.name} ${task.agent} ${task.taskType ?? '普通评测'}`.toLowerCase().includes(search.toLowerCase());
+    const statusMatched = taskStatusFilter === '全部状态' || task.status === taskStatusFilter;
+    return searchMatched && statusMatched;
+  });
   const filteredComparisons = comparisons.filter((item) => !search || `${item.name} ${item.dataset} ${item.taskRefs.map((task) => `${task.name} ${task.agent}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="eval-list-page">
     <div className="eval-task-tabs">{(['list', 'compare'] as TaskTab[]).map((item) => <button type="button" key={item} className={tab === item ? 'is-active' : ''} onClick={() => setTab(item)}>{item === 'list' ? '任务列表' : '对比实验'}</button>)}</div>
     {tab === 'list' && <>
-      <div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 Agent" /></label><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建评测任务</button></div>
-      <section className="eval-surface table-surface">
+      <div className="eval-toolbar eval-task-list-toolbar">
+        <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 Agent" /></label>
+        <label className="eval-task-list-status"><span>状态</span><select value={taskStatusFilter} aria-label="按任务状态筛选" onChange={(event) => setTaskStatusFilter(event.target.value)}><option>全部状态</option>{['待启动', '运行中', '已暂停', '已完成', '部分失败', '失败'].map((status) => <option key={status}>{status}</option>)}</select></label>
+        <button type="button" className="eval-button eval-button--primary eval-task-list-create" onClick={onCreate}><Plus size={16} />新建评测任务</button>
+      </div>
+      <section className="eval-surface table-surface eval-task-list-surface">
         <EvaluationTaskTable tasks={filtered} datasets={datasets} evaluators={evaluators} onOpen={onOpen} />
       </section>
-      {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索条件。" />}
+      {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索关键词或任务状态。" />}
     </>}
     {tab === 'compare' && <section className="eval-record-page">
       <div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索对比名称、任务或评测集" /></label><button type="button" className="eval-button eval-button--primary" onClick={onCreateComparison}><Plus size={15} />创建对比实验</button></div>
@@ -2706,43 +2731,288 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回
     {annotationEditor && editingHumanLabel && <HumanAnnotationEditor caseId={annotationEditor.caseId} label={editingHumanLabel} value={humanAnnotations[`${annotationEditor.caseId}:${annotationEditor.labelId}`]} onCancel={() => setAnnotationEditor(null)} onSave={(annotation) => { setHumanAnnotations((current) => ({ ...current, [`${annotationEditor.caseId}:${annotationEditor.labelId}`]: annotation })); setAnnotationEditor(null); onNotify('人工标注已保存'); }} />}
   </div>;
 }
-function QueryAgentEvidenceView({ item }: { item: CaseResult }) {
-  const evidence = item.queryAgent;
-  if (!evidence) return null;
-  const contract = evidence.queryContract as {
-    required_tables?: string[]; required_predicates?: string[]; required_expressions?: string[]; group_by?: string[]; max_duration_ms?: number;
-  } | undefined;
-  return (
-    <section className="eval-query-evidence" aria-label="问数执行证据">
-      <h3>SQL 与结果证据</h3>
-      <div className="eval-query-compare">
-        <div><span>参考 SQL</span><pre>{evidence.expectedSql || '未采集'}</pre></div>
-        <div><span>Agent SQL</span><pre>{evidence.agentSql || '未采集'}</pre></div>
-      </div>
-      <div className="eval-query-compare">
-        <div><span>冻结结果</span><pre>{evidence.expectedResult ? JSON.stringify(evidence.expectedResult, null, 2) : '未采集'}</pre></div>
-        <div><span>Agent 结果</span><pre>{evidence.agentResult ? JSON.stringify(evidence.agentResult, null, 2) : '未采集'}</pre></div>
-      </div>
-      <div className="eval-query-contract">
-        <span>快照</span><strong>{evidence.snapshotId || '未采集'}</strong>
-        <span>原始消息</span><strong>{evidence.rawTraceMessageCount ?? 0}</strong>
-        <span>耗时上限</span><strong>{contract?.max_duration_ms ? `${contract.max_duration_ms} ms` : '未采集'}</strong>
-      </div>
-      {contract && <details><summary>query_contract</summary><pre>{JSON.stringify(contract, null, 2)}</pre></details>}
-      <details><summary>raw Trace · input.messages</summary><pre>{evidence.rawTrace?.input?.messages ? JSON.stringify(evidence.rawTrace.input.messages, null, 2) : '未采集'}</pre></details>
-      <details><summary>raw Trace · output.messages</summary><pre>{evidence.rawTrace?.output?.messages ? JSON.stringify(evidence.rawTrace.output.messages, null, 2) : '未采集'}</pre></details>
-    </section>
-  );
+
+const normalizeCaseToken = (value: string) => value
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-+|-+$/g, '');
+
+const caseTraceId = (item: CaseResult) => item.queryAgent?.traceId ?? `trace-${normalizeCaseToken(item.caseId)}`;
+const caseSessionId = (item: CaseResult, task: EvaluationTask) => item.queryAgent?.sessionId ?? `session-${normalizeCaseToken(task.id)}`;
+
+const durationToMilliseconds = (value?: string) => {
+  if (!value) return null;
+  const amount = Number.parseFloat(value);
+  if (!Number.isFinite(amount)) return null;
+  if (value.includes('ms')) return amount;
+  if (value.includes('s')) return amount * 1000;
+  return null;
+};
+
+const taskObservationTimestamp = (task: EvaluationTask) => {
+  const normalized = task.updatedAt.replace(' ', 'T');
+  const withTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized) ? normalized : `${normalized}:00+08:00`;
+  const timestamp = new Date(withTimezone);
+  if (!Number.isNaN(timestamp.getTime())) return timestamp.toISOString();
+  return `${task.updatedAt.slice(0, 10)}T00:00:00+08:00`;
+};
+
+const observationEventStatus = (status: '成功' | '失败' | '跳过') => status === '成功'
+  ? 'success'
+  : status === '失败'
+    ? 'error'
+    : 'skipped';
+
+function caseResultToObservedTrace(item: CaseResult, task: EvaluationTask): ObservedTrace {
+  const toolEvents: ObservationTraceEvent[] = item.trace
+    .filter((event) => event.type !== 'agent')
+    .map((event) => ({
+      kind: 'tool',
+      id: `${item.caseId}-${event.id}`,
+      name: event.name,
+      input: event.input ?? '未采集',
+      output: event.output ?? event.detail,
+      linked: true,
+      brief: event.detail,
+      status: observationEventStatus(event.status),
+      args: { sourceType: event.type, duration: event.duration },
+      result: event.output ?? event.detail,
+    }));
+  const finalAgentEvent = [...item.trace].reverse().find((event) => event.type === 'agent');
+  const finalOutput = item.agentOutput || finalAgentEvent?.output || finalAgentEvent?.detail || '没有生成 Agent Output。';
+  const events: ObservationTraceEvent[] = [
+    { kind: 'user', id: `${item.caseId}-user`, text: item.input || '未采集', messageId: `${item.caseId}-user` },
+    ...toolEvents,
+    {
+      kind: 'assistant',
+      id: `${item.caseId}-assistant`,
+      text: finalOutput,
+      isFinal: true,
+      hasReasoning: Boolean(finalAgentEvent?.detail),
+      reasoning: finalAgentEvent?.detail ?? '根据 Case 输入、工具结果和运行时上下文生成最终回答。',
+      content: finalOutput,
+      model: null,
+      provider: null,
+      finishReason: 'stop',
+      inputTokens: item.runtime?.inputTokens ?? null,
+      outputTokens: item.runtime?.outputTokens ?? null,
+      totalTokens: item.runtime?.totalTokens ?? null,
+      cacheReadTokens: null,
+      reasoningTokens: null,
+      toolNames: item.trace.filter((event) => event.type === 'tool').map((event) => event.name),
+    },
+  ];
+  return {
+    id: caseTraceId(item),
+    traceId: caseTraceId(item),
+    sessionId: caseSessionId(item, task),
+    turn: 1,
+    sourceFile: `评测任务 ${task.id}`,
+    agent: task.agent,
+    occurredAt: taskObservationTimestamp(task),
+    duration: durationToMilliseconds(item.runtime?.agentDuration ?? item.duration),
+    feedback: item.userFeedback ?? null,
+    abnormal: item.status !== '通过' || item.trace.some((event) => event.status === '失败'),
+    sourceMessageCount: item.trace.length + 2,
+    historyMessageCount: 0,
+    currentMessageCount: 1,
+    reasoningCount: item.trace.filter((event) => event.type === 'agent').length,
+    toolCount: item.trace.filter((event) => event.type === 'tool').length,
+    inputTokens: item.runtime?.inputTokens ?? null,
+    outputTokens: item.runtime?.outputTokens ?? null,
+    compressed: false,
+    historySummary: `由评测 Case ${item.caseId} 生成的观测投影。`,
+    input: item.input,
+    output: finalOutput,
+    context: { kind: 'none', messages: [] },
+    events,
+  };
 }
 
-function CasePreview({ item, onClose }: { item: CaseResult; onClose: () => void }) {
-  return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="eval-case-preview" role="dialog" aria-modal="true" aria-label={item.caseId}><header><h2>{item.caseId}</h2><IconButton label="关闭" onClick={onClose}><X size={17} /></IconButton></header><div className="eval-case-preview__status"><Status label={item.status} /><span>{item.runtime?.agentDuration ?? '未采集'} · {item.runtime?.totalTokens ?? 0} Tokens</span>{item.caseMark && <Pill tone={item.caseMark === 'Badcase' ? 'amber' : 'green'}>{item.caseMark}</Pill>}</div><div className="eval-case-preview__blocks"><div><span>Input</span><p>{item.input || '未采集'}</p></div><div><span>Agent Output</span><p>{item.agentOutput || '没有生成 Agent Output。'}</p></div><div><span>Trace</span><p>{item.trace.map((event) => `${event.name} · ${event.status}`).join(' → ')}</p></div><div><span>User Feedback</span><p>{item.userFeedback || '未采集'}</p></div><div><span>人工标注</span><p>{item.humanEvaluation ? `${item.humanEvaluation.humanLabel} · ${item.humanEvaluation.humanReason}` : '未采集'}</p></div></div><QueryAgentEvidenceView item={item} /><div className="eval-case-preview__evaluators"><h3>评估器结果</h3>{item.evaluatorResults.map((result) => result.diagnostics ? (
-          <div className="eval-case-code-result" key={result.evaluatorId}>
-            <div><strong>{result.evaluatorName}<em>CODE</em></strong><small>结构化诊断，不生成模型式原因</small></div>
-            <Pill tone={result.evaluationStatus === '通过' ? 'green' : result.evaluationStatus === '不通过' ? 'amber' : 'neutral'}>{result.scoreType === 'numeric' && typeof result.evaluationResult === 'number' ? result.evaluationResult.toFixed(2) : result.evaluationResult}</Pill>
-            <div className="eval-case-diagnostics">{result.diagnostics.length ? result.diagnostics.map((diagnostic) => <span key={`${result.evaluatorId}-${diagnostic.code}`}><code>{diagnostic.code}</code><small>{diagnostic.message}{diagnostic.path ? ` · ${diagnostic.path}` : ''}</small></span>) : <span><code>CHECK_PASSED</code><small>没有诊断项</small></span>}</div>
+function caseResultToObservedSession(task: EvaluationTask, trace: ObservedTrace): ObservedSession {
+  return {
+    id: trace.sessionId ?? trace.id,
+    sessionId: trace.sessionId,
+    agent: task.agent,
+    startedAt: trace.occurredAt,
+    feedback: trace.feedback,
+    abnormal: trace.abnormal,
+    inputTokens: trace.inputTokens,
+    outputTokens: trace.outputTokens,
+    turns: [trace],
+  };
+}
+
+const evaluatorResultValue = (result: EvaluatorResult) => result.scoreType === 'numeric' && typeof result.evaluationResult === 'number'
+  ? result.evaluationResult.toFixed(2)
+  : String(result.evaluationResult);
+
+const evaluatorResultTone = (result: EvaluatorResult) => result.evaluationStatus === '通过'
+  ? 'is-pass'
+  : result.evaluationStatus === '不通过'
+    ? 'is-fail'
+    : 'is-neutral';
+
+const evaluatorProcessSteps = (result: EvaluatorResult, item: CaseResult) => {
+  const diagnostics = result.diagnostics?.map((diagnostic) => `${diagnostic.code}：${diagnostic.message}${diagnostic.path ? `（${diagnostic.path}）` : ''}`) ?? [];
+  const evidenceCount = Math.max(item.trace.length, result.traceRefs.length);
+  const evidenceRows = evidenceCount
+    ? `读取 ${evidenceCount} 个可观测节点，并关联 ${result.traceRefs.length} 条评估证据引用。`
+    : '当前结果未附带可回指的 Trace 节点，按已提供的输入与输出进行判定。';
+  const standardRows = result.scoreType === 'numeric'
+    ? '按评估器规则拆分可判定子项，逐项计算覆盖或匹配程度，再归一化为 0 到 1 的分数。'
+    : '按评估器规则检查每项必要条件；任一致命条件不满足时判定为不通过。';
+  const judgmentRows = [
+    result.evaluationReason || '当前结果未提供自然语言评分原因。',
+    ...diagnostics,
+  ].join('\n');
+  return [
+    { title: '证据准备', body: evidenceRows },
+    { title: '判定标准', body: standardRows },
+    { title: '逐条判定', body: judgmentRows },
+    { title: '结果归因', body: `综合证据与规则，本次结果为 ${evaluatorResultValue(result)}，状态为「${result.evaluationStatus}」。该结论只对应本条 Case 当前执行轮次，不代表任务整体结论。` },
+  ];
+};
+
+function CaseEvaluatorResult({ result, item, index }: { result: EvaluatorResult; item: CaseResult; index: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const [tooltip, setTooltip] = useState<{ top: number; left: number; width: number } | null>(null);
+  const reason = result.evaluationReason || result.diagnostics?.map((diagnostic) => diagnostic.message).join('；') || '未提供评分原因';
+  const kind = result.evaluationKind ?? (result.diagnostics ? '代码评估' : '模型评估器');
+  const processId = `case-evaluator-process-${normalizeCaseToken(item.caseId)}-${normalizeCaseToken(result.evaluatorId)}`;
+  const showReason = (target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    const width = Math.min(460, window.innerWidth - 32);
+    const left = Math.max(16, Math.min(rect.left + 150, window.innerWidth - width - 16));
+    const below = rect.bottom + 8;
+    const top = below + 170 < window.innerHeight ? below : Math.max(16, rect.top - 178);
+    setTooltip({ top, left, width });
+  };
+  return <article className={`eval-case-evaluator${expanded ? ' is-open' : ''}`} data-evaluator-index={index}>
+    <button
+      type="button"
+      className="eval-case-evaluator__summary"
+      aria-expanded={expanded}
+      aria-controls={processId}
+      onMouseEnter={(event) => showReason(event.currentTarget)}
+      onMouseLeave={() => setTooltip(null)}
+      onFocus={(event) => showReason(event.currentTarget)}
+      onBlur={() => setTooltip(null)}
+      onClick={() => setExpanded((current) => !current)}
+    >
+      <span className="eval-case-evaluator__identity">
+        <strong>{result.evaluatorName}</strong>
+        <small>{kind} · {result.evaluatorVersion ?? '当前版本'}</small>
+      </span>
+      <span className={`eval-case-evaluator__score ${evaluatorResultTone(result)}`}>{evaluatorResultValue(result)}</span>
+      <span className="eval-case-evaluator__reason">{reason}</span>
+      <span className="eval-case-evaluator__toggle"><ChevronDown size={16} /></span>
+    </button>
+    {tooltip && createPortal(<div className="eval-evaluator-reason-popover eval-case-evaluator-popover" style={{ top: tooltip.top, left: tooltip.left, width: tooltip.width }}><strong>评分原因</strong><p>{reason}</p></div>, document.body)}
+    {expanded && <div className="eval-case-evaluator__process" id={processId}>
+      <div className="eval-case-evaluator__process-head"><h4>评估过程</h4><span>{result.traceRefs.length} 条证据引用</span></div>
+      <ol>
+        {evaluatorProcessSteps(result, item).map((step) => <li key={step.title}>
+          <div><strong>{step.title}</strong><p>{step.body}</p></div>
+        </li>)}
+      </ol>
+    </div>}
+  </article>;
+}
+
+function CasePreview({
+  item,
+  task,
+  onClose,
+  onOpenTrace,
+  onOpenSession,
+}: {
+  item: CaseResult;
+  task: EvaluationTask;
+  onClose: () => void;
+  onOpenTrace: () => void;
+  onOpenSession: () => void;
+}) {
+  const [view, setView] = useState<'format' | 'json'>('format');
+  const traceId = caseTraceId(item);
+  const sessionId = caseSessionId(item, task);
+  const caseJson = JSON.stringify({
+    trace_id: traceId,
+    session_id: sessionId,
+    agent_name: task.agent,
+    input: item.input || '',
+    output: item.agentOutput || '',
+  }, null, 2);
+  const jsonLines = caseJson.split('\n');
+  const titleId = `case-preview-title-${normalizeCaseToken(item.caseId)}`;
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [onClose]);
+  return <div className="eval-case-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <aside className="eval-case-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <header className="eval-case-drawer__header">
+        <div>
+          <span className="eval-eyebrow">EVALUATION CASE</span>
+          <div><h2 id={titleId}>评估样本</h2><span>{item.caseId}</span></div>
+        </div>
+        <IconButton label="关闭评估样本" onClick={onClose}><X size={18} /></IconButton>
+      </header>
+      <div className="eval-case-drawer__body">
+        <section className="eval-case-data-pane" aria-label="评测 Case 数据">
+          <div className="eval-case-format-bar">
+            <div role="tablist" aria-label="数据展示格式">
+              <button type="button" role="tab" aria-selected={view === 'format'} className={view === 'format' ? 'is-active' : ''} onClick={() => setView('format')}>Format</button>
+              <button type="button" role="tab" aria-selected={view === 'json'} className={view === 'json' ? 'is-active' : ''} onClick={() => setView('json')}>JSON</button>
+            </div>
           </div>
-        ) : (
-          <div key={result.evaluatorId}><div><strong>{result.evaluatorName}<em>MODEL</em></strong><small>{result.evaluationReason}</small></div><Pill tone={result.evaluationStatus === '通过' ? 'green' : result.evaluationStatus === '不通过' ? 'amber' : 'neutral'}>{result.scoreType === 'numeric' && typeof result.evaluationResult === 'number' ? result.evaluationResult.toFixed(2) : result.evaluationResult}</Pill></div>
-        ))}</div><footer><button type="button" className="eval-button eval-button--primary" onClick={onClose}>关闭</button></footer></section></div>;
+          <div className="eval-case-data-pane__scroll">
+            {view === 'format' ? <div className="eval-case-format-view" role="tabpanel">
+              <section className="eval-case-object">
+                <h3><Braces size={15} />评估对象</h3>
+                <dl>
+                  <div><dt>trace_id</dt><dd><button type="button" className="eval-case-observation-link" title="在观测中查看 Trace" onClick={onOpenTrace}>{traceId}<ArrowUpRight size={13} /></button></dd></div>
+                  <div><dt>session_id</dt><dd><button type="button" className="eval-case-observation-link" title="在观测中查看 Session" onClick={onOpenSession}>{sessionId}<ArrowUpRight size={13} /></button></dd></div>
+                  <div><dt>agent_name</dt><dd><span>{task.agent}</span></dd></div>
+                </dl>
+              </section>
+              <section className="eval-case-content">
+                <h3><Braces size={15} />数据项内容</h3>
+                <article>
+                  <span>input</span>
+                  <p>{item.input || '未采集'}</p>
+                </article>
+                <article>
+                  <span>output</span>
+                  <p>{item.agentOutput || '没有生成 Agent Output。'}</p>
+                </article>
+              </section>
+            </div> : <div className="eval-case-json-view" role="tabpanel">
+              <div className="eval-case-json-gutter" aria-hidden="true">{jsonLines.map((_, index) => <span key={index}>{index + 1}</span>)}</div>
+              <pre>{caseJson}</pre>
+            </div>}
+          </div>
+        </section>
+        <section className="eval-case-evaluator-pane" aria-label="评估器结果">
+          <header>
+            <div><span className="eval-eyebrow">EVALUATOR RESULTS</span><h3>评估器结果</h3></div>
+            <span>{item.evaluatorResults.length} 个评估器</span>
+          </header>
+          <div className="eval-case-evaluator-list">
+            {item.evaluatorResults.length
+              ? item.evaluatorResults.map((result, index) => <CaseEvaluatorResult key={result.evaluatorId} result={result} item={item} index={index} />)
+              : <div className="eval-case-evaluator-empty"><CircleAlert size={18} /><strong>暂无评估器结果</strong><span>当前 Case 尚未完成评估。</span></div>}
+          </div>
+        </section>
+      </div>
+    </aside>
+  </div>;
 }

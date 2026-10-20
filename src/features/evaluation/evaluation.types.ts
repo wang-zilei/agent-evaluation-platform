@@ -268,6 +268,7 @@ export type QueryAgentEvidence = {
   };
   rawTraceMessageCount?: number;
   traceId?: string;
+  sessionId?: string;
   tags?: string[];
 };
 
