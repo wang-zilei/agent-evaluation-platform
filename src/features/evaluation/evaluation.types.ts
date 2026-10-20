@@ -551,6 +551,17 @@ export type HistoryConversation = {
 /* ===== 6.8 评估器优化 ===== */
 export type EvaluatorRejudgeKind = '符合人工校准' | '结果一致' | '新增影响' | '无法执行';
 
+export type EvaluatorOptimizationTraceStep = {
+  id: string;
+  kind: 'input' | 'model' | 'tool' | 'skill' | 'output';
+  name: string;
+  status: '成功' | '失败' | '跳过';
+  detail: string;
+  input?: string;
+  output?: string;
+  duration?: string;
+};
+
 export type EvaluatorOptimizationRow = {
   taskId: string;
   taskName: string;
@@ -566,6 +577,33 @@ export type EvaluatorOptimizationRow = {
   candidateReason: string;
   judgment: EvaluatorRejudgeKind;
   confirmed?: boolean;
+  evaluatorTrace?: EvaluatorOptimizationTraceStep[];
+};
+
+export type EvaluatorOptimizationAttributionTag = {
+  id: string;
+  category: 'Prompt' | '模型' | 'Agent' | '工具' | 'Skill';
+  label: string;
+  count: number;
+};
+
+export type EvaluatorOptimizationAction = {
+  id: string;
+  priority: '优先处理' | '随后处理';
+  target: '判断规则' | '评分边界' | '上下文输入' | '执行流程' | '工具调用' | 'Skill 内容' | '输出约束';
+  title: string;
+  summary: string;
+  reason: string;
+  caseIds: string[];
+  tagIds: string[];
+  validation: string;
+};
+
+export type EvaluatorOptimizationReport = {
+  generatedAt: string;
+  summary: string[];
+  attributionTags: EvaluatorOptimizationAttributionTag[];
+  actions: EvaluatorOptimizationAction[];
 };
 
 export type EvaluatorOptimizationExperiment = {
@@ -591,6 +629,7 @@ export type EvaluatorOptimizationExperiment = {
     passThreshold?: number;
   };
   rows: EvaluatorOptimizationRow[];
+  report?: EvaluatorOptimizationReport;
   summary: { corrected: number; unchanged: number; affected: number; blocked: number };
   status: '待分析' | '验证中' | '待确认' | '已生成版本';
   savedVersion?: string;
