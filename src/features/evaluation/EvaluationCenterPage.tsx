@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import OverviewPage from '../overview/OverviewPage';
 import AccessCenterPage from '../access/AccessCenterPage';
-import { agentMcpLibrary, agentSkillLibrary, cloneEvaluationState, createComparisonRecord, getDatasetById, historyConversations, statusTone } from './evaluation.mock';
+import { cloneEvaluationState, createComparisonRecord, getDatasetById, historyConversations, statusTone } from './evaluation.mock';
 import {
   FINANCIAL_COMPLIANCE_AGENT_ID,
   FINANCIAL_COMPLIANCE_AGENT_VERSION,
@@ -88,6 +88,21 @@ type DatasetDraft = {
   appendToDatasetId?: string; importMode?: '追加数据' | '全量覆盖';
 };
 type CodeEvaluatorLanguage = 'Python' | 'JavaScript';
+type ImportedSkillFile = {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  text: string;
+};
+type DroppedFileEntry = {
+  isFile: boolean;
+  isDirectory: boolean;
+  file?: (resolve: (file: File) => void, reject?: (reason: unknown) => void) => void;
+  createReader?: () => {
+    readEntries: (resolve: (entries: DroppedFileEntry[]) => void, reject?: (reason: unknown) => void) => void;
+  };
+};
 type EvaluatorDraft = {
   name: string;
   description: string;
@@ -103,6 +118,7 @@ type EvaluatorDraft = {
   scope: string;
   notFor: string;
   dependencies: string;
+  timeout: number;
   skills: AgentSkillBinding[];
   mcpConnections: AgentMcpConnection[];
 };
@@ -269,45 +285,18 @@ const buildObservationHistorySource = (selection: ObservationBackflowSelection):
   return { conversations, agents, anchor };
 };
 const CODE_TEMPLATE: Record<CodeEvaluatorLanguage, string> = {
-  Python: `from evaluator import EvalResult, Diagnostic
-
-def evaluate(ctx):
-    data = ctx.actual_output.json()
-    required = ctx.config.required_fields
-    missing = [key for key in required if key not in data]
-
-    if missing:
-        return EvalResult.ratio(
-            matched=len(required) - len(missing),
-            total=len(required),
-            diagnostics=[Diagnostic(
-                code="MISSING_REQUIRED_FIELD",
-                message="缺少必填字段",
-                path="$.actual_output",
-                expected=", ".join(required),
-                actual=", ".join(data.keys()),
-            )],
-        )
-
-    return EvalResult.pass_()`,
-  JavaScript: `import { EvalResult, Diagnostic } from "@evaluator/sdk"
-
-export function evaluate(ctx) {
-  const data = ctx.actualOutput.json()
-  const required = ctx.config.requiredFields
-  const missing = required.filter((key) => !(key in data))
-
-  return missing.length
-    ? EvalResult.ratio(required.length - missing.length, required.length, [
-        new Diagnostic({
-          code: "MISSING_REQUIRED_FIELD",
-          message: "缺少必填字段",
-          path: "$.actualOutput",
-          expected: required.join(", "),
-          actual: Object.keys(data).join(", "),
-        }),
-      ])
-    : EvalResult.pass()
+  Python: `def evaluate(input, output, context=None):
+    # Evaluate one record and return score and explanation.
+    return {
+        "score": 0,
+        "explanation": "Describe why this score was assigned",
+    }`,
+  JavaScript: `export function evaluate(input, output, context = null) {
+  // Evaluate one record and return score and explanation.
+  return {
+    score: 0,
+    explanation: "Describe why this score was assigned",
+  };
 }`,
 };
 const makeEvaluatorDraft = (): EvaluatorDraft => ({
@@ -321,6 +310,7 @@ const makeEvaluatorDraft = (): EvaluatorDraft => ({
   scope: '按声明的输入变量执行确定性检查。',
   notFor: '不进行开放式语义判断。',
   dependencies: 'Python 标准库 + 白名单依赖',
+  timeout: 30000,
   skills: [],
   mcpConnections: [],
 });
@@ -345,6 +335,7 @@ const evaluatorDraftFrom = (evaluator: Evaluator, name = evaluator.name): Evalua
   scope: evaluator.scope ?? '按声明的输入变量执行确定性检查。',
   notFor: evaluator.notFor ?? '不进行开放式语义判断。',
   dependencies: evaluator.dependencies ?? 'Python 标准库 + 白名单依赖',
+  timeout: evaluator.timeout ?? 30000,
   skills: structuredClone(evaluator.skills ?? []),
   mcpConnections: structuredClone(evaluator.mcpConnections ?? []),
 });
@@ -611,18 +602,12 @@ export default function EvaluationCenterPage() {
     const isHuman = evaluatorKind === '人工评估';
     const isCode = evaluatorKind === '代码评估';
     const isAgent = evaluatorKind === 'Agent 评估器';
-    const evaluatorLabel = isAgent ? 'Agent 评估器' : isHuman ? '人工评估标签' : isCode ? 'Code 评估器' : '自建评估器';
+    const evaluatorLabel = isAgent ? 'Agent 评估器' : isHuman ? '人工评估标签' : isCode ? '代码评估器' : '自建评估器';
     if (!draft.name.trim()) { notify(isHuman ? '请填写标签名' : '请填写评估器名称', 'warning'); return; }
     if (isCode) {
-      if (!draft.inputs.length) { notify('请声明至少一个输入变量', 'warning'); return; }
-      if (!draft.code.trim() || !draft.code.includes('evaluate(') || !draft.code.includes('EvalResult')) { notify('评估代码需要包含 evaluate(ctx) 和 EvalResult', 'warning'); return; }
+      if (!draft.code.trim() || !draft.code.includes('evaluate(')) { notify('评估代码需要包含 evaluate 函数', 'warning'); return; }
     } else if (!isHuman) {
       if (!draft.prompt.trim()) { notify('请填写 Prompt', 'warning'); return; }
-      if (!draft.prompt.includes('只返回 JSON')) { notify('请在 Prompt 中补充“只返回 JSON”约束', 'warning'); return; }
-      if (isAgent && !draft.skills.some((item) => item.enabled) && !draft.mcpConnections.some((item) => item.status === '已连接')) {
-        notify('请至少启用一个 Skill 或连接一个 MCP', 'warning');
-        return;
-      }
     }
 
     const existing = editingEvaluatorId ? state.evaluators.find((item) => item.id === editingEvaluatorId) : undefined;
@@ -654,13 +639,14 @@ export default function EvaluationCenterPage() {
       scope: isCode ? draft.scope : undefined,
       notFor: isCode ? draft.notFor : undefined,
       rules: isCode ? [
-        { condition: '满足代码中的通过条件', output: draft.scoreType === 'numeric' ? '返回 0-1 数值和诊断' : '通过' },
-        { condition: '不满足通过条件', output: draft.scoreType === 'numeric' ? '返回低分和诊断' : '不通过并返回诊断' },
+        { condition: '满足代码中的通过条件', output: draft.scoreType === 'numeric' ? '返回 0-1 的 score 和 explanation' : '返回通过状态和 explanation' },
+        { condition: '不满足通过条件', output: draft.scoreType === 'numeric' ? '返回低分和 explanation' : '返回不通过状态和 explanation' },
       ] : undefined,
       outputExample: isCode ? (draft.scoreType === 'numeric'
-        ? `{\n  "check": "completed",\n  "value": 0.8,\n  "diagnostics": [],\n  "observations": { "matched": 4, "total": 5 }\n}`
-        : `{\n  "check": "passed",\n  "diagnostics": [],\n  "observations": { "checks": 4 }\n}`) : undefined,
+        ? `{\n  "score": 0.8,\n  "explanation": "Describe why this score was assigned"\n}`
+        : `{\n  "passed": true,\n  "explanation": "Describe why this result was assigned"\n}`) : undefined,
       dependencies: isCode ? draft.dependencies : undefined,
+      timeout: isCode ? Math.min(60000, Math.max(1, draft.timeout)) : undefined,
       skills: isAgent ? structuredClone(draft.skills) : undefined,
       mcpConnections: isAgent ? structuredClone(draft.mcpConnections) : undefined,
       creator: existing?.creator ?? '演示账户',
@@ -1474,29 +1460,51 @@ function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUp
 
 function EvaluatorList({ evaluators, kind, setKind, mode, setMode, search, setSearch, scoreFilter, setScoreFilter, onCreate, onOpen, onCopy }: { evaluators: Evaluator[]; kind: EvaluatorKind; setKind: (kind: EvaluatorKind) => void; mode: EvaluatorMode; setMode: (mode: EvaluatorMode) => void; search: string; setSearch: (value: string) => void; scoreFilter: string; setScoreFilter: (value: string) => void; onCreate: () => void; onOpen: (evaluator: Evaluator) => void; onCopy: (evaluator: Evaluator) => void }) {
   const isHuman = kind === '人工评估';
-  if (kind === 'Agent 评估器') {
-    return <AgentEvaluatorList evaluators={evaluators} setKind={setKind} mode={mode} setMode={setMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={onCreate} onOpen={onOpen} onCopy={onCopy} />;
-  }
-  if (kind === '代码评估') {
-    return <CodeEvaluatorList evaluators={evaluators} setKind={setKind} mode={mode} setMode={setMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={onCreate} onOpen={onOpen} onCopy={onCopy} />;
-  }
-  return <div className="eval-list-page">
-    <div className="eval-evaluator-tabs">{EVALUATOR_KINDS.map((item) => <button type="button" key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div>
-    <div className="eval-toolbar">
-      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isHuman ? '搜索标签名' : '搜索评估器名称'} />
-      <SelectField aria-label="评估器类型" value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置{isHuman ? '标签' : '评估器'}</option><option value="custom">自建{isHuman ? '标签' : '评估器'}</option></SelectField>
-      <SelectField aria-label="结果类型" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></SelectField>
-      <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />{isHuman ? '新建人工标签' : '新建自建评估器'}</button>
+  const evaluatorLabel = kind === 'Agent 评估器' ? 'Agent 评估器' : kind === '代码评估' ? '代码评估器' : isHuman ? '人工评估' : '模型评估器';
+  const modeLabel = kind === '代码评估' ? (mode === 'preset' ? '内置' : '自建') : (mode === 'preset' ? '预置' : '自建');
+  return <div className="eval-list-page eval-evaluator-page">
+    <div className="eval-evaluator-list-head">
+      <div className="eval-evaluator-tabs" role="tablist" aria-label="评估器类型">
+        {EVALUATOR_KINDS.map((item) => <button type="button" role="tab" aria-selected={kind === item} key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item === '代码评估' ? '代码评估器' : item}</button>)}
+      </div>
+      <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建评估器</button>
     </div>
-    <div className="eval-evaluator-grid">{evaluators.map((evaluator) => <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}>
-      <h3>{evaluator.name}</h3>
-      <p>{evaluator.description}</p>
-      <div className="eval-evaluator-meta"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</Pill><span>{evaluator.scoreType === 'numeric' ? `通过阈值 ${evaluator.passThreshold?.toFixed(2) ?? '未设置'}` : evaluator.kind === '人工评估' ? '人工标注' : `${evaluator.variables.length} 个输入语义`}</span></div>
-      {evaluator.kind !== '人工评估' && <div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div>}
-      <footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer>
-    </article>)}</div>
-    {evaluators.length === 0 && <EmptyState title={`没有匹配的${isHuman ? '标签' : '评估器'}`} description={`调整筛选条件，或创建一个${isHuman ? '人工标签' : '自建评估器'}。`} />}
+    <div className="eval-toolbar eval-evaluator-toolbar">
+      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isHuman ? '搜索标签名' : '搜索评估器名称'} />
+      <SelectField aria-label={`${evaluatorLabel}来源`} value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">{kind === '代码评估' ? '内置评估器' : `预置${isHuman ? '标签' : '评估器'}`}</option><option value="custom">自建{isHuman ? '标签' : '评估器'}</option></SelectField>
+      <SelectField aria-label="结果类型" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></SelectField>
+      <span className="eval-toolbar-count">{evaluators.length} 个{modeLabel}评估器</span>
+    </div>
+    <div className="eval-evaluator-grid">{evaluators.map((evaluator) => <EvaluatorCard key={evaluator.id} evaluator={evaluator} onOpen={onOpen} onCopy={onCopy} />)}</div>
+    {evaluators.length === 0 && <EmptyState title={`没有匹配的${evaluatorLabel}`} description={`调整筛选条件，或新建一个${evaluatorLabel}。`} action={<button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={15} />新建评估器</button>} />}
   </div>;
+}
+
+function EvaluatorCard({ evaluator, onOpen, onCopy }: { evaluator: Evaluator; onOpen: (evaluator: Evaluator) => void; onCopy: (evaluator: Evaluator) => void }) {
+  const Icon = evaluator.kind === 'Agent 评估器' ? Bot : evaluator.kind === '代码评估' ? Braces : evaluator.kind === '人工评估' ? ClipboardCheck : Sparkles;
+  const skillCount = evaluator.skills?.filter((item) => item.enabled).length ?? 0;
+  const mcpCount = evaluator.mcpConnections?.filter((item) => item.status === '已连接').length ?? 0;
+  const sourceLabel = evaluator.kind === '代码评估' && evaluator.mode === 'preset' ? '内置' : evaluator.mode === 'preset' ? '预置' : '自建';
+  const settingLabel = evaluator.kind === 'Agent 评估器'
+    ? `${skillCount} Skills${mcpCount ? ` · ${mcpCount} MCP` : ''}`
+    : evaluator.kind === '代码评估'
+      ? evaluator.implementation ?? '代码'
+      : evaluator.kind === '人工评估'
+        ? '人工标注'
+        : evaluator.model;
+  return <article className="eval-evaluator-card eval-evaluator-card--unified" role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}>
+    <header className="eval-evaluator-card__head">
+      <span className={`eval-evaluator-card__icon is-${evaluator.kind === 'Agent 评估器' ? 'agent' : evaluator.kind === '代码评估' ? 'code' : evaluator.kind === '人工评估' ? 'human' : 'model'}`}><Icon size={17} /></span>
+      <div className="eval-evaluator-card__identity"><div><h3>{evaluator.name}</h3><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{sourceLabel}</Pill></div><p>{evaluator.description}</p></div>
+      {evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}
+    </header>
+    <div className="eval-evaluator-card__meta">
+      <Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</Pill>
+      <span>{settingLabel}</span>
+      {evaluator.scoreType === 'numeric' && <span>阈值 {evaluator.passThreshold?.toFixed(2) ?? '未设置'}</span>}
+    </div>
+    <footer><span>{evaluator.updatedAt.slice(0, 10)}</span><span>{evaluator.variables.length ? `${evaluator.variables.length} 个输入` : '无需输入变量'}</span></footer>
+  </article>;
 }
 
 function EvaluatorDetail({ evaluator, optimizations, onOpenOptimization, onBack, onCopy, onEdit }: {
@@ -1560,53 +1568,6 @@ function AgentCapabilityList({ skills = [], mcpConnections = [] }: { skills?: Ag
   </div>;
 }
 
-function AgentEvaluatorList({ evaluators, setKind, mode, setMode, search, setSearch, scoreFilter, setScoreFilter, onCreate, onOpen, onCopy }: {
-  evaluators: Evaluator[];
-  setKind: (kind: EvaluatorKind) => void;
-  mode: EvaluatorMode;
-  setMode: (mode: EvaluatorMode) => void;
-  search: string;
-  setSearch: (value: string) => void;
-  scoreFilter: string;
-  setScoreFilter: (value: string) => void;
-  onCreate: () => void;
-  onOpen: (evaluator: Evaluator) => void;
-  onCopy: (evaluator: Evaluator) => void;
-}) {
-  return <div className="eval-list-page">
-    <div className="eval-evaluator-tabs">{EVALUATOR_KINDS.map((item) => <button type="button" key={item} className={item === 'Agent 评估器' ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div>
-    <div className="eval-agent-method">
-      <span className="eval-agent-method__mark"><Bot size={18} /></span>
-      <div><strong>Agent 评估器</strong><span>挂载评测工作流、脚本与 MCP，核验模型无法只靠文本判断的过程和业务终态。</span></div>
-      <div className="eval-agent-method__contract"><span><Zap size={13} />Skills</span><span><Package size={13} />MCP</span></div>
-    </div>
-    <div className="eval-toolbar">
-      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索 Agent 评估器" />
-      <SelectField aria-label="Agent 评估器类型" value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置 Agent 评估器</option><option value="custom">自建 Agent 评估器</option></SelectField>
-      <SelectField aria-label="结果类型" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></SelectField>
-      <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />添加 Agent 评估器</button>
-    </div>
-    <div className="eval-evaluator-grid">
-      {evaluators.map((evaluator) => {
-        const skillCount = evaluator.skills?.filter((item) => item.enabled).length ?? 0;
-        const mcpCount = evaluator.mcpConnections?.filter((item) => item.status === '已连接').length ?? 0;
-        return <article className="eval-evaluator-card eval-agent-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}>
-          <div className="eval-agent-evaluator-card__head"><span><Bot size={16} />Agent</span><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill></div>
-          <h3>{evaluator.name}</h3>
-          <p>{evaluator.description}</p>
-          <div className="eval-agent-evaluator-card__abilities">
-            <span className={skillCount ? 'is-active' : ''}><Zap size={13} />Skills <b>{skillCount}</b></span>
-            <span className={mcpCount ? 'is-active' : ''}><Package size={13} />MCP <b>{mcpCount}</b></span>
-          </div>
-          <div className="eval-evaluator-meta"><Pill>{evaluator.model}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</Pill><span>{evaluator.variables.length} 个输入</span></div>
-          <footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer>
-        </article>;
-      })}
-    </div>
-    {evaluators.length === 0 && <EmptyState title={mode === 'custom' ? '还没有自建 Agent 评估器' : '没有匹配的 Agent 评估器'} description="调整筛选条件，或创建一个可挂载 Skills 和 MCP 的评估器。" action={<button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={15} />添加 Agent 评估器</button>} />}
-  </div>;
-}
-
 function AgentEvaluatorDetail({ evaluator, optimizations, onOpenOptimization, onBack, onCopy, onEdit }: {
   evaluator: Evaluator;
   optimizations: EvaluatorOptimizationExperiment[];
@@ -1648,48 +1609,10 @@ function AgentEvaluatorDetail({ evaluator, optimizations, onOpenOptimization, on
 }
 
 
-function CodeEvaluatorList({ evaluators, setKind, mode, setMode, search, setSearch, scoreFilter, setScoreFilter, onCreate, onOpen, onCopy }: {
-  evaluators: Evaluator[];
-  setKind: (kind: EvaluatorKind) => void;
-  mode: EvaluatorMode;
-  setMode: (mode: EvaluatorMode) => void;
-  search: string;
-  setSearch: (value: string) => void;
-  scoreFilter: string;
-  setScoreFilter: (value: string) => void;
-  onCreate: () => void;
-  onOpen: (evaluator: Evaluator) => void;
-  onCopy: (evaluator: Evaluator) => void;
-}) {
-  return (
-    <div className="eval-list-page">
-      <div className="eval-evaluator-tabs">{EVALUATOR_KINDS.map((item) => <button type="button" key={item} className={item === '代码评估' ? 'is-active' : ''} onClick={() => setKind(item)}>{item === '代码评估' ? 'Code 评估器' : item}</button>)}</div>
-      <div className="eval-toolbar">
-        <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" />
-        <SelectField aria-label="Code 评估器类型" value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">内置 Code 评估器</option><option value="custom">自建 Code 评估器</option></SelectField>
-        <SelectField aria-label="结果类型" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></SelectField>
-        <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />自定义创建</button>
-      </div>
-      <div className="eval-evaluator-grid">
-        {evaluators.map((evaluator) => (
-          <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}>
-            <h3>{evaluator.name}</h3>
-            <p>{evaluator.description}</p>
-            <div className="eval-evaluator-meta"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '内置' : '自建'}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</Pill><span>{evaluator.implementation}</span></div>
-            <div className="eval-evaluator-variables">{evaluator.variables.map((variable) => <FieldBadge key={`${evaluator.id}-${variable.name}`} semantic={variable.semantic} required={variable.required} />)}</div>
-            <footer><span>{evaluator.updatedAt}</span>{evaluator.mode === 'preset' && <IconButton label={`复制 ${evaluator.name}`} onClick={(event) => { event.stopPropagation(); onCopy(evaluator); }}><Copy size={14} /></IconButton>}</footer>
-          </article>
-        ))}
-      </div>
-      {evaluators.length === 0 && <EmptyState title={mode === 'custom' ? '还没有自建 Code 评估器' : '没有匹配的 Code 评估器'} description={mode === 'custom' ? '从内置模板创建，或直接编写 Python / JavaScript 检查逻辑。' : '调整搜索词或筛选条件。'} action={<button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={15} />新建 Code 评估器</button>} />}
-    </div>
-  );
-}
-
 function CodeEvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator: Evaluator; onBack: () => void; onCopy: () => void; onEdit: () => void }) {
   return (
     <div className="eval-detail-page eval-evaluator-detail-page eval-code-only-detail">
-      <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Code 评估器</button></div>
+      <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回代码评估器</button></div>
       <div className="eval-evaluator-detail-intro">
         <div><h2>{evaluator.name}</h2></div>
         <div className="eval-detail-hero__actions"><Pill>Code</Pill><Pill>{evaluator.category}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />基于此创建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑</button>}</div>
@@ -1715,11 +1638,34 @@ function CodeEvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator:
   );
 }
 
-function CodeEditor({ value, language, onChange, onLanguageChange }: { value: string; language: CodeEvaluatorLanguage; onChange: (value: string) => void; onLanguageChange?: (language: CodeEvaluatorLanguage) => void }) {
+function CodeEditor({ value, language, onChange, onLanguageChange, timeout, onTimeoutChange }: {
+  value: string;
+  language: CodeEvaluatorLanguage;
+  onChange: (value: string) => void;
+  onLanguageChange?: (language: CodeEvaluatorLanguage) => void;
+  timeout?: number;
+  onTimeoutChange?: (value: number) => void;
+}) {
   const lineCount = value.split('\n').length;
-  return <div className="eval-code-editor">
-    <header><strong>Code</strong><SelectField aria-label="代码语言" value={language} disabled={!onLanguageChange} onChange={(event) => onLanguageChange?.(event.target.value as CodeEvaluatorLanguage)}><option>Python</option><option>JavaScript</option></SelectField></header>
-    <div className="eval-code-editor__body"><div aria-hidden="true">{Array.from({ length: lineCount }, (_, index) => <span key={index}>{index + 1}</span>)}</div><textarea aria-label="评估代码" spellCheck={false} value={value} onChange={(event) => onChange(event.target.value)} /></div>
+  return <div className="eval-code-definition">
+    <div className="eval-code-definition__head">
+      <h3>评估代码</h3>
+      <div className="eval-code-language-tabs" role="tablist" aria-label="代码语言">
+        {(['Python', 'JavaScript'] as CodeEvaluatorLanguage[]).map((item) => <button type="button" role="tab" key={item} aria-selected={language === item} className={language === item ? 'is-active' : ''} disabled={!onLanguageChange} onClick={() => onLanguageChange?.(item)}>{item}</button>)}
+      </div>
+    </div>
+    <p>编写 evaluate 函数，接收 input、output 和 context，返回包含 score 和 explanation 的对象</p>
+    <div className="eval-code-editor">
+      <div className="eval-code-editor__file"><Braces size={14} /><span>{language === 'Python' ? 'code.py' : 'code.js'}</span></div>
+      <div className="eval-code-editor__body">
+        <div aria-hidden="true">{Array.from({ length: lineCount }, (_, index) => <span key={index}>{index + 1}</span>)}</div>
+        <textarea aria-label="评估代码" spellCheck={false} readOnly={!onLanguageChange} value={value} onChange={(event) => onChange(event.target.value)} />
+      </div>
+    </div>
+    {timeout !== undefined && onTimeoutChange && <div className="eval-code-timeout">
+      <label className="eval-field"><span>执行超时（毫秒）</span><input type="number" min={1} max={60000} value={timeout} onChange={(event) => onTimeoutChange(Math.max(1, Math.min(60000, Number(event.target.value) || 1)))} /></label>
+      <p>单次执行最长 60000 毫秒（60 秒），超过上限的值会被截断。</p>
+    </div>}
   </div>;
 }
 
@@ -1798,150 +1744,240 @@ function HumanEvaluatorEditor({ draft, setDraft, editing = false, onBack, onCrea
   </div>;
 }
 
+function EvaluatorBasicFields({ draft, setDraft, namePlaceholder, descriptionPlaceholder }: {
+  draft: EvaluatorDraft;
+  setDraft: Dispatch<SetStateAction<EvaluatorDraft>>;
+  namePlaceholder: string;
+  descriptionPlaceholder: string;
+}) {
+  return <div className="eval-evaluator-form__basics">
+    <label className="eval-field"><span>名称 <b>*</b></span><input autoFocus maxLength={50} value={draft.name} placeholder={namePlaceholder} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
+    <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={3} value={draft.description} placeholder={descriptionPlaceholder} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
+  </div>;
+}
+
+function EvaluatorScoringFields({ draft, setDraft, ariaLabelPrefix }: {
+  draft: EvaluatorDraft;
+  setDraft: Dispatch<SetStateAction<EvaluatorDraft>>;
+  ariaLabelPrefix: string;
+}) {
+  return <div className="eval-evaluator-form__scoring">
+    <label className="eval-field"><span>模型</span><SelectField value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></SelectField></label>
+    <label className="eval-field"><span>结果类型</span><SelectField value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></SelectField></label>
+    {draft.scoreType === 'numeric' && <label className="eval-field eval-threshold-field"><span>通过阈值 <b>*</b></span><div className="eval-threshold-control"><input aria-label={`${ariaLabelPrefix}通过阈值`} type="range" min="0" max="1" step="0.01" value={draft.passThreshold} onChange={(event) => setDraft((current) => ({ ...current, passThreshold: Number(event.target.value) }))} /><strong>{draft.passThreshold.toFixed(2)}</strong></div></label>}
+  </div>;
+}
+
+function EvaluatorPromptSection({ prompt, onChange }: { prompt: string; onChange: (value: string) => void }) {
+  return <section className="eval-evaluator-form__prompt">
+    <div className="eval-evaluator-form__section-head"><h3>Prompt</h3></div>
+    <PromptEditor prompt={prompt} onChange={onChange} />
+  </section>;
+}
+
+function EvaluatorCreateFooter({ editing, onBack, onCreate }: { editing: boolean; onBack: () => void; onCreate: () => void }) {
+  return <footer className="eval-evaluator-create-footer">
+    <button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button>
+    <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Check size={15} />{editing ? '保存并生成新版本' : '创建评估器'}</button>
+  </footer>;
+}
+
 function EvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }: { draft: EvaluatorDraft; setDraft: Dispatch<SetStateAction<EvaluatorDraft>>; editing?: boolean; onBack: () => void; onCreate: () => void }) {
-  const promptVariables = extractPromptVariables(draft.prompt);
-  const jsonReady = draft.prompt.includes('只返回 JSON');
-  return (
-    <div className="eval-create-page">
-      <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评估器</button></div>
-      <section className="eval-create-single eval-create-single--compact">
-        <div className="eval-form-grid eval-dataset-basic-fields">
-          <label className="eval-field"><span>评估器名称 <b>*</b></span><input autoFocus maxLength={50} value={draft.name} placeholder="例如：客服回答相关性" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
-          <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明这条评估器判断什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
-        </div>
-        <div className="eval-form-grid eval-evaluator-option-fields">
-          <label className="eval-field"><span>评估模型</span><SelectField value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></SelectField></label>
-          <label className="eval-field"><span>结果类型</span><SelectField value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></SelectField></label>
-          {draft.scoreType === 'numeric' && <label className="eval-field eval-threshold-field"><span>通过阈值 <b>*</b></span><div className="eval-threshold-control"><input aria-label="通过阈值" type="range" min="0" max="1" step="0.01" value={draft.passThreshold} onChange={(event) => setDraft((current) => ({ ...current, passThreshold: Number(event.target.value) }))} /><strong>{draft.passThreshold.toFixed(2)}</strong></div><small>得分达到该值时判定为通过，阈值不写入 Prompt。</small></label>}
-        </div>
-        <div className="eval-create-section">
-          <section className="eval-evaluator-prompt-card">
-            <div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">PROMPT</span><h3>评估规则</h3></div></div>
-            <div className="eval-prompt-system">System</div>
-            <PromptEditor prompt={draft.prompt} onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))} />
-            <div className="eval-evaluator-variables-bar"><span>Variables</span>{promptVariables.length ? promptVariables.map((variable) => <strong key={variable.name}>{variable.name}{variable.semantic === 'Custom' ? ' · 手动绑定' : ''}</strong>) : <em>在 Prompt 中输入 {'{{'} 插入字段变量</em>}</div>
-          </section>
-          <div className={`eval-prompt-check ${jsonReady ? 'is-ok' : 'is-warning'}`}>{jsonReady ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}{jsonReady ? 'JSON 输出约束已配置' : '保存前需要补充“只返回 JSON”约束'}</div>
-        </div>
-      </section>
-      <footer className="eval-sticky-footer"><span>{editing ? '保存后生成新版本，不覆盖历史版本。' : '保存后生成版本 0.0.1。'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Check size={15} />{editing ? '保存并生成新版本' : '创建评估器'}</button></div></footer>
-    </div>
-  );
+  return <div className="eval-create-page eval-evaluator-create-page">
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评估器</button></div>
+    <section className="eval-evaluator-form">
+      <EvaluatorBasicFields draft={draft} setDraft={setDraft} namePlaceholder="例如：客服回答相关性" descriptionPlaceholder="说明这条评估器判断什么" />
+      <div className="eval-evaluator-form__section">
+        <EvaluatorScoringFields draft={draft} setDraft={setDraft} ariaLabelPrefix="模型评估器" />
+      </div>
+      <div className="eval-evaluator-form__section">
+        <EvaluatorPromptSection prompt={draft.prompt} onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))} />
+      </div>
+    </section>
+    <EvaluatorCreateFooter editing={editing} onBack={onBack} onCreate={onCreate} />
+  </div>;
 }
 
 function AgentEvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }: { draft: EvaluatorDraft; setDraft: Dispatch<SetStateAction<EvaluatorDraft>>; editing?: boolean; onBack: () => void; onCreate: () => void }) {
-  const promptVariables = extractPromptVariables(draft.prompt);
-  const jsonReady = draft.prompt.includes('只返回 JSON');
-  const [picker, setPicker] = useState<'skill' | 'mcp' | null>(null);
-  const [capabilityEdit, setCapabilityEdit] = useState<{ type: 'skill' | 'mcp'; id: string; name: string; description: string } | null>(null);
-  const enabledSkillCount = draft.skills.filter((item) => item.enabled).length;
-  const connectedMcpCount = draft.mcpConnections.filter((item) => item.status === '已连接').length;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [skillDrawerOpen, setSkillDrawerOpen] = useState(false);
+  const [skillFiles, setSkillFiles] = useState<ImportedSkillFile[]>([]);
+  const [selectedSkillFileId, setSelectedSkillFileId] = useState('');
+  const [skillForm, setSkillForm] = useState({ name: '', displayName: '', description: '' });
+  const [skillImportError, setSkillImportError] = useState('');
+  const selectedSkillFile = skillFiles.find((file) => file.id === selectedSkillFileId) ?? skillFiles[0];
 
-  const addSkill = (skill: AgentSkillBinding) => {
-    setDraft((current) => current.skills.some((item) => item.id === skill.id) ? current : { ...current, skills: [...current.skills, structuredClone(skill)] });
-    setPicker(null);
+  const resetSkillImport = () => {
+    setSkillFiles([]);
+    setSelectedSkillFileId('');
+    setSkillForm({ name: '', displayName: '', description: '' });
+    setSkillImportError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
-  const addMcp = (connection: AgentMcpConnection) => {
-    setDraft((current) => current.mcpConnections.some((item) => item.id === connection.id) ? current : { ...current, mcpConnections: [...current.mcpConnections, structuredClone(connection)] });
-    setPicker(null);
+  const closeSkillDrawer = () => {
+    setSkillDrawerOpen(false);
+    resetSkillImport();
   };
-  const saveCapabilityEdit = () => {
-    if (!capabilityEdit) return;
-    setDraft((current) => capabilityEdit.type === 'skill'
-      ? { ...current, skills: current.skills.map((item) => item.id === capabilityEdit.id ? { ...item, name: capabilityEdit.name.trim(), description: capabilityEdit.description.trim() } : item) }
-      : { ...current, mcpConnections: current.mcpConnections.map((item) => item.id === capabilityEdit.id ? { ...item, name: capabilityEdit.name.trim(), description: capabilityEdit.description.trim() } : item) });
-    setCapabilityEdit(null);
+  const readSkillFiles = async (files: File[]) => {
+    const incoming = files.slice(0, 50);
+    if (!incoming.length) return;
+    const parsed = await Promise.all(incoming.map(async (file) => {
+      const fileWithPath = file as File & { webkitRelativePath?: string };
+      const canPreview = file.size <= 2_000_000 && /\.(md|txt|json|ya?ml|toml|py|js|ts|tsx|jsx|sh)$/i.test(file.name);
+      return {
+        id: `skill-file-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${file.name}-${file.size}`}`,
+        name: file.name,
+        path: fileWithPath.webkitRelativePath || file.name,
+        size: file.size,
+        text: canPreview ? await file.text() : '',
+      };
+    }));
+    setSkillFiles(parsed);
+    const skillMarkdown = parsed.find((file) => file.name.toLowerCase() === 'skill.md' && file.text);
+    const content = skillMarkdown?.text ?? parsed.find((file) => file.text)?.text ?? '';
+    const frontmatterName = content.match(/^name:\s*(.+)$/im)?.[1]?.trim().replace(/^['"]|['"]$/g, '') ?? '';
+    const frontmatterDescription = content.match(/^description:\s*(.+)$/im)?.[1]?.trim().replace(/^['"]|['"]$/g, '') ?? '';
+    const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
+    const bodyDescription = content
+      .replace(/^---[\s\S]*?---\s*/m, '')
+      .split(/\n\s*\n/)
+      .map((block) => block.trim())
+      .find((block) => block && !block.startsWith('#') && !block.includes(':')) ?? '';
+    setSkillForm((current) => ({
+      name: current.name || frontmatterName || heading,
+      displayName: current.displayName || heading || frontmatterName,
+      description: current.description || frontmatterDescription || bodyDescription,
+    }));
+    setSelectedSkillFileId(skillMarkdown?.id ?? parsed[0].id);
+    setSkillImportError('');
+  };
+  const collectDroppedFiles = async (entry: DroppedFileEntry): Promise<File[]> => {
+    if (entry.isFile && entry.file) {
+      return [await new Promise<File>((resolve, reject) => entry.file?.(resolve, reject))];
+    }
+    if (!entry.isDirectory || !entry.createReader) return [];
+    const reader = entry.createReader();
+    const children: DroppedFileEntry[] = [];
+    while (true) {
+      const batch = await new Promise<DroppedFileEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+      if (!batch.length) break;
+      children.push(...batch);
+    }
+    return (await Promise.all(children.map(collectDroppedFiles))).flat();
+  };
+  const readDroppedFiles = async (dataTransfer: DataTransfer) => {
+    const entries = Array.from(dataTransfer.items)
+      .map((item) => (item as unknown as { webkitGetAsEntry?: () => DroppedFileEntry | null }).webkitGetAsEntry?.())
+      .filter((entry): entry is DroppedFileEntry => Boolean(entry));
+    const files = entries.length
+      ? (await Promise.all(entries.map(collectDroppedFiles))).flat()
+      : Array.from(dataTransfer.files);
+    await readSkillFiles(files);
+  };
+  const addImportedSkill = () => {
+    const skillName = skillForm.name.trim();
+    const displayName = skillForm.displayName.trim();
+    if (!skillName || !displayName || !skillFiles.length) {
+      setSkillImportError('请填写 Skill 名称、显示名称并上传文件。');
+      return;
+    }
+    const binding: AgentSkillBinding = {
+      id: `skill-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
+      name: displayName,
+      description: skillForm.description.trim(),
+      kind: '评测工作流',
+      source: '自定义',
+      scriptCount: Math.max(1, skillFiles.filter((file) => file.name.toLowerCase() !== 'skill.md').length),
+      fileCount: skillFiles.length,
+      enabled: true,
+    };
+    setDraft((current) => ({ ...current, skills: [...current.skills, binding] }));
+    closeSkillDrawer();
   };
 
-  return (
-    <div className="eval-create-page">
-      <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Agent 评估器</button></div>
-      <section className="eval-create-single eval-create-single--compact">
-        <div className="eval-agent-create-heading">
-          <div><span className="eval-eyebrow">AGENT EVALUATOR</span><h3>{editing ? '编辑 Agent 评估器' : '添加 Agent 评估器'}</h3></div>
-          <div><span><Zap size={14} />{enabledSkillCount} Skills</span><span><Package size={14} />{connectedMcpCount} MCP</span></div>
-        </div>
-        <div className="eval-form-grid eval-dataset-basic-fields">
-          <label className="eval-field"><span>评估器名称 <b>*</b></span><input autoFocus maxLength={50} value={draft.name} placeholder="例如：退款业务终态核验" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
-          <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明 Agent 评估器需要核查什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
-        </div>
-        <div className="eval-form-grid eval-evaluator-option-fields">
-          <label className="eval-field"><span>执行模型</span><SelectField value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></SelectField></label>
-          <label className="eval-field"><span>结果类型</span><SelectField value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></SelectField></label>
-          {draft.scoreType === 'numeric' && <label className="eval-field eval-threshold-field"><span>通过阈值 <b>*</b></span><div className="eval-threshold-control"><input aria-label="Agent 评估器通过阈值" type="range" min="0" max="1" step="0.01" value={draft.passThreshold} onChange={(event) => setDraft((current) => ({ ...current, passThreshold: Number(event.target.value) }))} /><strong>{draft.passThreshold.toFixed(2)}</strong></div><small>得分达到该值时判定为通过。</small></label>}
-        </div>
-        <div className="eval-create-section">
-          <div className="eval-agent-ability-head">
-            <div><span className="eval-eyebrow">CAPABILITIES</span><h3>能力挂载</h3><p>添加评测工作流、校验脚本或 MCP 服务，让评估器主动获取证据并核验业务终态。</p></div>
-            <div className="eval-agent-ability-actions"><button type="button" className="eval-button eval-button--ghost" onClick={() => setPicker('skill')}><Plus size={15} />Skill</button><button type="button" className="eval-button eval-button--ghost" onClick={() => setPicker('mcp')}><Plus size={15} />MCP</button></div>
-          </div>
-          <div className="eval-agent-editor-capabilities">
-            {!draft.skills.length && !draft.mcpConnections.length && <div className="eval-agent-capability-empty"><Bot size={20} /><strong>还没有挂载能力</strong><span>添加 Skill 或 MCP 后，Agent 评估器会按评测工作流调用它们。</span></div>}
-            {draft.skills.map((skill) => <div className={`eval-agent-capability-row eval-agent-capability-row--editable${skill.enabled ? ' is-enabled' : ''}`} key={skill.id}>
-              <button type="button" className={`eval-agent-switch${skill.enabled ? ' is-on' : ''}`} role="switch" aria-checked={skill.enabled} aria-label={`${skill.enabled ? '停用' : '启用'} ${skill.name}`} onClick={() => setDraft((current) => ({ ...current, skills: current.skills.map((item) => item.id === skill.id ? { ...item, enabled: !item.enabled } : item) }))}><i /></button>
-              <span className="eval-agent-capability-icon"><Zap size={16} /></span>
-              <div className="eval-agent-capability-copy"><div><strong>{skill.name}</strong><Pill tone="violet">Skill</Pill><Pill>{skill.kind}</Pill></div><p>{skill.description}</p><small>{skill.source} · {skill.scriptCount} 个脚本</small></div>
-              <div className="eval-agent-capability-controls"><IconButton label={`编辑 ${skill.name}`} onClick={() => setCapabilityEdit({ type: 'skill', id: skill.id, name: skill.name, description: skill.description })}><Pencil size={15} /></IconButton><IconButton label={`删除 ${skill.name}`} onClick={() => setDraft((current) => ({ ...current, skills: current.skills.filter((item) => item.id !== skill.id) }))}><Trash2 size={15} /></IconButton></div>
-            </div>)}
-            {draft.mcpConnections.map((connection) => <div className={`eval-agent-capability-row eval-agent-capability-row--editable${connection.status === '已连接' ? ' is-enabled' : ''}`} key={connection.id}>
-              <button type="button" className={`eval-agent-switch${connection.status === '已连接' ? ' is-on' : ''}`} role="switch" aria-checked={connection.status === '已连接'} aria-label={`${connection.status === '已连接' ? '停用' : '连接'} ${connection.name}`} onClick={() => setDraft((current) => ({ ...current, mcpConnections: current.mcpConnections.map((item) => item.id === connection.id ? { ...item, status: item.status === '已连接' ? '已停用' : '已连接' } : item) }))}><i /></button>
-              <span className="eval-agent-capability-icon is-mcp"><Package size={16} /></span>
-              <div className="eval-agent-capability-copy"><div><strong>{connection.name}</strong><Pill tone="green">MCP</Pill><Pill>{connection.transport}</Pill></div><p>{connection.description}</p><small>{connection.tools.join(' · ')}</small></div>
-              <div className="eval-agent-capability-controls"><IconButton label={`编辑 ${connection.name}`} onClick={() => setCapabilityEdit({ type: 'mcp', id: connection.id, name: connection.name, description: connection.description })}><Pencil size={15} /></IconButton><IconButton label={`删除 ${connection.name}`} onClick={() => setDraft((current) => ({ ...current, mcpConnections: current.mcpConnections.filter((item) => item.id !== connection.id) }))}><Trash2 size={15} /></IconButton></div>
-            </div>)}
+  return <div className="eval-create-page eval-evaluator-create-page">
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Agent 评估器</button></div>
+    <section className="eval-evaluator-form">
+      <EvaluatorBasicFields draft={draft} setDraft={setDraft} namePlaceholder="例如：退款业务终态核验" descriptionPlaceholder="说明 Agent 评估器需要核查什么" />
+      <div className="eval-evaluator-form__section"><EvaluatorScoringFields draft={draft} setDraft={setDraft} ariaLabelPrefix="Agent 评估器" /></div>
+      <div className="eval-evaluator-form__section"><EvaluatorPromptSection prompt={draft.prompt} onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))} /></div>
+      <section className="eval-evaluator-form__section eval-skill-mount">
+        <div className="eval-skill-mount__head">
+          <div><h3>能力挂载</h3><p>添加 Skill，帮助评估器理解业务规则、领域术语与内部 API，让评估不止于文本相似度。</p></div>
+          <div className="eval-skill-mount__actions">
+            <button type="button" className="eval-button eval-button--ghost" onClick={() => setSkillDrawerOpen(true)}><Plus size={15} />Skill</button>
+            <button type="button" className="eval-button eval-button--ghost" disabled><Plus size={15} />MCP</button>
+            <span>MCP 暂未开放</span>
           </div>
         </div>
-        <div className="eval-create-section">
-          <section className="eval-evaluator-prompt-card">
-            <div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">EVALUATION WORKFLOW</span><h3>评测工作流</h3></div><Pill>Agent</Pill></div>
-            <div className="eval-prompt-system">System</div>
-            <PromptEditor prompt={draft.prompt} onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))} />
-            <div className="eval-evaluator-variables-bar"><span>Variables</span>{promptVariables.length ? promptVariables.map((variable) => <strong key={variable.name}>{variable.name}{variable.semantic === 'Custom' ? ' · 手动绑定' : ''}</strong>) : <em>在评测工作流中输入 {'{{'} 插入字段变量</em>}</div>
-          </section>
-          <div className={`eval-prompt-check ${jsonReady ? 'is-ok' : 'is-warning'}`}>{jsonReady ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}{jsonReady ? 'JSON 输出约束已配置' : '保存前需要补充“只返回 JSON”约束'}</div>
-        </div>
+        {draft.skills.length > 0 && <div className="eval-skill-binding-list">
+          {draft.skills.map((skill) => <div className="eval-skill-binding-row" key={skill.id}>
+            <span className="eval-agent-capability-icon"><Zap size={16} /></span>
+            <div><strong>{skill.name}</strong><p>{skill.description || '已导入 Skill'}</p><small>{skill.source === '自定义' ? `文件导入 · ${skill.fileCount ?? skill.scriptCount} 个文件` : `${skill.source} · ${skill.scriptCount} 个脚本`}</small></div>
+            <IconButton label={`删除 ${skill.name}`} onClick={() => setDraft((current) => ({ ...current, skills: current.skills.filter((item) => item.id !== skill.id) }))}><Trash2 size={15} /></IconButton>
+          </div>)}
+        </div>}
+        {draft.mcpConnections.length > 0 && <div className="eval-skill-binding-list eval-skill-binding-list--existing">
+          {draft.mcpConnections.map((connection) => <div className="eval-skill-binding-row" key={connection.id}>
+            <span className="eval-agent-capability-icon is-mcp"><Package size={16} /></span>
+            <div><strong>{connection.name}</strong><p>{connection.description}</p><small>已有 MCP 连接</small></div>
+            <IconButton label={`删除 ${connection.name}`} onClick={() => setDraft((current) => ({ ...current, mcpConnections: current.mcpConnections.filter((item) => item.id !== connection.id) }))}><Trash2 size={15} /></IconButton>
+          </div>)}
+        </div>}
       </section>
-      <footer className="eval-sticky-footer"><span>{editing ? '保存后生成新版本，Skills 和 MCP 配置随版本冻结。' : '至少启用一个 Skill 或连接一个 MCP 后才能创建。'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Check size={15} />{editing ? '保存并生成新版本' : '创建 Agent 评估器'}</button></div></footer>
-      {picker && <div className="eval-overlay" onClick={() => setPicker(null)}>
-        <section className="eval-modal eval-agent-picker-modal" onClick={(event) => event.stopPropagation()}>
-          <header className="eval-modal__header"><div><h2>{picker === 'skill' ? '添加 Skill' : '添加 MCP'}</h2><p>{picker === 'skill' ? '选择评测工作流、业务规则或校验脚本。' : '连接可查询业务事实或执行验证的工具服务。'}</p></div><IconButton label="关闭能力选择" onClick={() => setPicker(null)}><X size={16} /></IconButton></header>
-          <div className="eval-modal__body eval-agent-picker-list">
-            {picker === 'skill' ? agentSkillLibrary.filter((item) => !draft.skills.some((selected) => selected.id === item.id)).map((skill) => <button type="button" key={skill.id} onClick={() => addSkill(skill)}><span className="eval-agent-capability-icon"><Zap size={16} /></span><span><strong>{skill.name}</strong><small>{skill.description}</small><em>{skill.kind} · {skill.scriptCount} 个脚本</em></span><Plus size={16} /></button>) : agentMcpLibrary.filter((item) => !draft.mcpConnections.some((selected) => selected.id === item.id)).map((connection) => <button type="button" key={connection.id} onClick={() => addMcp(connection)}><span className="eval-agent-capability-icon is-mcp"><Package size={16} /></span><span><strong>{connection.name}</strong><small>{connection.description}</small><em>{connection.transport} · {connection.tools.length} 个工具</em></span><Plus size={16} /></button>)}
-            {(picker === 'skill' ? agentSkillLibrary.every((item) => draft.skills.some((selected) => selected.id === item.id)) : agentMcpLibrary.every((item) => draft.mcpConnections.some((selected) => selected.id === item.id))) && <EmptyState title={picker === 'skill' ? '全部 Skill 已添加' : '全部 MCP 已添加'} description="可关闭当前窗口，在能力列表中启停、编辑或删除。" />}
-          </div>
-        </section>
-      </div>}
-      {capabilityEdit && <div className="eval-overlay" onClick={() => setCapabilityEdit(null)}>
-        <section className="eval-modal eval-agent-edit-modal" onClick={(event) => event.stopPropagation()}>
-          <header className="eval-modal__header"><div><h2>编辑 {capabilityEdit.type === 'skill' ? 'Skill' : 'MCP'}</h2><p>修改名称和用途说明，不影响已冻结的历史版本。</p></div><IconButton label="关闭能力编辑" onClick={() => setCapabilityEdit(null)}><X size={16} /></IconButton></header>
-          <div className="eval-modal__body">
-            <label className="eval-field"><span>名称 <b>*</b></span><input autoFocus value={capabilityEdit.name} onChange={(event) => setCapabilityEdit((current) => current ? { ...current, name: event.target.value } : current)} /></label>
-            <label className="eval-field eval-field--wide"><span>说明</span><textarea rows={4} value={capabilityEdit.description} onChange={(event) => setCapabilityEdit((current) => current ? { ...current, description: event.target.value } : current)} /></label>
-          </div>
-          <footer className="eval-modal__footer"><button type="button" className="eval-button eval-button--ghost" onClick={() => setCapabilityEdit(null)}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!capabilityEdit.name.trim()} onClick={saveCapabilityEdit}>保存</button></footer>
-        </section>
-      </div>}
-    </div>
-  );
+    </section>
+    <EvaluatorCreateFooter editing={editing} onBack={onBack} onCreate={onCreate} />
+    {skillDrawerOpen && <div className="eval-overlay eval-overlay--drawer" onClick={closeSkillDrawer}>
+      <section className="eval-drawer eval-skill-drawer" onClick={(event) => event.stopPropagation()}>
+        <header className="eval-drawer__header"><h2>添加 Skill</h2><IconButton label="关闭添加 Skill" onClick={closeSkillDrawer}><X size={16} /></IconButton></header>
+        <div className="eval-drawer__body eval-skill-drawer__body">
+          <section className="eval-drawer-section">
+            <h3 className="eval-skill-drawer__section-title">上传文件</h3>
+            <div className="eval-skill-dropzone" role="button" tabIndex={0} onClick={() => fileInputRef.current?.click()} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInputRef.current?.click(); } }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void readDroppedFiles(event.dataTransfer); }}>
+              <span><Upload size={20} /></span><strong>请将 文件 或 文件夹 拖拽到此处上传</strong>
+            </div>
+            <p className="eval-skill-dropzone__note">支持文件、文件夹和 ZIP 包。自动读取 SKILL.md 中的名称、显示名称和描述；同名文件将被替换，其他文件保留。</p>
+            <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { void readSkillFiles(Array.from(event.target.files ?? [])); }} />
+          </section>
+          <section className="eval-drawer-section eval-skill-metadata">
+            <div className="eval-skill-metadata__grid">
+              <label className="eval-field"><span>Skill 名称 <b>*</b></span><input value={skillForm.name} placeholder="例如：退款政策核验" onChange={(event) => { setSkillForm((current) => ({ ...current, name: event.target.value })); setSkillImportError(''); }} /></label>
+              <label className="eval-field"><span>显示名称 <b>*</b></span><input value={skillForm.displayName} placeholder="例如：退款政策核验" onChange={(event) => setSkillForm((current) => ({ ...current, displayName: event.target.value }))} /></label>
+            </div>
+            <label className="eval-field"><span>描述</span><textarea rows={4} maxLength={1000} value={skillForm.description} placeholder="技能描述" onChange={(event) => setSkillForm((current) => ({ ...current, description: event.target.value }))} /><small>{skillForm.description.length}/1000</small></label>
+          </section>
+          <section className="eval-drawer-section eval-skill-files">
+            <div className="eval-skill-files__head"><h3 className="eval-skill-drawer__section-title">Skill 文件 <b>*</b></h3><span>{skillFiles.length} 个文件</span></div>
+            {skillFiles.length > 0 ? <div className="eval-skill-files__layout">
+              <div className="eval-skill-file-tree">
+                {skillFiles.map((file) => <button type="button" key={file.id} className={selectedSkillFile?.id === file.id ? 'is-active' : ''} onClick={() => setSelectedSkillFileId(file.id)}><Braces size={13} /><span>{file.path}</span></button>)}
+              </div>
+              <div className="eval-skill-file-preview">
+                <header><strong>{selectedSkillFile?.path}</strong><span>{selectedSkillFile ? `${Math.max(1, Math.ceil(selectedSkillFile.size / 1024))} KB` : ''}</span></header>
+                {selectedSkillFile?.text ? <pre>{selectedSkillFile.text}</pre> : <div>二进制文件将在导入后随 Skill 保存。</div>}
+              </div>
+            </div> : <div className="eval-skill-files__empty">请选择文件、文件夹或 ZIP 包</div>}
+            {skillImportError && <p className="eval-skill-import-error">{skillImportError}</p>}
+          </section>
+        </div>
+        <footer className="eval-drawer-footer"><button type="button" className="eval-button eval-button--ghost" onClick={closeSkillDrawer}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!skillForm.name.trim() || !skillForm.displayName.trim() || !skillFiles.length} onClick={addImportedSkill}>添加 Skill</button></footer>
+      </section>
+    </div>}
+  </div>;
 }
 
 function CodeEvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }: { draft: EvaluatorDraft; setDraft: Dispatch<SetStateAction<EvaluatorDraft>>; editing?: boolean; onBack: () => void; onCreate: () => void }) {
   const changeLanguage = (language: CodeEvaluatorLanguage) => setDraft((current) => ({ ...current, language, code: CODE_TEMPLATE[language], dependencies: language === 'Python' ? 'Python 标准库 + 白名单依赖' : 'JavaScript ECMAScript + 白名单依赖' }));
-  return (
-    <div className="eval-create-page">
-      <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Code 评估器</button></div>
-      <section className="eval-create-single">
-        <div className="eval-form-grid">
-          <label className="eval-field"><span>名称 <b>*</b></span><input autoFocus maxLength={50} value={draft.name} placeholder="例如：文本正则匹配" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
-          <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明检查内容" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
-        </div>
-        <div className="eval-code-create-box">
-          <CodeEditor value={draft.code} language={draft.language} onChange={(code) => setDraft((current) => ({ ...current, code }))} onLanguageChange={changeLanguage} />
-        </div>
-      </section>
-      <footer className="eval-sticky-footer"><span>{editing ? '保存后生成新版本。' : '创建后生成 v0.0.1。'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!draft.name.trim() || !draft.code.trim()} onClick={onCreate}><Check size={15} />{editing ? '保存并生成新版本' : '创建 Code 评估器'}</button></div></footer>
-    </div>
-  );
+  return <div className="eval-create-page eval-evaluator-create-page">
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回代码评估器</button></div>
+    <section className="eval-evaluator-form">
+      <EvaluatorBasicFields draft={draft} setDraft={setDraft} namePlaceholder="例如：文本正则匹配" descriptionPlaceholder="说明检查内容" />
+      <div className="eval-evaluator-form__section eval-evaluator-form__section--code">
+        <CodeEditor value={draft.code} language={draft.language} onChange={(code) => setDraft((current) => ({ ...current, code }))} onLanguageChange={changeLanguage} timeout={draft.timeout} onTimeoutChange={(timeout) => setDraft((current) => ({ ...current, timeout }))} />
+      </div>
+    </section>
+    <EvaluatorCreateFooter editing={editing} onBack={onBack} onCreate={onCreate} />
+  </div>;
 }
 
 function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = false, controlTaskId = '', lockedControl = false, experimentTaskIds = [], onOpen, onSetControl, onToggleExperiment }: {

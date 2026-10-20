@@ -111,6 +111,7 @@ export type AgentSkillBinding = {
   kind: '评测工作流' | '校验脚本' | '业务规则';
   source: '平台内置' | '自定义';
   scriptCount: number;
+  fileCount?: number;
   enabled: boolean;
 };
 
@@ -149,6 +150,7 @@ export type Evaluator = {
   rules?: CodeEvaluatorRule[];
   outputExample?: string;
   dependencies?: string;
+  timeout?: number;
   skills?: AgentSkillBinding[];
   mcpConnections?: AgentMcpConnection[];
 };
