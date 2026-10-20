@@ -287,6 +287,8 @@ export type CaseResult = {
   humanAnnotations?: Record<string, HumanAnnotation>;
   userFeedback?: string;
   agentConfiguration: string;
+  observedTraceId?: string;
+  observedSessionId?: string;
   queryAgent?: QueryAgentEvidence;
   duration?: string;
   runtime?: RuntimeMetrics;
@@ -485,6 +487,9 @@ export type AgentOption = {
   description: string;
   source: '万智' | '外部';
   protocol: '实时上报' | '框架适配' | '数据库转换';
+  architecture?: string;
+  skills?: string[];
+  mcpConnections?: string[];
 };
 
 export type HistoryTraceRecord = {

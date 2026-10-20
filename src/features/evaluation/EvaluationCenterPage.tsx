@@ -11,7 +11,14 @@ import OverviewPage from '../overview/OverviewPage';
 import AccessCenterPage from '../access/AccessCenterPage';
 import { agentMcpLibrary, agentSkillLibrary, cloneEvaluationState, createComparisonRecord, getDatasetById, historyConversations, statusTone } from './evaluation.mock';
 import {
+  FINANCIAL_COMPLIANCE_AGENT_ID,
+  FINANCIAL_COMPLIANCE_AGENT_VERSION,
+  FINANCIAL_COMPLIANCE_DATASET_ID,
+} from './financial-compliance.mock';
+import {
   QUERY_AGENT_CORE_EVALUATOR_IDS,
+  QUERY_AGENT_AGENT_ID,
+  QUERY_AGENT_AGENT_VERSION,
   createQueryAgentResults,
   isQueryAgentDataset,
 } from './query-agent.mock';
@@ -19,6 +26,7 @@ import { observedSessions, observedTraces } from './trace.data';
 import { SessionDetail, TraceDetail, TraceList, type ObservationBackflowSelection, type ObservationView } from './TraceWorkspace';
 import { AutoEvaluationPanel } from './AutoEvaluation';
 import { EvaluatorCalibrationModal, EvaluatorOptimizationList, EvaluatorOptimizationStartModal, EvaluatorOptimizationWorkbench } from './EvaluatorOptimization';
+import { SearchField, SelectField } from './eval-ui';
 import type { EvaluatorCalibration, EvaluatorOptimizationExperiment } from './evaluation.types';
 import type { ObservedSession, ObservedTrace, TraceEvent as ObservationTraceEvent } from './trace.types';
 import type {
@@ -705,7 +713,7 @@ export default function EvaluationCenterPage() {
     const tasks = taskDraft.agentTargets.map((target, targetIndex) => {
       const agent = state.agents.find((item) => item.id === target.agentId);
       const results: CaseResult[] = isQueryAgentDataset(dataset.id)
-        ? createQueryAgentResults(selected, agent?.name ?? '问数 Agent Mock', target.agentVersion)
+        ? createQueryAgentResults(selected, agent?.name ?? '问数 Agent', target.agentVersion)
         : dataset.cases.map((item, index) => {
         const input = item.values[dataset.fields.find((field) => field.semantic === 'Input')?.id ?? ''] ?? '未读取 Input';
         const agentOutput = item.values[dataset.fields.find((field) => field.semantic === 'Agent Output')?.id ?? ''] ?? '';
@@ -814,8 +822,8 @@ export default function EvaluationCenterPage() {
   const optimizationStartEvaluator = state.evaluators.find((item) => item.id === optimizationStart?.evaluatorId);
   const selectedTrace = observedTraces.find((item) => item.id === selectedTraceId) ?? observedTraces[0];
   const casePreviewTask = casePreview ? state.tasks.find((item) => item.id === casePreview.taskId) : undefined;
-  const caseObservationTrace = caseObservation ? caseResultToObservedTrace(caseObservation.item, caseObservation.task) : null;
-  const caseObservationSession = caseObservation && caseObservationTrace ? caseResultToObservedSession(caseObservation.task, caseObservationTrace) : null;
+  const caseObservationTrace = caseObservation ? resolveCaseObservationTrace(caseObservation.item, caseObservation.task) : null;
+  const caseObservationSession = caseObservation && caseObservationTrace ? resolveCaseObservationSession(caseObservation.item, caseObservation.task, caseObservationTrace) : null;
   const selectedOptimization = state.evaluatorOptimizations.find((item) => item.id === selectedOptimizationId) ?? null;
   const openCaseObservation = (view: CaseObservationView) => {
     if (!casePreview || !casePreviewTask) return;
@@ -843,18 +851,18 @@ export default function EvaluationCenterPage() {
     }
   };
   const moduleGroups = [
-    { label: '平台', items: [{ id: 'overview' as const, label: '总览', icon: Gauge }] },
-    { label: 'Agent 接入', items: [{ id: 'access' as const, label: '接入中心', icon: PlugZap }] },
-    { label: '运行与评测', items: [{ id: 'traces' as const, label: '观测', icon: Activity }, { id: 'tasks' as const, label: '评测任务', icon: ListChecks }, { id: 'datasets' as const, label: '评测集', icon: Database }, { id: 'evaluators' as const, label: '评估器', icon: ClipboardCheck }, { id: 'automation' as const, label: '自动化', icon: TimerReset }] },
+    { id: 'primary', label: '', items: [{ id: 'overview' as const, label: '总览', icon: Gauge }] },
+    { id: 'observation', label: '观测', items: [{ id: 'access' as const, label: '应用接入', icon: PlugZap }, { id: 'traces' as const, label: '观测', icon: Activity }] },
+    { id: 'evaluation', label: '运行与评测', items: [{ id: 'tasks' as const, label: '评测任务', icon: ListChecks }, { id: 'datasets' as const, label: '评测集', icon: Database }, { id: 'evaluators' as const, label: '评估器', icon: ClipboardCheck }, { id: 'automation' as const, label: '自动化', icon: TimerReset }] },
   ];
   return <div className="evaluation-app">
     <aside className="eval-platform-sidebar">
-      <div className="eval-sidebar-brand"><div className="eval-app-mark"><span /><span /><span /></div><div><span className="eval-eyebrow">WANZHI</span><strong>评测中心</strong></div></div>
-      <nav className="eval-sidebar-nav" aria-label="平台功能模块">{moduleGroups.map((group) => <div className="eval-sidebar-group" key={group.label}><span className="eval-sidebar-label">{group.label}</span>{group.items.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={module === item.id ? 'is-active' : ''} onClick={() => selectModule(item.id)}><Icon size={17} />{item.label}</button>; })}</div>)}</nav>
+      <div className="eval-sidebar-brand"><div className="eval-app-mark"><span /><span /><span /></div><strong>评测中心</strong></div>
+      <nav className="eval-sidebar-nav" aria-label="平台功能模块">{moduleGroups.map((group) => <div className="eval-sidebar-group" key={group.id}>{group.label && <span className="eval-sidebar-label">{group.label}</span>}{group.items.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={module === item.id ? 'is-active' : ''} onClick={() => selectModule(item.id)}><Icon size={17} />{item.label}</button>; })}</div>)}</nav>
       <div className="eval-sidebar-footer"><Pill>本地 Mock</Pill></div>
     </aside>
     <div className="evaluation-main">
-      <header className="eval-app-header"><div className="eval-app-title"><h1>{(module === 'tasks' || module === 'automation') && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { overview: '总览', access: '接入中心', traces: '观测', tasks: '评测任务', datasets: '评测集', evaluators: '评估器', automation: '自动化' }[module]}</h1></div>{module !== 'automation' && <div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div>}</header>
+      <header className="eval-app-header"><div className="eval-app-title"><h1>{(module === 'tasks' || module === 'automation') && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { overview: '总览', access: '应用接入', traces: '观测', tasks: '评测任务', datasets: '评测集', evaluators: '评估器', automation: '自动化' }[module]}</h1></div>{module !== 'automation' && <div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div>}</header>
       <main className="eval-content">
       {module === 'overview' && <OverviewPage onOpenTrace={() => selectModule('traces')} onOpenTasks={() => selectModule('tasks')} />}
       {module === 'access' && <AccessCenterPage />}
@@ -862,7 +870,7 @@ export default function EvaluationCenterPage() {
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'history' && <DatasetHistoryPage draft={datasetDraft} setDraft={setDatasetDraft} agents={observationHistorySource?.agents ?? state.agents} historySource={observationHistorySource?.conversations ?? historyConversations} historyAnchor={observationHistorySource?.anchor ?? TODAY} fromObservation={Boolean(observationHistorySource)} onBack={datasetReturnToObservation ? closeObservationBackflow : showList} onCreate={createDataset} />}
-      {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} />}
+      {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} agents={state.agents} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} />}
       {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(item, `${item.name}（自建）`)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} optimizations={state.evaluatorOptimizations.filter((item) => item.evaluatorId === evaluator.id)} onOpenOptimization={openOptimization} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(evaluator, `${evaluator.name}（自建）`)); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft(evaluatorDraftFrom(evaluator)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'optimization' && selectedOptimization && <EvaluatorOptimizationWorkbench experiment={selectedOptimization} onExperiments={(updater) => setState((current) => ({ ...current, evaluatorOptimizations: updater(current.evaluatorOptimizations) }))} onVersionCreated={(evaluatorId, version, prompt) => setState((current) => ({ ...current, evaluators: current.evaluators.map((item) => item.id === evaluatorId ? { ...item, version, versions: item.versions.includes(version) ? item.versions : [...item.versions, version], prompt, updatedAt: '2026-10-08 15:30' } : item) }))} onBack={() => setEvaluatorScreen('detail')} onNotify={notify} />}
@@ -910,8 +918,8 @@ function DatasetList({ datasets, search, setSearch, onCreate, onOpen, onDelete }
   });
   return <div className="eval-list-page eval-dataset-list-page">
     <div className="eval-toolbar eval-dataset-list-toolbar">
-      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、ID、描述或标签" /></label>
-      <label className="eval-dataset-tag-filter"><Tag size={14} /><select aria-label="按标签筛选评测集" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option>全部标签</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</select></label>
+      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、ID、描述或标签" />
+      <label className="eval-dataset-tag-filter"><Tag size={14} /><SelectField aria-label="按标签筛选评测集" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option>全部标签</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</SelectField></label>
       <span className="eval-toolbar-count">{filtered.length} 个评测集</span>
       <CreateMenu onCreate={onCreate} />
     </div>
@@ -968,7 +976,7 @@ function DatasetUploadPage({ draft, setDraft, onBack, onCreate, onNotify }: { dr
         {draft.file && <div className="eval-file-summary"><div className="eval-file-summary__icon"><FileSpreadsheet size={20} /></div><div><strong>{draft.file.name}</strong><span>{draft.file.format} · {draft.file.columns.length} 个字段 · {draft.file.rows.length} 条数据</span></div><button type="button" className="eval-button eval-button--ghost" onClick={() => inputRef.current?.click()}>更换文件</button></div>}
         {draft.error && <div className="eval-error"><CircleAlert size={15} />{draft.error}</div>}
         <input ref={inputRef} type="file" accept=".csv,.xls,.xlsx,.jsonl" hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { void chooseFile(event.target.files?.[0]); }} />
-        {draft.file && <div className="eval-field-mapping"><div className="eval-subsection-head"><div><h4>字段确认</h4><span>不设置数据类型，只确认字段名称和语义</span></div><span>{draft.fields.length} 个字段</span></div><div className="eval-field-mapping__head"><span>原始字段</span><span>展示名称</span><span>字段语义</span><span>示例值</span></div>{draft.fields.map((field) => <div className="eval-field-mapping__row" key={field.id}><strong>{field.sourceColumn}</strong><input value={field.name} onChange={(event) => updateField(field.id, 'name', event.target.value)} /><select value={field.semantic} onChange={(event) => updateField(field.id, 'semantic', event.target.value)}>{FIELD_SEMANTICS.map((semantic) => <option key={semantic}>{semantic}</option>)}</select><span>{draft.file?.rows[0]?.[field.sourceColumn] || '未采集'}</span></div>)}</div>}
+        {draft.file && <div className="eval-field-mapping"><div className="eval-subsection-head"><div><h4>字段确认</h4><span>不设置数据类型，只确认字段名称和语义</span></div><span>{draft.fields.length} 个字段</span></div><div className="eval-field-mapping__head"><span>原始字段</span><span>展示名称</span><span>字段语义</span><span>示例值</span></div>{draft.fields.map((field) => <div className="eval-field-mapping__row" key={field.id}><strong>{field.sourceColumn}</strong><input value={field.name} onChange={(event) => updateField(field.id, 'name', event.target.value)} /><SelectField value={field.semantic} onChange={(event) => updateField(field.id, 'semantic', event.target.value)}>{FIELD_SEMANTICS.map((semantic) => <option key={semantic}>{semantic}</option>)}</SelectField><span>{draft.file?.rows[0]?.[field.sourceColumn] || '未采集'}</span></div>)}</div>}
       </div>
     </section>
     <footer className="eval-sticky-footer"><span>字段可以在草稿详情继续编辑。</span><div><button type="button" className="eval-button eval-button--ghost" onClick={onBack}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!canCreate} onClick={() => onCreate(draft)}><Check size={15} />创建评测集</button></div></footer>
@@ -987,7 +995,7 @@ function DatasetGeneratePage({ draft, setDraft, agents, onBack, onCreate }: { dr
         <label className="eval-field"><span>标签</span><input maxLength={80} value={draft.tags} placeholder="例如：售后, 回归, Badcase" onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} /><small>多个标签用逗号分隔，用于评测集列表筛选。</small></label>
       </div>
       <div className="eval-create-section">
-        <div className="eval-form-grid"><label className="eval-field"><span>Agent <b>*</b></span><select value={draft.generateAgentId} onChange={(event) => { const agent = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, generateAgentId: event.target.value, generateVersion: agent?.versions[0] ?? '' })); }}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label><label className="eval-field"><span>版本 <b>*</b></span><select value={draft.generateVersion} disabled={!draft.generateAgentId} onChange={(event) => setDraft((current) => ({ ...current, generateVersion: event.target.value }))}>{(selectedAgent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</select></label></div>
+        <div className="eval-form-grid"><label className="eval-field"><span>Agent <b>*</b></span><SelectField value={draft.generateAgentId} onChange={(event) => { const agent = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, generateAgentId: event.target.value, generateVersion: agent?.versions[0] ?? '' })); }}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</SelectField></label><label className="eval-field"><span>版本 <b>*</b></span><SelectField value={draft.generateVersion} disabled={!draft.generateAgentId} onChange={(event) => setDraft((current) => ({ ...current, generateVersion: event.target.value }))}>{(selectedAgent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</SelectField></label></div>
         <label className="eval-field eval-field--wide"><span>生成场景 Prompt <b>*</b></span><textarea rows={5} value={draft.generatePrompt} placeholder="例如：生成退款政策、到账时间和转人工相关的用户问题，覆盖简单咨询和异常情况。" onChange={(event) => setDraft((current) => ({ ...current, generatePrompt: event.target.value }))} /></label>
         <div className="eval-generated-fields"><div className="eval-generated-fields__head"><span>字段名称</span><span>字段语义</span><span>字段说明</span></div><div className="eval-generated-fields__row"><strong>用户输入</strong><FieldBadge semantic="Input" required /><span>{FIELD_DESCRIPTIONS.Input}</span></div><div className="eval-generated-fields__row"><strong>验收要点</strong><FieldBadge semantic="Expected Output" /><span>{FIELD_DESCRIPTIONS['Expected Output']}</span></div></div>
         <label className="eval-field eval-generate-count"><span>生成数量</span><input type="number" min={1} max={50} value={draft.generateCount} onChange={(event) => setDraft((current) => ({ ...current, generateCount: Math.max(1, Math.min(50, Number(event.target.value) || 1)) }))} /></label>
@@ -1037,8 +1045,8 @@ function DatasetHistoryPage({ draft, setDraft, agents, historySource, historyAnc
       </div>
       <div className="eval-create-section">
         <div className="eval-create-section__head"><div><span className="eval-eyebrow">TRACE REPLAY</span><h4>选择对话和 Trace</h4><p>{fromObservation ? `已从观测列表带入 ${selectedHistoryCount} 条记录，可继续调整。` : '勾选整段对话等于勾选全部 Trace，也可以只选部分 Trace。'}</p></div><Pill tone="green">{selectedHistoryCount} 个对话已选</Pill></div>
-        <div className="eval-form-grid"><label className="eval-field"><span>Agent <b>*</b></span><select value={draft.historyAgentId} onChange={(event) => { const agent = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, historyAgentId: event.target.value, historyVersion: agent?.versions[0] ?? '', historySelected: {}, historyPage: 1 })); }}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label><label className="eval-field"><span>版本 <b>*</b></span><select value={draft.historyVersion} disabled={!draft.historyAgentId} onChange={(event) => setDraft((current) => ({ ...current, historyVersion: event.target.value, historySelected: {}, historyPage: 1 }))}>{(selectedAgent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</select></label></div>
-        <div className="eval-history-filterbar"><label className="eval-field"><span>日期</span><select value={draft.historyPreset} onChange={(event) => setDraft((current) => ({ ...current, historyPreset: event.target.value as HistoryDatePreset, historyPage: 1 }))}><option value="3">近 3 天</option><option value="5">近 5 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="custom">自定义</option></select></label><label className="eval-field"><span>是否有反馈记录</span><select value={draft.historyFeedback} onChange={(event) => setDraft((current) => ({ ...current, historyFeedback: event.target.value as DatasetDraft['historyFeedback'], historyPage: 1 }))}><option>全部</option><option>有反馈</option><option>无反馈</option></select></label>{draft.historyPreset === 'custom' && <><label className="eval-field"><span>开始日期</span><input type="date" value={draft.historyStart} max={draft.historyEnd} onChange={(event) => setDraft((current) => ({ ...current, historyStart: event.target.value, historyPage: 1 }))} /></label><label className="eval-field"><span>结束日期</span><input type="date" value={draft.historyEnd} min={draft.historyStart} max={historyAnchor} onChange={(event) => setDraft((current) => ({ ...current, historyEnd: event.target.value, historyPage: 1 }))} /></label></>}</div>
+        <div className="eval-form-grid"><label className="eval-field"><span>Agent <b>*</b></span><SelectField value={draft.historyAgentId} onChange={(event) => { const agent = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, historyAgentId: event.target.value, historyVersion: agent?.versions[0] ?? '', historySelected: {}, historyPage: 1 })); }}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</SelectField></label><label className="eval-field"><span>版本 <b>*</b></span><SelectField value={draft.historyVersion} disabled={!draft.historyAgentId} onChange={(event) => setDraft((current) => ({ ...current, historyVersion: event.target.value, historySelected: {}, historyPage: 1 }))}>{(selectedAgent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</SelectField></label></div>
+        <div className="eval-history-filterbar"><label className="eval-field"><span>日期</span><SelectField value={draft.historyPreset} onChange={(event) => setDraft((current) => ({ ...current, historyPreset: event.target.value as HistoryDatePreset, historyPage: 1 }))}><option value="3">近 3 天</option><option value="5">近 5 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="custom">自定义</option></SelectField></label><label className="eval-field"><span>是否有反馈记录</span><SelectField value={draft.historyFeedback} onChange={(event) => setDraft((current) => ({ ...current, historyFeedback: event.target.value as DatasetDraft['historyFeedback'], historyPage: 1 }))}><option>全部</option><option>有反馈</option><option>无反馈</option></SelectField></label>{draft.historyPreset === 'custom' && <><label className="eval-field"><span>开始日期</span><input type="date" value={draft.historyStart} max={draft.historyEnd} onChange={(event) => setDraft((current) => ({ ...current, historyStart: event.target.value, historyPage: 1 }))} /></label><label className="eval-field"><span>结束日期</span><input type="date" value={draft.historyEnd} min={draft.historyStart} max={historyAnchor} onChange={(event) => setDraft((current) => ({ ...current, historyEnd: event.target.value, historyPage: 1 }))} /></label></>}</div>
         {history.length === 0 ? <EmptyState title="暂无符合条件的轨迹" description="调整 Agent、版本、日期或反馈筛选。" /> : <><div className="eval-history-list">{visibleHistory.map((conversation) => { const selected = draft.historySelected[conversation.id] ?? []; const allSelected = selected.length === conversation.traces.length; const partial = selected.length > 0 && !allSelected; const expanded = draft.historyExpanded === conversation.id; return <div className={`eval-history-item${selected.length ? ' is-selected' : ''}`} key={conversation.id}><div className="eval-history-item__head"><button type="button" className="eval-icon-button" onClick={() => setDraft((current) => ({ ...current, historyExpanded: expanded ? null : conversation.id }))} aria-label={expanded ? '收起对话' : '展开对话'}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button><input type="checkbox" checked={allSelected} ref={(element) => { if (element) element.indeterminate = partial; }} onChange={() => toggleConversation(conversation)} /><div className="eval-history-item__title"><strong>{conversation.title}</strong><span>{conversation.id} · {conversation.traces.length} 条 Trace</span></div><time>{conversation.occurredAt}</time></div>{expanded && <div className="eval-history-item__traces">{conversation.traces.map((trace) => <label key={trace.id}><input type="checkbox" checked={selected.includes(trace.id)} onChange={() => toggleTrace(conversation.id, trace.id)} /><span><strong>{trace.name} · {trace.summary}</strong><small>{trace.input}{trace.userFeedback ? ` · ${trace.userFeedback}` : ''}</small></span></label>)}</div>}</div>; })}</div><div className="eval-pagination"><span>共 {history.length} 条对话</span><div><button type="button" className="eval-page-button" disabled={currentHistoryPage <= 1} onClick={() => setDraft((current) => ({ ...current, historyPage: Math.max(1, current.historyPage - 1) }))}><ChevronLeft size={14} />上一页</button><b>{currentHistoryPage} / {historyPageCount}</b><button type="button" className="eval-page-button" disabled={currentHistoryPage >= historyPageCount} onClick={() => setDraft((current) => ({ ...current, historyPage: Math.min(historyPageCount, current.historyPage + 1) }))}>下一页<ChevronRight size={14} /></button></div></div></>}
       </div>
     </section>
@@ -1051,8 +1059,8 @@ type CaseEditDraft = { id?: string; values: Record<string, string>; hasFile: boo
 type ImportPreview = { file: ParsedFile; mode: '追加数据' | '全量覆盖'; mappings: { sourceColumn: string; target: string; name: string }[] };
 type TraceImportDraft = { agentId: string; version: string; feedback: '全部' | '有反馈' | '无反馈'; search: string; mode: '追加数据' | '全量覆盖'; selected: string[] };
 
-function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateDataset, onSubmitDataset }: {
-  dataset: Dataset; entrySource: 'dataset' | 'task'; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void;
+function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUpdateDataset, onSubmitDataset }: {
+  dataset: Dataset; agents: AgentOption[]; entrySource: 'dataset' | 'task'; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void;
   onUpdateDataset: (id: string, updater: (dataset: Dataset) => Dataset) => void;
   onSubmitDataset: (id: string, source: 'dataset' | 'task') => void;
 }) {
@@ -1145,7 +1153,16 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
   const openTraceImportDrawer = () => {
     setCaseEditor(null);
     setImportPreview(null);
-    setTraceEditor({ agentId: 'agent-refund', version: 'V3', feedback: '全部', search: '', mode: '追加数据', selected: [] });
+    const defaultConversation = historyConversations.find((conversation) => agents.some((agent) => agent.id === conversation.agentId && agent.versions.includes(conversation.agentVersion)));
+    const defaultAgent = agents.find((agent) => agent.id === defaultConversation?.agentId) ?? agents[0];
+    setTraceEditor({
+      agentId: defaultAgent?.id ?? '',
+      version: defaultConversation?.agentVersion ?? defaultAgent?.versions[0] ?? '',
+      feedback: '全部',
+      search: '',
+      mode: '追加数据',
+      selected: [],
+    });
     setAddDataMode('trace');
   };
   const closeAddDataDrawer = () => {
@@ -1301,7 +1318,7 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
     <section className="eval-dataset-detail__controls">
       <div className="eval-dataset-detail__toolbar">
         <div className="eval-dataset-detail__toolbar-left">
-          <label className="eval-search eval-search--small"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Case" /></label>
+          <SearchField size="small" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Case" />
         </div>
         <div className="eval-dataset-detail__toolbar-right">
           <div className="eval-menu-anchor">
@@ -1361,7 +1378,7 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
         <div className="eval-modal__body eval-dataset-edit-list">
           <label className="eval-field"><span>字段名称 <b>*</b></span><input autoFocus value={fieldEditor.name} onChange={(event) => setFieldEditor({ ...fieldEditor, name: event.target.value })} /></label>
           <label className="eval-field"><span>字段描述</span><textarea rows={2} value={fieldEditor.description} onChange={(event) => setFieldEditor({ ...fieldEditor, description: event.target.value })} /></label>
-          <label className="eval-field"><span>字段语义</span><select value={fieldEditor.semantic} onChange={(event) => setFieldEditor({ ...fieldEditor, semantic: event.target.value as FieldSemantic, required: event.target.value === 'Input' })}>{FIELD_SEMANTICS.map((semantic) => <option key={semantic} value={semantic}>{semantic}</option>)}</select></label>
+          <label className="eval-field"><span>字段语义</span><SelectField value={fieldEditor.semantic} onChange={(event) => setFieldEditor({ ...fieldEditor, semantic: event.target.value as FieldSemantic, required: event.target.value === 'Input' })}>{FIELD_SEMANTICS.map((semantic) => <option key={semantic} value={semantic}>{semantic}</option>)}</SelectField></label>
           {!fieldEditor.existing && <p className="eval-detail-footnote">新增列对已有 Case 默认为空。</p>}
         </div>
         <footer className="eval-modal__footer"><button type="button" className="eval-button eval-button--ghost" onClick={() => setFieldEditor(null)}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={saveField}>{fieldEditor.existing ? '保存修改' : '新增列'}</button></footer>
@@ -1402,7 +1419,7 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
           <div className="eval-add-manual-layout">
             <aside className="eval-add-field-nav">
               <header><span>全部字段</span><b>{dataset.fields.length}</b></header>
-              <label className="eval-search eval-search--small"><Search size={14} /><input value={manualFieldQuery} onChange={(event) => setManualFieldQuery(event.target.value)} placeholder="搜索字段名" /></label>
+              <SearchField size="small" value={manualFieldQuery} onChange={(event) => setManualFieldQuery(event.target.value)} placeholder="搜索字段名" />
               <nav aria-label="Case 字段导航">{manualFields.map((field) => <button type="button" key={field.id} className={activeManualFieldId === field.id ? 'is-active' : ''} onClick={() => scrollToManualField(field.id)}><span>{field.name}</span>{field.required && <b>必填</b>}</button>)}</nav>
               {manualFields.length === 0 && <p className="eval-add-field-nav__empty">没有匹配字段</p>}
             </aside>
@@ -1426,7 +1443,7 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
                 <div><span>导入列</span><span>写入字段</span><span>新字段名称</span></div>
                 {importPreview.mappings.map((mapping, index) => <div key={mapping.sourceColumn}>
                   <strong>{mapping.sourceColumn}</strong>
-                  <select value={mapping.target} onChange={(event) => setImportPreview({ ...importPreview, mappings: importPreview.mappings.map((item, itemIndex) => itemIndex === index ? { ...item, target: event.target.value } : item) })}>{dataset.fields.map((field) => <option key={field.id} value={field.id}>映射到 {field.name}</option>)}<option value="new">添加为新字段</option></select>
+                  <SelectField value={mapping.target} onChange={(event) => setImportPreview({ ...importPreview, mappings: importPreview.mappings.map((item, itemIndex) => itemIndex === index ? { ...item, target: event.target.value } : item) })}>{dataset.fields.map((field) => <option key={field.id} value={field.id}>映射到 {field.name}</option>)}<option value="new">添加为新字段</option></SelectField>
                   {mapping.target === 'new' ? <input value={mapping.name} onChange={(event) => setImportPreview({ ...importPreview, mappings: importPreview.mappings.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} /> : <span>沿用字段定义</span>}
                 </div>)}
               </div>
@@ -1439,10 +1456,10 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
           <div className="eval-drawer__body eval-add-trace-body">
             <div className="eval-add-trace-summary"><div><strong>{traceEditor.selected.length}</strong><span>条对话已选择</span></div><p>每条对话生成 1 条 Case，沿用原始回复和 Trace。</p></div>
             <div className="eval-trace-import-filters">
-              <select aria-label="选择 Agent" value={traceEditor.agentId} onChange={(event) => setTraceEditor({ ...traceEditor, agentId: event.target.value, selected: [] })}>{['agent-refund', 'agent-tender', 'agent-research'].map((id) => <option key={id} value={id}>{id === 'agent-refund' ? '退款客服助手' : id === 'agent-tender' ? '招标文件评估助手' : '网页研究助手'}</option>)}</select>
-              <select aria-label="选择 Agent 版本" value={traceEditor.version} onChange={(event) => setTraceEditor({ ...traceEditor, version: event.target.value, selected: [] })}>{['V3', 'V2', 'V1'].map((version) => <option key={version}>{version}</option>)}</select>
-              <select aria-label="筛选反馈状态" value={traceEditor.feedback} onChange={(event) => setTraceEditor({ ...traceEditor, feedback: event.target.value as TraceImportDraft['feedback'] })}>{['全部', '有反馈', '无反馈'].map((item) => <option key={item}>{item}</option>)}</select>
-              <input aria-label="搜索对话" value={traceEditor.search} placeholder="搜索对话" onChange={(event) => setTraceEditor({ ...traceEditor, search: event.target.value })} />
+              <SelectField aria-label="选择 Agent" value={traceEditor.agentId} onChange={(event) => { const agent = agents.find((item) => item.id === event.target.value); setTraceEditor({ ...traceEditor, agentId: event.target.value, version: agent?.versions[0] ?? '', selected: [] }); }}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</SelectField>
+              <SelectField aria-label="选择 Agent 版本" value={traceEditor.version} onChange={(event) => setTraceEditor({ ...traceEditor, version: event.target.value, selected: [] })}>{(agents.find((agent) => agent.id === traceEditor.agentId)?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</SelectField>
+              <SelectField aria-label="筛选反馈状态" value={traceEditor.feedback} onChange={(event) => setTraceEditor({ ...traceEditor, feedback: event.target.value as TraceImportDraft['feedback'] })}>{['全部', '有反馈', '无反馈'].map((item) => <option key={item}>{item}</option>)}</SelectField>
+              <SearchField size="small" aria-label="搜索对话" value={traceEditor.search} placeholder="搜索对话" onChange={(event) => setTraceEditor({ ...traceEditor, search: event.target.value })} />
             </div>
             <div className="eval-trace-import-list">{filteredHistory.map((conversation) => <label key={conversation.id}><input type="checkbox" checked={traceEditor.selected.includes(conversation.id)} onChange={() => setTraceEditor({ ...traceEditor, selected: traceEditor.selected.includes(conversation.id) ? traceEditor.selected.filter((id) => id !== conversation.id) : [...traceEditor.selected, conversation.id] })} /><span><strong>{conversation.title}</strong><small>{conversation.occurredAt} · {conversation.traces.length} 条 Trace</small></span></label>)}</div>
             {filteredHistory.length === 0 && <EmptyState title="没有匹配的轨迹" description="调整 Agent、版本、反馈或搜索条件。" />}
@@ -1466,9 +1483,9 @@ function EvaluatorList({ evaluators, kind, setKind, mode, setMode, search, setSe
   return <div className="eval-list-page">
     <div className="eval-evaluator-tabs">{EVALUATOR_KINDS.map((item) => <button type="button" key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item}</button>)}</div>
     <div className="eval-toolbar">
-      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isHuman ? '搜索标签名' : '搜索评估器名称'} /></label>
-      <select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置{isHuman ? '标签' : '评估器'}</option><option value="custom">自建{isHuman ? '标签' : '评估器'}</option></select>
-      <select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select>
+      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isHuman ? '搜索标签名' : '搜索评估器名称'} />
+      <SelectField aria-label="评估器类型" value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置{isHuman ? '标签' : '评估器'}</option><option value="custom">自建{isHuman ? '标签' : '评估器'}</option></SelectField>
+      <SelectField aria-label="结果类型" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></SelectField>
       <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />{isHuman ? '新建人工标签' : '新建自建评估器'}</button>
     </div>
     <div className="eval-evaluator-grid">{evaluators.map((evaluator) => <article className="eval-evaluator-card" key={evaluator.id} role="button" tabIndex={0} onClick={() => onOpen(evaluator)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(evaluator); } }}>
@@ -1564,9 +1581,9 @@ function AgentEvaluatorList({ evaluators, setKind, mode, setMode, search, setSea
       <div className="eval-agent-method__contract"><span><Zap size={13} />Skills</span><span><Package size={13} />MCP</span></div>
     </div>
     <div className="eval-toolbar">
-      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索 Agent 评估器" /></label>
-      <select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置 Agent 评估器</option><option value="custom">自建 Agent 评估器</option></select>
-      <select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select>
+      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索 Agent 评估器" />
+      <SelectField aria-label="Agent 评估器类型" value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">预置 Agent 评估器</option><option value="custom">自建 Agent 评估器</option></SelectField>
+      <SelectField aria-label="结果类型" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></SelectField>
       <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />添加 Agent 评估器</button>
     </div>
     <div className="eval-evaluator-grid">
@@ -1648,9 +1665,9 @@ function CodeEvaluatorList({ evaluators, setKind, mode, setMode, search, setSear
     <div className="eval-list-page">
       <div className="eval-evaluator-tabs">{EVALUATOR_KINDS.map((item) => <button type="button" key={item} className={item === '代码评估' ? 'is-active' : ''} onClick={() => setKind(item)}>{item === '代码评估' ? 'Code 评估器' : item}</button>)}</div>
       <div className="eval-toolbar">
-        <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" /></label>
-        <select value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">内置 Code 评估器</option><option value="custom">自建 Code 评估器</option></select>
-        <select value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></select>
+        <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评估器名称" />
+        <SelectField aria-label="Code 评估器类型" value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">内置 Code 评估器</option><option value="custom">自建 Code 评估器</option></SelectField>
+        <SelectField aria-label="结果类型" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></SelectField>
         <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />自定义创建</button>
       </div>
       <div className="eval-evaluator-grid">
@@ -1701,7 +1718,7 @@ function CodeEvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator:
 function CodeEditor({ value, language, onChange, onLanguageChange }: { value: string; language: CodeEvaluatorLanguage; onChange: (value: string) => void; onLanguageChange?: (language: CodeEvaluatorLanguage) => void }) {
   const lineCount = value.split('\n').length;
   return <div className="eval-code-editor">
-    <header><strong>Code</strong><select value={language} disabled={!onLanguageChange} onChange={(event) => onLanguageChange?.(event.target.value as CodeEvaluatorLanguage)}><option>Python</option><option>JavaScript</option></select></header>
+    <header><strong>Code</strong><SelectField aria-label="代码语言" value={language} disabled={!onLanguageChange} onChange={(event) => onLanguageChange?.(event.target.value as CodeEvaluatorLanguage)}><option>Python</option><option>JavaScript</option></SelectField></header>
     <div className="eval-code-editor__body"><div aria-hidden="true">{Array.from({ length: lineCount }, (_, index) => <span key={index}>{index + 1}</span>)}</div><textarea aria-label="评估代码" spellCheck={false} value={value} onChange={(event) => onChange(event.target.value)} /></div>
   </div>;
 }
@@ -1773,7 +1790,7 @@ function HumanEvaluatorEditor({ draft, setDraft, editing = false, onBack, onCrea
       <div className="eval-create-single__head"><span className="eval-eyebrow">HUMAN LABEL</span><h3>{editing ? '编辑人工标签' : '新建人工标签'}</h3></div>
       <div className="eval-human-create-fields">
         <label className="eval-field"><span>标签名 <b>*</b></span><input autoFocus maxLength={30} value={draft.name} placeholder="例如：回答质量" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/30</small></label>
-        <label className="eval-field"><span>评分类型 <b>*</b></span><select value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></select></label>
+        <label className="eval-field"><span>评分类型 <b>*</b></span><SelectField value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></SelectField></label>
         {draft.scoreType === 'numeric' && <label className="eval-field eval-threshold-field"><span>通过阈值 <b>*</b></span><div className="eval-threshold-control"><input aria-label="人工标签通过阈值" type="range" min="0" max="1" step="0.01" value={draft.passThreshold} onChange={(event) => setDraft((current) => ({ ...current, passThreshold: Number(event.target.value) }))} /><strong>{draft.passThreshold.toFixed(2)}</strong></div><small>得分达到该值时判定为通过。</small></label>}
       </div>
     </section>
@@ -1793,8 +1810,8 @@ function EvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreate }:
           <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明这条评估器判断什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
         </div>
         <div className="eval-form-grid eval-evaluator-option-fields">
-          <label className="eval-field"><span>评估模型</span><select value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></select></label>
-          <label className="eval-field"><span>结果类型</span><select value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></select></label>
+          <label className="eval-field"><span>评估模型</span><SelectField value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></SelectField></label>
+          <label className="eval-field"><span>结果类型</span><SelectField value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></SelectField></label>
           {draft.scoreType === 'numeric' && <label className="eval-field eval-threshold-field"><span>通过阈值 <b>*</b></span><div className="eval-threshold-control"><input aria-label="通过阈值" type="range" min="0" max="1" step="0.01" value={draft.passThreshold} onChange={(event) => setDraft((current) => ({ ...current, passThreshold: Number(event.target.value) }))} /><strong>{draft.passThreshold.toFixed(2)}</strong></div><small>得分达到该值时判定为通过，阈值不写入 Prompt。</small></label>}
         </div>
         <div className="eval-create-section">
@@ -1849,8 +1866,8 @@ function AgentEvaluatorEditor({ draft, setDraft, editing = false, onBack, onCrea
           <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明 Agent 评估器需要核查什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
         </div>
         <div className="eval-form-grid eval-evaluator-option-fields">
-          <label className="eval-field"><span>执行模型</span><select value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></select></label>
-          <label className="eval-field"><span>结果类型</span><select value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></select></label>
+          <label className="eval-field"><span>执行模型</span><SelectField value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}><option>Doubao-Seed-1.6</option><option>Doubao-Seed-1.6-flash</option><option>GPT-5.6</option></SelectField></label>
+          <label className="eval-field"><span>结果类型</span><SelectField value={draft.scoreType} onChange={(event) => setDraft((current) => ({ ...current, scoreType: event.target.value as ScoreType }))}><option value="numeric">0-1 数值评分</option><option value="pass_fail">通过 / 不通过</option></SelectField></label>
           {draft.scoreType === 'numeric' && <label className="eval-field eval-threshold-field"><span>通过阈值 <b>*</b></span><div className="eval-threshold-control"><input aria-label="Agent 评估器通过阈值" type="range" min="0" max="1" step="0.01" value={draft.passThreshold} onChange={(event) => setDraft((current) => ({ ...current, passThreshold: Number(event.target.value) }))} /><strong>{draft.passThreshold.toFixed(2)}</strong></div><small>得分达到该值时判定为通过。</small></label>}
         </div>
         <div className="eval-create-section">
@@ -1951,7 +1968,7 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
           <td><input type="radio" name="comparison-control-task" checked={isControl} disabled={lockedControl && !isControl} onChange={() => onSetControl?.(task.id)} aria-label={`设为对照组 ${task.name}`} /></td>
           <td><input type="checkbox" checked={isExperiment} disabled={isControl} onChange={() => onToggleExperiment?.(task.id)} aria-label={`选择实验组 ${task.name}`} /></td>
         </>}
-        <td><strong className="eval-task-list-name">{task.name}</strong></td>
+        <td><div className="eval-cell-title eval-task-list-title"><strong>{task.name}</strong><small>{task.description}</small></div></td>
         <td>{task.taskType ?? '普通评测'}</td>
         <td><Status label={task.status} /></td>
         <td><div className="eval-task-entity"><div className="eval-task-entity__content"><div className="eval-task-entity__line"><strong>{task.agent}</strong><span className="eval-task-entity__version">{task.agentVersion}</span></div></div></div></td>
@@ -1976,8 +1993,8 @@ function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch,
     <div className="eval-task-tabs">{(['list', 'compare'] as TaskTab[]).map((item) => <button type="button" key={item} className={tab === item ? 'is-active' : ''} onClick={() => setTab(item)}>{item === 'list' ? '任务列表' : '对比实验'}</button>)}</div>
     {tab === 'list' && <>
       <div className="eval-toolbar eval-task-list-toolbar">
-        <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 Agent" /></label>
-        <label className="eval-task-list-status"><span>状态</span><select value={taskStatusFilter} aria-label="按任务状态筛选" onChange={(event) => setTaskStatusFilter(event.target.value)}><option>全部状态</option>{['待启动', '运行中', '已暂停', '已完成', '部分失败', '失败'].map((status) => <option key={status}>{status}</option>)}</select></label>
+        <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 Agent" />
+        <label className="eval-task-list-status"><span>状态</span><SelectField value={taskStatusFilter} aria-label="按任务状态筛选" onChange={(event) => setTaskStatusFilter(event.target.value)}><option>全部状态</option>{['待启动', '运行中', '已暂停', '已完成', '部分失败', '失败'].map((status) => <option key={status}>{status}</option>)}</SelectField></label>
         <button type="button" className="eval-button eval-button--primary eval-task-list-create" onClick={onCreate}><Plus size={16} />新建评测任务</button>
       </div>
       <section className="eval-surface table-surface eval-task-list-surface">
@@ -1986,7 +2003,7 @@ function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch,
       {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索关键词或任务状态。" />}
     </>}
     {tab === 'compare' && <section className="eval-record-page">
-      <div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索对比名称、任务或评测集" /></label><button type="button" className="eval-button eval-button--primary" onClick={onCreateComparison}><Plus size={15} />创建对比实验</button></div>
+      <div className="eval-toolbar"><SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索对比名称、任务或评测集" /><button type="button" className="eval-button eval-button--primary" onClick={onCreateComparison}><Plus size={15} />创建对比实验</button></div>
       <section className="eval-surface table-surface">
         <table className="eval-data-table">
           <thead><tr><th>对比名称</th><th>对照组</th><th>实验组</th><th>评测集</th><th>Case 对比</th><th>状态</th><th>操作</th></tr></thead>
@@ -2214,10 +2231,10 @@ function ComparisonPicker({ initialControlTask, datasets, tasks, evaluators, onC
         <IconButton label="关闭" onClick={onCancel}><X size={17} /></IconButton>
       </header>
       <div className="eval-picker-toolbar">
-        <label className="eval-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称或 Agent" /></label>
-        <select className="eval-picker-dataset-select" value={datasetId} disabled={lockedControl} onChange={(event) => changeDataset(event.target.value)} aria-label="筛选评测集">
+        <SearchField value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称或 Agent" />
+        <SelectField className="eval-picker-dataset-select" value={datasetId} disabled={lockedControl} onChange={(event) => changeDataset(event.target.value)} aria-label="筛选评测集">
           {datasets.filter((item) => tasks.some((task) => task.datasetId === item.id && terminalStatuses.includes(task.status))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        </SelectField>
         <span>{eligibleTasks.length} 个可选任务</span>
       </div>
       <div className="eval-picker-table-wrap">
@@ -2300,7 +2317,7 @@ function ComparisonDetail({ comparison, onBack }: { comparison: ComparisonRecord
     <div className="eval-comparison-task-strip">{comparison.taskRefs.map((task) => <div key={task.taskId} className={task.role === '实验组' ? 'is-experiment' : ''}><span>{task.role}</span><strong>{task.name}</strong><small>{task.agent} · {task.agentVersion}</small></div>)}</div>
     <nav className="eval-comparison-tabs" aria-label="对比结果内容"><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => setTab('data')}><Table2 size={15} />评测集数据</button><button type="button" className={tab === 'metrics' ? 'is-active' : ''} onClick={() => setTab('metrics')}><BarChart3 size={15} />指标统计</button></nav>
     {tab === 'data' && <section className="eval-comparison-data">
-      <div className="eval-comparison-toolbar"><label className="eval-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Case、Input 或 Agent Output" /></label><select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}><option>全部</option><option>有差异</option><option>一致</option><option>无法比较</option></select><span>{rows.length} 条 Case</span></div>
+      <div className="eval-comparison-toolbar"><SearchField value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Case、Input 或 Agent Output" /><SelectField aria-label="对比结果筛选" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}><option>全部</option><option>有差异</option><option>一致</option><option>无法比较</option></SelectField><span>{rows.length} 条 Case</span></div>
       <div className="eval-comparison-table-wrap">
         <table className="eval-comparison-data-table">
           <thead><tr><th className="is-sticky">Case</th>{comparison.sharedFields.map((field) => <th key={field}>{field}</th>)}{comparison.taskRefs.map((task) => <th className="is-output" key={task.taskId}>{task.role} Agent Output<small>{task.name}</small></th>)}<th>判断</th><th className="is-sticky is-sticky-right">操作</th></tr></thead>
@@ -2390,7 +2407,11 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
       ...current,
       datasetId: id,
       datasetVersion: next?.versions.find((version) => version.status === '已提交')?.id ?? '',
-      agentTargets: queryDataset ? [{ agentId: 'agent-query', agentVersion: 'Loop V1' }] : current.agentTargets,
+      agentTargets: queryDataset
+        ? [{ agentId: QUERY_AGENT_AGENT_ID, agentVersion: QUERY_AGENT_AGENT_VERSION }]
+        : id === FINANCIAL_COMPLIANCE_DATASET_ID
+          ? [{ agentId: FINANCIAL_COMPLIANCE_AGENT_ID, agentVersion: FINANCIAL_COMPLIANCE_AGENT_VERSION }]
+          : current.agentTargets,
       evaluatorIds: queryDataset
         ? [...new Set([...QUERY_AGENT_CORE_EVALUATOR_IDS, ...current.evaluatorIds])]
         : current.evaluatorIds.filter((evaluatorId) => !QUERY_AGENT_CORE_EVALUATOR_IDS.includes(evaluatorId)),
@@ -2416,8 +2437,8 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
     <section className="eval-task-step-panel">
       {step === 2 && <div className="eval-task-step-content">
         <div className="eval-task-form-row eval-task-form-row--action">
-          <label className="eval-field"><span>评测集 <b>*</b></span><select value={config.datasetId} onChange={(event) => changeDataset(event.target.value)}>{submitted.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="eval-field"><span>版本 <b>*</b></span><select value={config.datasetVersion} disabled={!dataset} onChange={(event) => setConfig((current) => ({ ...current, datasetVersion: event.target.value }))}>{dataset?.versions.filter((version) => version.status === '已提交').map((version) => <option key={version.id} value={version.id}>{version.label}</option>)}</select></label>
+          <label className="eval-field"><span>评测集 <b>*</b></span><SelectField value={config.datasetId} onChange={(event) => changeDataset(event.target.value)}>{submitted.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>
+          <label className="eval-field"><span>版本 <b>*</b></span><SelectField value={config.datasetVersion} disabled={!dataset} onChange={(event) => setConfig((current) => ({ ...current, datasetVersion: event.target.value }))}>{dataset?.versions.filter((version) => version.status === '已提交').map((version) => <option key={version.id} value={version.id}>{version.label}</option>)}</SelectField></label>
           <CreateMenu onCreate={onCreateDataset} />
         </div>
         {!submitted.length && <div className="eval-inline-warning"><CircleAlert size={15} />当前没有可运行的已提交评测集，请先新建评测集。</div>}
@@ -2427,10 +2448,17 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
       {step === 1 && <div className="eval-task-step-content">
         <div className="eval-agent-target-list">
           {selectedAgents.map(({ target, agent }, index) => <div className="eval-agent-target-row" key={`${target.agentId}-${index}`}>
-            <label className="eval-field"><span>Agent <b>*</b></span><select value={target.agentId} onChange={(event) => changeAgentTarget(index, event.target.value)}>{state.agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label className="eval-field"><span>版本 <b>*</b></span><select value={target.agentVersion} disabled={!agent} onChange={(event) => changeAgentVersion(index, event.target.value)}>{(agent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</select></label>
+            <label className="eval-field"><span>Agent <b>*</b></span><SelectField value={target.agentId} onChange={(event) => changeAgentTarget(index, event.target.value)}>{state.agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>
+            <label className="eval-field"><span>版本 <b>*</b></span><SelectField value={target.agentVersion} disabled={!agent} onChange={(event) => changeAgentVersion(index, event.target.value)}>{(agent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</SelectField></label>
             {config.agentTargets.length > 1 && <IconButton label={`移除 ${agent?.name ?? 'Agent'}`} onClick={() => removeAgentTarget(index)}><Trash2 size={15} /></IconButton>}
-            {agent && <div className="eval-agent-target-description"><span>描述</span><p>{agent.description}</p></div>}
+            {agent && <div className="eval-agent-target-description">
+              <span>描述</span><p>{agent.description}</p>
+              {(agent.architecture || agent.skills?.length || agent.mcpConnections?.length) && <div className="eval-agent-target-capabilities">
+                {agent.architecture && <span><strong>架构</strong>{agent.architecture}</span>}
+                {agent.skills?.length ? <span><strong>Skills</strong>{agent.skills.join('、')}</span> : null}
+                {agent.mcpConnections?.length ? <span><strong>MCP</strong>{agent.mcpConnections.join('、')}</span> : null}
+              </div>}
+            </div>}
           </div>)}
         </div>
         <button type="button" className="eval-evaluator-add-trigger" onClick={addAgentTarget}><Plus size={16} />添加 Agent</button>
@@ -2450,16 +2478,16 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
             <header>
               <div>
                 <strong>评估器 {index + 1}</strong>
-                <select aria-label={`选择评估器 ${index + 1}`} value={evaluator?.id ?? ''} onChange={(event) => changeEvaluatorCard(index, event.target.value)}>
+                <SelectField aria-label={`选择评估器 ${index + 1}`} value={evaluator?.id ?? ''} onChange={(event) => changeEvaluatorCard(index, event.target.value)}>
                   <option value="">请选择评估器</option>
                   {options.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
+                </SelectField>
               </div>
               <div>{evaluator && <Status label={missing.length ? '无法执行' : '可执行'} />}{evaluator && QUERY_AGENT_CORE_EVALUATOR_IDS.includes(evaluator.id) ? <span className="eval-query-core-lock">硬门禁</span> : <IconButton label={`移除评估器 ${index + 1}`} onClick={() => removeEvaluatorCard(index)}><Trash2 size={15} /></IconButton>}</div>
             </header>
             {evaluator ? <>
               <p>{evaluator.description}</p>
-              <div className="eval-auto-binding"><div className="eval-auto-binding__head"><span>评估器变量</span><span>字段语义</span><span>自动绑定</span></div>{variables.map(({ variable, systemProvided, field, bindingKey }) => <div className={`eval-auto-binding__row${variable.required && !systemProvided && !field ? ' is-missing' : ''}`} key={`${evaluator.id}-${variable.name}`}><strong>{variable.name}</strong><FieldBadge semantic={variable.semantic} required={variable.required} /><span>{systemProvided ? '系统运行时提供' : variable.semantic === 'Custom' ? <select aria-label={`绑定 ${variable.name}`} value={customBindings[bindingKey] ?? ''} onChange={(event) => setCustomBindings((current) => ({ ...current, [bindingKey]: event.target.value }))}><option value="">手动绑定字段</option>{dataset?.fields.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : field?.name ?? '未找到对应字段'}</span></div>)}</div>
+              <div className="eval-auto-binding"><div className="eval-auto-binding__head"><span>评估器变量</span><span>字段语义</span><span>自动绑定</span></div>{variables.map(({ variable, systemProvided, field, bindingKey }) => <div className={`eval-auto-binding__row${variable.required && !systemProvided && !field ? ' is-missing' : ''}`} key={`${evaluator.id}-${variable.name}`}><strong>{variable.name}</strong><FieldBadge semantic={variable.semantic} required={variable.required} /><span>{systemProvided ? '系统运行时提供' : variable.semantic === 'Custom' ? <SelectField aria-label={`绑定 ${variable.name}`} value={customBindings[bindingKey] ?? ''} onChange={(event) => setCustomBindings((current) => ({ ...current, [bindingKey]: event.target.value }))}><option value="">手动绑定字段</option>{dataset?.fields.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField> : field?.name ?? '未找到对应字段'}</span></div>)}</div>
             </> : <p>请选择一个评估器。</p>}
           </article>)}
         </div>
@@ -2664,7 +2692,9 @@ function EvaluatorResultFilterControl({
   useEffect(() => {
     if (!open) return;
     const closeOnOutsidePointer = (event: globalThis.MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Element | null;
+      const insideSelectPortal = Boolean(target?.closest('.eval-select-content'));
+      if (rootRef.current && !rootRef.current.contains(target) && !insideSelectPortal) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
@@ -2687,7 +2717,7 @@ function EvaluatorResultFilterControl({
       <div className="eval-evaluator-filter-list">
         {evaluators.length ? evaluators.map((evaluator) => <label className={value[evaluator.id] ? 'is-set' : ''} key={evaluator.id}>
           <span><strong>{evaluator.name}</strong><small>{versions?.[evaluator.id] ?? evaluator.version}</small></span>
-          <select
+          <SelectField
             aria-label={`筛选评估器 ${evaluator.name}`}
             value={value[evaluator.id] ?? ''}
             onChange={(event) => {
@@ -2701,7 +2731,7 @@ function EvaluatorResultFilterControl({
             <option value="">全部</option>
             <option value="通过">通过</option>
             <option value="不通过">不通过</option>
-          </select>
+          </SelectField>
         </label>) : <div className="eval-evaluator-filter-empty">当前任务没有评估器</div>}
       </div>
     </div>}
@@ -2852,9 +2882,9 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回
     {tab === 'data' && <section className="eval-task-data-detail">
       <div className="eval-task-data-toolbar">
         <div className="eval-task-data-query">
-          <label className="eval-task-case-search"><input value={caseSearch} maxLength={10000} placeholder="搜索 Case ID 或内容" aria-label="检索 Case" onChange={(event) => setCaseSearch(event.target.value)} /></label>
-          <label className="eval-case-filter eval-case-filter--status"><span>状态</span><select value={caseStatusFilter} aria-label="按运行状态筛选 Case" onChange={(event) => setCaseStatusFilter(event.target.value)}><option value="">全部</option><option value="成功">成功</option><option value="失败">失败</option></select></label>
-          <label className="eval-case-filter eval-case-filter--annotation"><span>是否标注</span><select value={annotationFilter} aria-label="按标注状态筛选 Case" onChange={(event) => setAnnotationFilter(event.target.value as HumanAnnotationFilter)}><option value="">全部</option><option value="已标注">已标注</option><option value="未标注">未标注</option></select></label>
+          <SearchField className="eval-task-case-search" value={caseSearch} maxLength={10000} placeholder="搜索 Case ID 或内容" aria-label="检索 Case" onChange={(event) => setCaseSearch(event.target.value)} />
+          <label className="eval-case-filter eval-case-filter--status"><span>状态</span><SelectField value={caseStatusFilter} aria-label="按运行状态筛选 Case" onChange={(event) => setCaseStatusFilter(event.target.value)}><option value="">全部</option><option value="成功">成功</option><option value="失败">失败</option></SelectField></label>
+          <label className="eval-case-filter eval-case-filter--annotation"><span>是否标注</span><SelectField value={annotationFilter} aria-label="按标注状态筛选 Case" onChange={(event) => setAnnotationFilter(event.target.value as HumanAnnotationFilter)}><option value="">全部</option><option value="已标注">已标注</option><option value="未标注">未标注</option></SelectField></label>
           <EvaluatorResultFilterControl evaluators={taskEvaluators} versions={task.evaluatorVersions} value={evaluatorResultFilters} onChange={setEvaluatorResultFilters} />
         </div>
         <div className="eval-human-label-wrap"><button type="button" className="eval-button eval-button--ghost" onClick={() => setHumanLabelMenuOpen((current) => !current)}><Plus size={15} />添加人工标注</button>{humanLabelMenuOpen && <div className="eval-human-label-menu">{state.humanLabels.map((label) => <button type="button" key={label.id} className={activeHumanLabelId === label.id ? 'is-active' : ''} onClick={() => { setActiveHumanLabelId(label.id); setHumanLabelMenuOpen(false); }}><span><strong>{label.name}</strong><small>{label.scoreType === 'numeric' ? `0-1 分，阈值 ${label.passThreshold ?? 0}` : '通过 / 不通过'}</small></span>{activeHumanLabelId === label.id && <Check size={14} />}</button>)}</div>}</div>
@@ -2909,8 +2939,8 @@ const normalizeCaseToken = (value: string) => value
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '');
 
-const caseTraceId = (item: CaseResult) => item.queryAgent?.traceId ?? `trace-${normalizeCaseToken(item.caseId)}`;
-const caseSessionId = (item: CaseResult, task: EvaluationTask) => item.queryAgent?.sessionId ?? `session-${normalizeCaseToken(task.id)}`;
+const caseTraceId = (item: CaseResult) => item.observedTraceId ?? item.queryAgent?.traceId ?? `trace-${normalizeCaseToken(item.caseId)}`;
+const caseSessionId = (item: CaseResult, task: EvaluationTask) => item.observedSessionId ?? item.queryAgent?.sessionId ?? `session-${normalizeCaseToken(task.id)}`;
 
 const durationToMilliseconds = (value?: string) => {
   if (!value) return null;
@@ -3013,6 +3043,26 @@ function caseResultToObservedSession(task: EvaluationTask, trace: ObservedTrace)
     outputTokens: trace.outputTokens,
     turns: [trace],
   };
+}
+
+const caseObservedTrace = (item: CaseResult) => observedTraces.find((trace) =>
+  trace.id === item.observedTraceId
+  || trace.traceId === item.observedTraceId
+  || trace.traceId === item.queryAgent?.traceId,
+);
+
+const caseObservedSession = (item: CaseResult) => observedSessions.find((session) =>
+  session.id === item.observedSessionId
+  || session.sessionId === item.observedSessionId
+  || session.id === item.queryAgent?.sessionId,
+);
+
+function resolveCaseObservationTrace(item: CaseResult, task: EvaluationTask): ObservedTrace {
+  return caseObservedTrace(item) ?? caseResultToObservedTrace(item, task);
+}
+
+function resolveCaseObservationSession(item: CaseResult, task: EvaluationTask, fallbackTrace: ObservedTrace): ObservedSession {
+  return caseObservedSession(item) ?? caseResultToObservedSession(task, fallbackTrace);
 }
 
 const evaluatorResultValue = (result: EvaluatorResult) => result.scoreType === 'numeric' && typeof result.evaluationResult === 'number'

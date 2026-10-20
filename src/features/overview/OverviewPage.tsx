@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Clock3,
 } from 'lucide-react';
+import { SelectField } from '../evaluation/eval-ui';
 import { TIME_PRESETS, formatDateTime, formatDateTimeInput, getTimeRange, type TimePresetKey, type TimeRange } from './overview-time';
 import './overview.css';
 
@@ -39,20 +40,19 @@ const METRICS: Metric[] = [
 ];
 
 const AGENT_ROWS = [
+  { name: '金融合规问答 Agent', version: 'GraphRAG', coverage: 100, passRate: 50.0, averageScore: 0.82 },
+  { name: '问数 Agent', version: 'Skills + MCP', coverage: 100, passRate: 91.1, averageScore: 0.86 },
   { name: '退款客服助手', version: 'V4', coverage: 92, passRate: 91.8, averageScore: 0.86 },
-  { name: '经营问数助手', version: 'V3', coverage: 68, passRate: 83.4, averageScore: 0.78 },
   { name: '招标评估助手', version: 'V1', coverage: 43, passRate: 78.2, averageScore: 0.72 },
   { name: '网页研究助手', version: 'V2', coverage: 81, passRate: 87.1, averageScore: 0.84 },
-  { name: '合同审查助手', version: 'V2', coverage: 38, passRate: 74.9, averageScore: 0.68 },
-  { name: '工单分派助手', version: 'V5', coverage: 90, passRate: 89.2, averageScore: 0.88 },
 ];
 
 const TASK_STATS = [
-  { label: '评测数据集', value: '24' },
-  { label: '已完成评测任务', value: '42' },
-  { label: '运行中任务', value: '8' },
-  { label: '对比实验', value: '12' },
-  { label: '优化实验', value: '5' },
+  { label: '评测数据集', value: '5' },
+  { label: '已完成评测任务', value: '4' },
+  { label: '运行中任务', value: '1' },
+  { label: '对比实验', value: '2' },
+  { label: '优化实验', value: '2' },
 ];
 
 const formatChartValue = (metric: Metric, value: number) => {
@@ -207,7 +207,7 @@ export default function OverviewPage({
   return <div className="overview-page">
     <div className="ov-dashboard-toolbar">
       <div className="ov-query-controls">
-        <label className="ov-select-control"><Bot size={15} /><select aria-label="选择 Agent" value={agent} onChange={(event) => setAgent(event.target.value)}><option>全部 Agent</option><option>退款客服助手</option><option>经营问数助手</option><option>招标评估助手</option><option>网页研究助手</option><option>合同审查助手</option></select></label>
+        <label className="ov-select-control"><Bot size={15} /><SelectField aria-label="选择 Agent" value={agent} onChange={(event) => setAgent(event.target.value)}><option>全部 Agent</option><option>金融合规问答 Agent</option><option>问数 Agent</option><option>退款客服助手</option><option>招标评估助手</option><option>网页研究助手</option></SelectField></label>
         <div className="ov-time-range" ref={timePickerRef}>
           <button type="button" className="ov-time-range__trigger" aria-haspopup="dialog" aria-expanded={timePickerOpen} onClick={toggleTimePicker}>
             <span className="ov-time-range__preset">{selectedTimePreset.label}</span>

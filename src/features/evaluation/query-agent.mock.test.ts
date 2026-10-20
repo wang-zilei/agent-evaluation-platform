@@ -16,6 +16,8 @@ describe('query agent migration mock', () => {
     expect(queryAgentDataset.cases).toHaveLength(45);
     expect(results).toHaveLength(45);
     expect(results.find((item) => item.caseId === 'syn-query-01')?.queryAgent?.rawTrace?.input?.messages).toHaveLength(1);
+    expect(results.find((item) => item.caseId === 'syn-query-01')?.observedTraceId).toBe('trace-syn-query-01');
+    expect(results.find((item) => item.caseId === 'syn-query-43')?.observedSessionId).toBe('query-observation-syn-query-43');
     expect(results.find((item) => item.caseId === 'syn-query-44')?.trace).toHaveLength(0);
   });
 

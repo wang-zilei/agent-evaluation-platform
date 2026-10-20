@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Clock3, Coins, Cpu, Footprints, History, Layers3, Search, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Clock3, Coins, Cpu, Footprints, History, Layers3, Wrench, X, type LucideIcon } from 'lucide-react';
+import { SearchField, SelectField } from './eval-ui';
 import type { ObservedSession, ObservedTrace, TraceEvent } from './trace.types';
 
 export type ObservationView = 'trace' | 'session';
@@ -10,6 +11,7 @@ export type ObservationBackflowSelection = {
 };
 
 const OBSERVATION_LABELS: Record<ObservationView, string> = { trace: 'Trace', session: 'Session' };
+const FILTER_FALLBACK_NOW = Date.parse('2026-10-20T23:59:59+08:00');
 export function ObservationTabs({ view, onViewChange, onResetSearch }: { view: ObservationView; onViewChange: (view: ObservationView) => void; onResetSearch?: () => void }) {
   return <div className="eval-view-switch">
     <span>视图</span>
@@ -91,8 +93,6 @@ const traceTimeRange = (occurredAt: string | null, duration: number | null) => {
   return end ? `${formatClock(start)} → ${formatClock(end)}` : formatClock(start);
 };
 
-const FILTER_NOW = Date.parse('2026-09-22T16:00:00+08:00');
-
 type TraceListProps = {
   traces: ObservedTrace[];
   sessions: ObservedSession[];
@@ -111,14 +111,20 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
   const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const agents = useMemo(() => ['全部', ...[...new Set(traces.map((trace) => trace.agent ?? '未采集'))]], [traces]);
+  const filterNow = useMemo(() => {
+    const timestamps = traces.map((trace) => Date.parse(trace.occurredAt ?? '')).filter((value) => Number.isFinite(value));
+    return timestamps.length ? Math.max(...timestamps) : FILTER_FALLBACK_NOW;
+  }, [traces]);
 
   const matchesFilters = (item: { agent: string | null; occurredAt: string | null }) => {
     const agentLabel = item.agent ?? '未采集';
     if (agentFilter !== '全部' && agentLabel !== agentFilter) return false;
     if (timeFilter !== '全部') {
       if (!item.occurredAt) return false;
-      const start = FILTER_NOW - Number(timeFilter) * 24 * 60 * 60 * 1000;
-      if (new Date(item.occurredAt).getTime() < start) return false;
+      const occurredAt = new Date(item.occurredAt).getTime();
+      if (!Number.isFinite(occurredAt) || occurredAt > filterNow) return false;
+      const start = filterNow - Number(timeFilter) * 24 * 60 * 60 * 1000;
+      if (occurredAt < start) return false;
     }
     return true;
   };
@@ -160,9 +166,9 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
       <ObservationTabs view={view} onViewChange={onViewChange} onResetSearch={() => setSearch('')} />
     </div>
     <div className="eval-toolbar eval-obs-toolbar">
-      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={view === 'session' ? '搜索 Session ID、Agent 或输入' : '搜索 Trace ID、Agent 或输入'} /></label>
-      <select aria-label="时间筛选" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="全部">全部时间</option><option value="1">近 1 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option></select>
-      <select aria-label="Agent 筛选" value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>{agents.map((agent) => <option key={agent} value={agent}>{agent === '全部' ? '全部 Agent' : agent}</option>)}</select>
+      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder={view === 'session' ? '搜索 Session ID、Agent 或输入' : '搜索 Trace ID、Agent 或输入'} />
+      <SelectField aria-label="时间筛选" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="全部">全部时间</option><option value="1">近 1 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option></SelectField>
+      <SelectField aria-label="Agent 筛选" value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>{agents.map((agent) => <option key={agent} value={agent}>{agent === '全部' ? '全部 Agent' : agent}</option>)}</SelectField>
       <button type="button" className={`eval-button eval-obs-backflow-button${selectedCount ? ' eval-button--primary' : ''}`} disabled={selectedCount === 0} onClick={requestBackflow}><History size={14} />轨迹回流{selectedCount ? `（${selectedCount}）` : ''}</button>
     </div>
 
@@ -219,7 +225,7 @@ export function TraceDetail({ trace, onBack }: {
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Trace</button></div>
     <header className="eval-trace-detail-head">
       <div><span className="eval-eyebrow">TRACE</span><h2>{trace.traceId ?? trace.id}</h2></div>
-      <span className="eval-trace-source">{trace.sourceFile}</span>
+      <span className="eval-trace-source">{trace.agent ?? '未采集 Agent'} · {trace.sourceFile}</span>
     </header>
     <ObservationSummary ariaLabel="Trace 运行摘要" items={[
       { label: 'Steps', value: String(trace.events.length), detail: `USER ${eventSummary.user} / ASSISTANT ${eventSummary.assistant} / TOOL ${eventSummary.tool}`, icon: Footprints, tone: 'blue' },
@@ -262,7 +268,7 @@ export function SessionDetail({ session, onBack }: { session: ObservedSession; o
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Session</button></div>
     <header className="eval-trace-detail-head">
       <div><span className="eval-eyebrow">SESSION</span><h2>{session.id}</h2></div>
-      <span className="eval-trace-source">{formatTime(session.startedAt)}</span>
+      <span className="eval-trace-source">{session.agent ?? '未采集 Agent'} · {formatTime(session.startedAt)}</span>
     </header>
     <ObservationSummary ariaLabel="Session 运行摘要" items={[
       { label: 'Turn', value: String(session.turns.length), detail: 'Session 内对话轮次', icon: Layers3, tone: 'blue' },

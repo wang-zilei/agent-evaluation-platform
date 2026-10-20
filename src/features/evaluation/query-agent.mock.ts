@@ -7,12 +7,18 @@ import type {
   Evaluator,
   EvaluatorResult,
   FieldDefinition,
+  HistoryConversation,
   ResultStatus,
   TraceEvent,
 } from './evaluation.types';
+import type { ObservedTrace, TraceEvent as ObservationTraceEvent } from './trace.types';
 
 export const QUERY_AGENT_DATASET_ID = 'DS-QUERY-AGENT-45';
 export const QUERY_AGENT_CORE_EVALUATOR_IDS = ['result_match', 'sql_contract', 'sql_safety'];
+export const QUERY_AGENT_AGENT_ID = 'agent-query';
+export const QUERY_AGENT_AGENT_VERSION = 'Skills + MCP';
+const QUERY_AGENT_OBSERVED_CASE_IDS = ['syn-query-01', 'syn-query-25', 'syn-query-43'] as const;
+const QUERY_AGENT_AGENT_CONFIG = 'Skills：SQL 编写规范、SQL 编写工作流；MCP：本体查询、只读 SQL 查询';
 
 type RawValue = string | number | boolean | null | RawValue[] | { [key: string]: RawValue };
 
@@ -58,7 +64,7 @@ type RawMessage = {
   id?: string | null;
   name?: string | null;
   tool_call_id?: string | null;
-  tool_calls?: { id?: string | null; name?: string | null }[];
+  tool_calls?: { id?: string | null; name?: string | null; args?: RawValue; type?: string }[];
   additional_kwargs?: { reasoning_content?: string } & Record<string, RawValue>;
   response_metadata?: Record<string, RawValue>;
   usage_metadata?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
@@ -139,6 +145,147 @@ const messageLists = (rawCase: RawCase) => ({
   input: rawCase.raw_trace?.input?.messages ?? [],
   output: rawCase.raw_trace?.output?.messages ?? [],
 });
+
+const observedSessionId = (caseId: string) => `query-observation-${caseId}`;
+
+const observationEvents = (rawCase: RawCase): ObservationTraceEvent[] => {
+  const human = messageLists(rawCase).input.find((message) => message.type === 'human');
+  const calls = new Map<string, { name: string; args: RawValue }>();
+  const events: ObservationTraceEvent[] = human ? [{
+    kind: 'user',
+    id: `${rawCase.id}-user`,
+    text: String(human.content ?? rawCase.input),
+    messageId: human.id ?? null,
+  }] : [];
+  for (const message of messageLists(rawCase).output) {
+    if (message.type === 'ai') {
+      for (const call of message.tool_calls ?? []) {
+        if (call.id && call.name) calls.set(call.id, { name: call.name, args: call.args ?? null });
+      }
+      const reasoning = String(message.additional_kwargs?.reasoning_content ?? '');
+      const content = String(message.content ?? '');
+      const isFinal = !(message.tool_calls ?? []).length && message.response_metadata?.finish_reason === 'stop';
+      events.push({
+        kind: 'assistant',
+        id: message.id ?? `${rawCase.id}-ai-${events.length}`,
+        text: content || reasoning,
+        isFinal,
+        hasReasoning: Boolean(reasoning),
+        reasoning,
+        content,
+        model: 'Doubao-Seed-1.6',
+        provider: 'volcengine',
+        finishReason: typeof message.response_metadata?.finish_reason === 'string' ? message.response_metadata.finish_reason : null,
+        inputTokens: message.usage_metadata?.input_tokens ?? null,
+        outputTokens: message.usage_metadata?.output_tokens ?? null,
+        totalTokens: message.usage_metadata?.total_tokens ?? null,
+        cacheReadTokens: null,
+        reasoningTokens: null,
+        toolNames: (message.tool_calls ?? []).map((call) => call.name).filter((name): name is string => Boolean(name)),
+      });
+      continue;
+    }
+    if (message.type === 'tool') {
+      const call = message.tool_call_id ? calls.get(message.tool_call_id) : undefined;
+      const status = message.status === 'error' ? 'error' : 'success';
+      events.push({
+        kind: 'tool',
+        id: message.id ?? message.tool_call_id ?? `${rawCase.id}-tool-${events.length}`,
+        name: message.name ?? call?.name ?? 'tool',
+        input: compactJson(call?.args, 620) || '未采集参数',
+        output: compactJson(message.content, 920) || '未采集返回',
+        linked: Boolean(message.tool_call_id && call),
+        brief: message.name === 'load_ontology'
+          ? '读取业务本体并确认可关联实体'
+          : message.name === 'grep_schema'
+            ? '检索 schema 与字段定义'
+            : message.name === 'validate_sql'
+              ? '检查 SQL 只读性和语法'
+              : message.name === 'query_database'
+                ? '通过只读 MCP 执行 Agent SQL'
+                : message.name === 'normalize_result'
+                  ? '规整查询结果与数值精度'
+                  : '工具执行结果',
+        status,
+        args: call && call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args as Record<string, unknown> : null,
+        result: compactJson(message.content, 1200) || '未采集返回',
+      });
+    }
+  }
+  return events;
+};
+
+const displayAnswer = (rawCase: RawCase): string => rawCase.id === 'syn-query-01'
+  ? '2026 年 1 月已支付订单总金额为 752.16 元。'
+  : rawCase.id === 'syn-query-25'
+    ? '网点 B001 在 2026 年 1 月的已支付订单金额为 999,999.99 元。'
+    : rawCase.id === 'syn-query-43'
+      ? '查询执行失败，暂时无法获取 2026 年 1 月已支付订单总额。'
+      : rawCase.agent_output?.answer ?? '';
+
+const toObservedTrace = (rawCase: RawCase, index: number): ObservedTrace => {
+  const events = observationEvents(rawCase);
+  const usage = [...messageLists(rawCase).input, ...messageLists(rawCase).output].reduce((total, message) => ({
+    input: total.input + (message.usage_metadata?.input_tokens ?? 0),
+    output: total.output + (message.usage_metadata?.output_tokens ?? 0),
+  }), { input: 0, output: 0 });
+  const traceId = rawCase.trace_id ?? `trace-${rawCase.id}`;
+  const finalAssistant = [...events].reverse().find((event): event is Extract<ObservationTraceEvent, { kind: 'assistant' }> => event.kind === 'assistant' && event.isFinal);
+  const observedOutput = displayAnswer(rawCase) || finalAssistant?.content || '';
+  return {
+    id: `observation-${rawCase.id}`,
+    traceId,
+    sessionId: observedSessionId(rawCase.id),
+    turn: 1,
+    sourceFile: `query-agent-validation/${rawCase.id}.jsonl`,
+    agent: '问数 Agent',
+    occurredAt: ['2026-10-19T03:12:18.412Z', '2026-10-19T03:24:46.705Z', '2026-10-19T03:31:09.118Z'][index] ?? '2026-10-19T03:31:09.118Z',
+    duration: 2860 + index * 920,
+    feedback: index === 0 ? 'SQL 与结果一致' : index === 1 ? '回答数值需核对' : '执行失败已定位',
+    abnormal: rawCase.agent_output?.execution_status === 'error' || index === 1,
+    sourceMessageCount: events.length + 1,
+    historyMessageCount: 0,
+    currentMessageCount: events.length + 1,
+    reasoningCount: events.filter((event) => event.kind === 'assistant' && event.hasReasoning).length,
+    toolCount: events.filter((event) => event.kind === 'tool').length,
+    inputTokens: usage.input,
+    outputTokens: usage.output,
+    compressed: false,
+    historySummary: '',
+    input: rawCase.input,
+    output: observedOutput,
+    context: { kind: 'none', messages: [] },
+    events,
+  };
+};
+
+export const queryAgentObservedTraces: ObservedTrace[] = QUERY_AGENT_OBSERVED_CASE_IDS
+  .map((caseId) => queryAgentSourceCases.find((item) => item.id === caseId))
+  .filter((item): item is RawCase => Boolean(item))
+  .map(toObservedTrace);
+
+export const queryAgentHistoryConversations: HistoryConversation[] = queryAgentObservedTraces.map((trace) => ({
+  id: trace.sessionId ?? trace.id,
+  title: trace.input,
+  occurredAt: new Date(trace.occurredAt ?? '').toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', hour12: false }).slice(0, 16),
+  agentId: QUERY_AGENT_AGENT_ID,
+  agentVersion: QUERY_AGENT_AGENT_VERSION,
+  traces: [{
+    id: trace.traceId ?? trace.id,
+    name: `Turn ${trace.turn}`,
+    summary: trace.output.slice(0, 100),
+    input: trace.input,
+    agentOutput: trace.output,
+    userFeedback: trace.feedback ?? '',
+    occurredAt: new Date(trace.occurredAt ?? '').toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', hour12: false }).slice(0, 16),
+  }],
+}));
+
+const observedTraceIdForCase = (caseId: string): string | undefined => QUERY_AGENT_OBSERVED_CASE_IDS.includes(
+  caseId as (typeof QUERY_AGENT_OBSERVED_CASE_IDS)[number],
+)
+  ? `observation-${caseId}`
+  : undefined;
 
 const structureIssues = (rawCase: RawCase): string[] => {
   const { input, output } = messageLists(rawCase);
@@ -434,9 +581,11 @@ export const queryAgentEvaluators: Evaluator[] = [
 
 const queryAgentFields: FieldDefinition[] = [
   { id: 'q-input', name: '用户问题', semantic: 'Input', description: '问数 Agent 收到的原始问题。', required: true },
+  { id: 'q-round', name: '验证场景', semantic: 'Custom', description: '常规问数、规则边界或异常执行。', required: true },
   { id: 'q-expected', name: '冻结结果', semantic: 'Expected Output', description: '参考 SQL 执行后的冻结结果集。', required: false },
   { id: 'q-answer', name: 'Agent 回答', semantic: 'Agent Output', description: '运行时保留的最终回答。', required: false },
   { id: 'q-trace', name: '问数 Trace', semantic: 'Trace', description: '规范化 Trace 展示投影；raw Trace 在详情保留。', required: false },
+  { id: 'q-config', name: 'Agent 配置', semantic: 'Agent Configuration', description: '本次问数使用的 Skills 和 MCP。', required: true },
   { id: 'q-expected-sql', name: '参考 SQL', semantic: 'Custom', description: '冻结快照关联的参考 SQL。', required: false },
   { id: 'q-agent-sql', name: 'Agent SQL', semantic: 'Custom', description: 'Agent 生成并执行的 SQL。', required: false },
   { id: 'q-snapshot', name: '快照 ID', semantic: 'Custom', description: '结果比较绑定的数据快照。', required: true },
@@ -448,9 +597,11 @@ const datasetCases: DatasetCase[] = queryAgentSourceCases.map((item) => ({
   id: item.id,
   values: {
     'q-input': item.input,
+    'q-round': item.tags?.includes('correct') ? '常规问数' : item.tags?.includes('execution-failure') ? '执行异常' : '规则边界',
     'q-expected': compactJson(item.expected_output?.result, 360),
-    'q-answer': item.agent_output?.answer ?? '',
+    'q-answer': displayAnswer(item),
     'q-trace': `${item.trace?.length ?? 0} 个规范化节点 · ${item.raw_trace ? `${messageLists(item).input.length + messageLists(item).output.length} 条 raw 消息` : 'raw Trace 缺失'}`,
+    'q-config': QUERY_AGENT_AGENT_CONFIG,
     'q-expected-sql': item.expected_output?.sql ?? '未采集',
     'q-agent-sql': item.agent_output?.sql ?? '未采集',
     'q-snapshot': item.expected_output?.snapshot_id ?? '未采集',
@@ -463,9 +614,9 @@ const datasetCases: DatasetCase[] = queryAgentSourceCases.map((item) => ({
 
 export const queryAgentDataset: Dataset = {
   id: QUERY_AGENT_DATASET_ID,
-  name: '问数 Agent 综合评测集',
-  description: '45 条纯合成问数 Case；保留查询契约、消息级 raw Trace 和冻结结果。前端只做 Mock 判定，不执行 SQL、不读取 SQLite、不调用模型。',
-  tags: ['问数', 'SQL'],
+  name: '网点与订单问数验证集',
+  description: '45 条合成验证 Case，覆盖 SQL 编写规范、工作流、本体查询 MCP 和只读数据库查询 MCP。保留查询契约、消息级 raw Trace、SQL 与冻结结果。',
+  tags: ['问数', 'SQL', 'Skills', 'MCP', '本体'],
   status: '已提交',
   source: '用户上传',
   createdAt: '2026-10-16 18:00',
@@ -474,11 +625,21 @@ export const queryAgentDataset: Dataset = {
   fields: queryAgentFields,
   cases: datasetCases,
   draftVersionId: '',
-  versions: [{ id: 'query-agent-v1', label: 'V1 · synthetic-branch-orders-v1', status: '已提交', caseCount: datasetCases.length, createdAt: '2026-10-16 18:00', createdBy: '演示账户', note: '45 条纯合成 Case；保留消息级 raw Trace 和查询契约。' }],
+  versions: [{ id: 'query-agent-v1', label: '验证集 · 45 条', status: '已提交', caseCount: datasetCases.length, createdAt: '2026-10-16 18:00', createdBy: '演示账户', note: '45 条合成 Case；保留消息级 raw Trace、SQL 和查询契约。' }],
 };
 
 export const queryAgentAgents: AgentOption[] = [
-  { id: 'agent-query', name: '问数 Agent Mock', versions: ['Loop V1'], description: '基于合成 Trace 回放的问数执行对象；不连接客户数据库或模型。', source: '万智', protocol: '实时上报' },
+  {
+    id: QUERY_AGENT_AGENT_ID,
+    name: '问数 Agent',
+    versions: [QUERY_AGENT_AGENT_VERSION],
+    description: '通过 SQL 编写 Skill、工作流、本体查询 MCP 和只读 SQL 查询 MCP 完成问数。',
+    source: '万智',
+    protocol: '实时上报',
+    architecture: 'Skills + MCP：本体理解 → SQL 生成 → 安全校验 → 只读查询 → 结果整理',
+    skills: ['SQL 编写规范', 'SQL 编写工作流'],
+    mcpConnections: ['本体查询 MCP', '只读数据库查询 MCP'],
+  },
 ];
 
 const buildEvaluatorResults = (rawCase: RawCase, selected: Evaluator[]): EvaluatorResult[] => {
@@ -489,7 +650,7 @@ const buildEvaluatorResults = (rawCase: RawCase, selected: Evaluator[]): Evaluat
   return allResults.map((item) => ({ ...item, traceRefs: item.evaluationKind === '代码评估' && ['trace_contract', 'trace_structure', 'tool_trace', 'latency'].includes(item.evaluatorId) ? traceIds : traceIds.slice(-1) }));
 };
 
-export const createQueryAgentResults = (selected: Evaluator[], agent = '问数 Agent Mock', version = 'Loop V1'): CaseResult[] => queryAgentSourceCases.map((rawCase, index) => {
+export const createQueryAgentResults = (selected: Evaluator[], agent = '问数 Agent', version = QUERY_AGENT_AGENT_VERSION): CaseResult[] => queryAgentSourceCases.map((rawCase, index) => {
   const evaluatorResults = buildEvaluatorResults(rawCase, selected);
   const coreResults = evaluatorResults.filter((item) => QUERY_AGENT_CORE_EVALUATOR_IDS.includes(item.evaluatorId));
   const status = resultStatus(coreResults);
@@ -502,10 +663,12 @@ export const createQueryAgentResults = (selected: Evaluator[], agent = '问数 A
     caseMark: status === '通过' ? undefined : 'Badcase',
     input: rawCase.input,
     expectedOutput: compactJson(rawCase.expected_output?.result, 900),
-    agentOutput: rawCase.agent_output?.answer ?? '',
-    agentConfiguration: `${agent} ${version} · 合成快照 ${evidence.snapshotId ?? '未采集'}`,
+    agentOutput: displayAnswer(rawCase),
+    agentConfiguration: `${agent} ${version} · ${QUERY_AGENT_AGENT_CONFIG} · 快照 ${evidence.snapshotId ?? '未采集'}`,
     trace: projectionTrace(rawCase),
     evaluatorResults,
+    observedTraceId: observedTraceIdForCase(rawCase.id) ? rawCase.trace_id ?? `query-observation-${rawCase.id}` : undefined,
+    observedSessionId: observedTraceIdForCase(rawCase.id) ? observedSessionId(rawCase.id) : undefined,
     runtime: {
       runStatus: status,
       agentDuration: `${rawCase.duration_ms ?? 0} ms`,

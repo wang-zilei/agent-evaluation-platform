@@ -1,6 +1,9 @@
 import data from './trace-data/traces.json';
+import { financialComplianceObservedTraces } from './financial-compliance.mock';
+import { queryAgentObservedTraces } from './query-agent.mock';
 import type { ObservedSession, ObservedTrace } from './trace.types';
 
+const realObservedTraces = data as ObservedTrace[];
 const MOCK_TRACE_METADATA: Record<string, Pick<ObservedTrace, 'agent' | 'duration' | 'feedback'>> = {
   turn1: { agent: '行业研究 Agent', duration: 126_000, feedback: '有帮助' },
   turn2: { agent: '行业研究 Agent', duration: 395_000, feedback: '来源需复核' },
@@ -9,7 +12,7 @@ const MOCK_TRACE_METADATA: Record<string, Pick<ObservedTrace, 'agent' | 'duratio
 
 // The imported traces keep their original fields. Missing list-level metadata is
 // filled only in the normalized display projection for this Mock prototype.
-export const observedTraces = (data as ObservedTrace[]).map((trace) => {
+const normalizedRealTraces = realObservedTraces.map((trace) => {
   const mock = MOCK_TRACE_METADATA[trace.id];
   return {
     ...trace,
@@ -17,6 +20,15 @@ export const observedTraces = (data as ObservedTrace[]).map((trace) => {
     duration: trace.duration ?? mock?.duration ?? null,
     feedback: trace.feedback ?? mock?.feedback ?? null,
   };
+});
+
+export const observedTraces: ObservedTrace[] = [
+  ...normalizedRealTraces,
+  ...financialComplianceObservedTraces,
+  ...queryAgentObservedTraces,
+].sort((left, right) => {
+  const timeDelta = Date.parse(right.occurredAt ?? '') - Date.parse(left.occurredAt ?? '');
+  return Number.isNaN(timeDelta) ? right.turn - left.turn : timeDelta;
 });
 
 const sumTokens = (values: Array<number | null>) => {
@@ -51,6 +63,9 @@ export function groupObservedSessions(traces: ObservedTrace[]): ObservedSession[
       outputTokens: sumTokens(turns.map((turn) => turn.outputTokens)),
       turns,
     };
+  }).sort((left, right) => {
+    const timeDelta = Date.parse(right.startedAt ?? '') - Date.parse(left.startedAt ?? '');
+    return Number.isNaN(timeDelta) ? right.turns.length - left.turns.length : timeDelta;
   });
 }
 

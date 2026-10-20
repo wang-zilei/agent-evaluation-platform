@@ -1,12 +1,20 @@
 import { demoComparisons, demoDataset, demoEvaluators, demoExperiments, demoTasks } from './evaluation-demo';
 import { evaluatorOptimizations } from './auto-eval.mock';
 import {
+  financialComplianceAgent,
+  financialComplianceDataset,
+  financialComplianceEvaluators,
+  financialComplianceHistoryConversations,
+  financialComplianceTasks,
+} from './financial-compliance.mock';
+import {
   QUERY_AGENT_CORE_EVALUATOR_IDS,
   QUERY_AGENT_DATASET_ID,
   createQueryAgentResults,
   queryAgentAgents,
   queryAgentDataset,
   queryAgentEvaluators,
+  queryAgentHistoryConversations,
 } from './query-agent.mock';
 import type {
   AgentMcpConnection,
@@ -50,12 +58,6 @@ const failedTrace = trace([
   { id: 'f1', type: 'system', name: '接收用户输入', status: '成功', duration: '15 ms', detail: '解析为跨境订单退款咨询。' },
   { id: 'f2', type: 'tool', name: '订单查询', status: '失败', duration: '4.2 s', detail: '订单服务超时，未返回有效订单信息。' },
   { id: 'f3', type: 'agent', name: '生成最终回答', status: '跳过', duration: '未采集', detail: '依赖的订单信息不可用，未生成有效回答。' },
-]);
-
-const historyTrace = trace([
-  { id: 'h1', type: 'system', name: '历史会话回流', status: '成功', duration: '未采集', detail: '沿用原始会话中的 Agent 回复和 Trace，不重新运行 Agent。' },
-  { id: 'h2', type: 'retrieval', name: '历史 Trace · 知识库检索', status: '成功', duration: '1.1 s', detail: '原始会话命中售后政策与退款时效知识片段。' },
-  { id: 'h3', type: 'agent', name: '原始最终回答', status: '成功', duration: '2.3 s', detail: '来自 2026-08-19 16:02 的真实对话回流记录。' },
 ]);
 
 const result = (
@@ -253,41 +255,6 @@ const comparisonExperimentResults: CaseResult[] = [
   }),
 ];
 
-const comparisonAlternateResults: CaseResult[] = comparisonExperimentResults.map((item, index) => {
-  const outputs = [
-    '可以退。商品签收后 7 天内，商品完好且不影响二次销售即可申请。请在订单详情提交退货。无理由退货的寄回运费由买家承担，质量问题由商家承担。',
-    '退款审核通过后会原路退回，一般需要 3-5 个工作日，具体到账时间以支付渠道为准。',
-    '请补充订单号。收到订单号后，我可以继续查询退款进度。',
-    '请先核实订单状态和跨境售后政策。若系统仍无法退款，可转人工处理。',
-  ];
-  return {
-    ...item,
-    agentOutput: outputs[index],
-    evaluatorResults: item.evaluatorResults.map((evaluatorResult) => {
-      if (evaluatorResult.evaluatorId !== 'P0-02' || typeof evaluatorResult.evaluationResult !== 'number') return evaluatorResult;
-      return { ...evaluatorResult, evaluationResult: Math.max(0, evaluatorResult.evaluationResult - 0.08) };
-    }),
-    runtime: item.runtime ? {
-      ...item.runtime,
-      agentDuration: ['8.9 s', '7.8 s', '5.4 s', '9.6 s'][index],
-      firstTokenLatency: ['680 ms', '640 ms', '510 ms', '820 ms'][index],
-      inputTokens: [2260, 2180, 1810, 2420][index],
-      outputTokens: [620, 500, 320, 560][index],
-      totalTokens: [2880, 2680, 2130, 2980][index],
-      evaluatorDuration: '1.8 s',
-    } : undefined,
-  };
-});
-
-const onlyEvaluators = (items: CaseResult[], evaluatorIds: string[]): CaseResult[] => items.map((item) => ({
-  ...item,
-  evaluatorResults: item.evaluatorResults.filter((evaluatorResult) => evaluatorIds.includes(evaluatorResult.evaluatorId)),
-}));
-
-const comparisonCoverageControlResults = onlyEvaluators(comparisonBaseResults, ['P0-01', 'P0-02', 'P0-05', 'P0-12']);
-const comparisonCoverageResultResults = onlyEvaluators(comparisonExperimentResults, ['P0-01', 'P0-02']);
-const comparisonCoverageProcessResults = onlyEvaluators(comparisonAlternateResults, ['P0-01', 'P0-05', 'P0-12']);
-
 const tenderResults: CaseResult[] = [
   {
     caseId: 'CASE-FILE-001',
@@ -330,29 +297,6 @@ const failureResults: CaseResult[] = [
   },
 ].map(withRuntime);
 
-const historyResults: CaseResult[] = [
-  {
-    caseId: 'CASE-HISTORY-006',
-    status: '待人工评估',
-    duration: '历史记录',
-    input: '我已经提交退款申请，为什么还没有到账？',
-    expectedOutput: '说明审核状态、到账时效，并在无法查询时引导补充订单号。',
-    agentOutput: '退款申请一般会在审核通过后的 3-5 个工作日内原路退回，请耐心等待。',
-    userFeedback: '用户点踩：没有先核实订单号和当前审核状态。',
-    humanEvaluation: { humanLabel: '待标注', humanReason: '回流记录缺少可确认的订单状态，需要专家判断。', updatedAt: '2026-08-25 20:10', updatedBy: '演示账户' },
-    agentConfiguration: '退款客服助手 V2 · 历史会话回流 · 原始 Trace 已保留',
-    trace: historyTrace,
-    evaluatorResults: [
-      result('P0-01', '任务完成度', 'pass_fail', '待人工评估', '回流记录缺少可确认的订单状态，需要人工结合用户反馈判断。', ['User Feedback 指向“未核实状态”'], ['h1', 'h3']),
-      result('P0-02', '参考答案遵从度', 'numeric', '不通过', '没有说明审核状态，也没有询问订单号。', ['Expected Output 要求先核实状态'], ['h3'], 0.42),
-      result('P0-03', '指令遵循', 'pass_fail', '通过', '回复语气和退款时效说明符合配置，但信息收集不充分。', ['Agent Configuration', 'Agent Output'], ['h3'], 1),
-      result('P0-05', '检索相关性', 'numeric', '通过', '原始检索片段与退款时效有关。', ['历史 Trace 命中退款时效片段'], ['h2'], 0.9),
-      result('P0-07', '回答忠实度', 'numeric', '通过', '3-5 个工作日的表述被原始检索片段支持。', ['历史知识片段 #refund-05'], ['h2', 'h3'], 0.94),
-      result('P0-12', 'Agent 轨迹质量', 'numeric', '不通过', '历史路径直接检索并回答，没有核实订单状态的动作。', ['缺少订单查询节点'], ['h1', 'h2', 'h3'], 0.61),
-    ],
-  },
-].map(withRuntime);
-
 const evaluatorPrompt = (name: string, variables: string, output: string): string => `# 评估目标\n\n判断 ${name} 是否满足当前 Case 的明确要求。\n\n# 输入\n\n${variables}\n\n# 输出要求\n\n${output}\n只返回 JSON，不输出 Markdown、思考过程、分析过程、草稿或额外字段。`;
 
 const evaluatorDefinitions: Array<Pick<Evaluator, 'id' | 'name' | 'purpose' | 'category' | 'scoreType' | 'variables'>> = [
@@ -374,6 +318,7 @@ const evaluatorDefinitions: Array<Pick<Evaluator, 'id' | 'name' | 'purpose' | 'c
 
 export const agents: AgentOption[] = [
   ...queryAgentAgents,
+  financialComplianceAgent,
   { id: 'agent-refund', name: '退款客服助手', versions: ['V4', 'V3', 'V2'], description: '处理退款政策、申请进度和售后咨询。', source: '万智', protocol: '实时上报' },
   { id: 'agent-tender', name: '招标文件评估助手', versions: ['V1'], description: '分析招标文件并生成结构化评分报告。', source: '外部', protocol: '框架适配' },
   { id: 'agent-research', name: '网页研究助手', versions: ['V2', 'V1'], description: '基于网页检索完成带来源的研究任务。', source: '万智', protocol: '实时上报' },
@@ -444,6 +389,8 @@ export const historyConversations: HistoryConversation[] = [
   historyConversation('SESSION-20260822-017', '帮我检索竞品退款政策并总结', '2026-08-22 17:48', 'agent-research', 'V2', [
     replayTrace('TRACE-22017-A', '第 1 轮', '网页检索退款政策', '帮我检索竞品退款政策并总结差异。', '已检索 4 个来源，并整理到账时效差异。', '', '2026-08-22 17:48'),
   ]),
+  ...financialComplianceHistoryConversations,
+  ...queryAgentHistoryConversations,
 ];
 
 export const evaluators: Evaluator[] = evaluatorDefinitions.map((item) => ({
@@ -753,7 +700,7 @@ export const agentEvaluators: Evaluator[] = [
 ];
 
 
-evaluators.push(...agentEvaluators, ...demoEvaluators, ...queryAgentEvaluators);
+evaluators.push(...agentEvaluators, ...demoEvaluators, ...queryAgentEvaluators, ...financialComplianceEvaluators);
 
 const queryAgentSeedEvaluators = [...QUERY_AGENT_CORE_EVALUATOR_IDS, 'tool_trace', 'trace_structure', 'answer_grounded', 'semantic_intent', 'root_cause', 'trace_faithfulness']
   .map((id) => queryAgentEvaluators.find((evaluator) => evaluator.id === id))
@@ -762,6 +709,7 @@ const queryAgentSeedResults = createQueryAgentResults(queryAgentSeedEvaluators);
 
 const datasets: Dataset[] = [
   demoDataset,
+  financialComplianceDataset,
   queryAgentDataset,
   {
     id: 'DS-53346',
@@ -815,26 +763,6 @@ const datasets: Dataset[] = [
     cases: [{ id: 'CASE-FILE-001', values: { 't-input': tenderResults[0].input, 't-file': '招标文件-示例.pdf · 2 个', 't-expected': tenderResults[0].expectedOutput ?? '', 't-actual': tenderResults[0].agentOutput, 't-trace': 'trace://CASE-FILE-001' }, source: '用户上传', createdAt: '2026-08-20', hasFile: true }, { id: 'CASE-FILE-002', values: { 't-input': '请读取这份空白 PDF 并输出结论。', 't-file': '空白附件.pdf · 可访问但内容为空', 't-expected': '识别文件为空并说明无法分析。', 't-actual': '文件可以打开，但没有可解析内容。', 't-trace': 'trace://CASE-FILE-002' }, source: '用户上传', createdAt: '2026-08-20', hasFile: true }, { id: 'CASE-FILE-003', values: { 't-input': '请分析这份外部链接文件。', 't-file': 'https://files.example.com/missing.pdf · 无法访问', 't-expected': '说明文件不可访问，并请求重新上传。', 't-actual': '', 't-trace': 'trace://CASE-FILE-003' }, source: '用户上传', createdAt: '2026-08-20', hasFile: true }, { id: 'CASE-FILE-004', values: { 't-input': '请分析附件并输出评分报告。', 't-expected': '完成文件分析。', 't-actual': '', 't-trace': 'trace://CASE-FILE-004' }, source: '用户上传', createdAt: '2026-08-20', hasFile: false }],
     versions: [{ id: 'tender-v1', label: 'V1', status: '已提交', caseCount: 1, createdAt: '2026-08-24 15:30', createdBy: '演示账户', note: '验证文件交付质量的首个版本。' }],
   },
-  {
-    id: 'DS-11490',
-    name: '历史会话回流集',
-    description: '从真实对话中筛选有反馈的会话，保留原始回复与 Trace。',
-    tags: ['轨迹', '用户反馈'],
-    status: '草稿',
-    source: '历史对话回流',
-    createdAt: '2026-08-25 11:06',
-    updatedAt: '2026-08-25 11:06',
-    createdBy: '王子磊',
-    draftVersionId: 'history-draft',
-    fields: [
-      field('h-input', '用户消息', 'Input', '回流会话中的用户输入。', true),
-      field('h-actual', '原始回答', 'Agent Output', '沿用的原始 Agent 回复。'),
-      field('h-trace', '原始 Trace', 'Trace', '不重新运行 Agent，保留原始 Trace。'),
-      field('h-userFeedback', '用户反馈', 'User Feedback', '点赞、点踩与文字反馈。'),
-    ],
-    cases: [{ id: 'CASE-HISTORY-006', values: { 'h-input': historyResults[0].input, 'h-actual': historyResults[0].agentOutput, 'h-trace': 'trace://CASE-HISTORY-006', 'h-userFeedback': historyResults[0].userFeedback ?? '' }, source: '历史对话回流', createdAt: '2026-08-19', hasFile: false }],
-    versions: [{ id: 'history-draft', label: '草稿', status: '草稿', caseCount: 1, createdAt: '2026-08-25 11:06', createdBy: '王子磊', note: '已选 1 条会话，待继续整理。' }],
-  },
 ];
 
 datasets.forEach((dataset) => {
@@ -848,22 +776,15 @@ const task = (input: Omit<EvaluationTask, 'totalCases' | 'executableCases' | 'co
 
 const tasks: EvaluationTask[] = [
   ...demoTasks,
-  task({ id: 'TASK-QUERY-20261016-001', name: '问数 Agent Mock｜45 条综合回归', description: '验证结果一致性、SQL 契约、只读安全、Trace 结构和语义评估。不执行 SQL，不调用模型。', agent: '问数 Agent Mock', agentVersion: 'Loop V1', datasetId: QUERY_AGENT_DATASET_ID, datasetVersion: 'query-agent-v1', evaluatorIds: queryAgentSeedEvaluators.map((evaluator) => evaluator.id), status: '部分失败', tone: 'warning', createdBy: '演示账户', createdAt: '2026-10-16 18:02', updatedAt: '2026-10-16 18:04', totalCases: queryAgentSeedResults.length, executableCases: queryAgentSeedResults.length, completedCases: queryAgentSeedResults.length, failedCases: queryAgentSeedResults.filter((item) => ['不通过', '执行失败'].includes(item.status)).length, results: queryAgentSeedResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  ...financialComplianceTasks,
+  task({ id: 'TASK-QUERY-20261016-001', name: '网点与订单问数综合回归', description: '验证 SQL 编写 Skill、本体查询 MCP、只读数据库查询 MCP、结果一致性和异常边界；保留 SQL、查询结果与消息级 Trace。', agent: '问数 Agent', agentVersion: 'Skills + MCP', datasetId: QUERY_AGENT_DATASET_ID, datasetVersion: '验证集 · 45 条', evaluatorIds: queryAgentSeedEvaluators.map((evaluator) => evaluator.id), status: '部分失败', tone: 'warning', createdBy: '演示账户', createdAt: '2026-10-16 18:02', updatedAt: '2026-10-19 03:31', totalCases: queryAgentSeedResults.length, executableCases: queryAgentSeedResults.length, completedCases: queryAgentSeedResults.length, failedCases: queryAgentSeedResults.filter((item) => ['不通过', '执行失败', '证据不足'].includes(item.status)).length, results: queryAgentSeedResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-AUTO-20261008-001', name: '退款会话质量监测', description: '监测退款会话的回答与执行轨迹。', taskType: '自动化', automation: { objectType: '对话', collectStartAt: '2026-10-08 09:00', collectEndAt: '2026-10-15 09:00', sessionIdleMinutes: 30, filterMode: '全部满足', filters: [{ id: 'seed-filter-1', field: 'Input', operator: '包含', value: '退款' }], sampleRatio: 20, totalDataLimit: 500, repeat: '每天', candidateCount: 21, sampledCount: 8, evaluatedCount: 4 }, agent: '退款客服助手', agentVersion: 'V4', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-07', 'P0-12'], status: '运行中', tone: 'info', createdBy: '演示账户', createdAt: '2026-10-08 09:00', updatedAt: '2026-10-08 14:20', totalCases: automationResults.length, executableCases: automationResults.length, completedCases: automationResults.length, failedCases: 0, results: automationResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-AUTO-20261008-002', name: '工具调用稳定性监测', description: '监测订单查询工具的执行质量。', taskType: '自动化', automation: { objectType: 'Trace', collectStartAt: '2026-10-08 10:00', collectEndAt: '2026-10-18 10:00', sessionIdleMinutes: 30, filterMode: '任一满足', filters: [{ id: 'seed-filter-2', field: 'Trace', operator: '包含', value: '订单查询' }], sampleRatio: 50, totalDataLimit: 1000, repeat: '每天', candidateCount: 48, sampledCount: 18, evaluatedCount: 11 }, agent: '退款客服助手', agentVersion: 'V4', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-11', 'P0-12'], status: '已暂停', tone: 'warning', createdBy: '演示账户', createdAt: '2026-10-08 10:00', updatedAt: '2026-10-09 09:20', totalCases: 2, executableCases: 2, completedCases: 2, failedCases: 0, results: automationResults.slice(0, 2), runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-AUTO-20261007-003', name: '高耗时 Trace 检查', description: '检查耗时超过阈值的执行轨迹。', taskType: '自动化', automation: { objectType: 'Trace', collectStartAt: '2026-10-07 09:00', collectEndAt: '2026-10-08 09:00', sessionIdleMinutes: 30, filterMode: '全部满足', filters: [{ id: 'seed-filter-3', field: '耗时', operator: '大于', value: '3000' }], sampleRatio: 100, totalDataLimit: 200, repeat: '一次性', candidateCount: 14, sampledCount: 14, evaluatedCount: 14 }, agent: '退款客服助手', agentVersion: 'V3', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-10-07 09:00', updatedAt: '2026-10-08 09:18', totalCases: automationResults.length, executableCases: automationResults.length, completedCases: automationResults.length, failedCases: 0, results: automationResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-AUTO-20261009-004', name: '研究助手回答抽检', description: '按比例抽检网页研究助手的新对话。', taskType: '自动化', automation: { objectType: '对话', collectStartAt: '2026-10-10 09:00', collectEndAt: '2026-10-17 09:00', sessionIdleMinutes: 30, filterMode: '全部满足', filters: [{ id: 'seed-filter-4', field: 'Output', operator: '不为空', value: '' }], sampleRatio: 10, totalDataLimit: 300, repeat: '每天', candidateCount: 0, sampledCount: 0, evaluatedCount: 0 }, agent: '网页研究助手', agentVersion: 'V2', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-12'], status: '待启动', tone: 'info', createdBy: '演示账户', createdAt: '2026-10-09 09:30', updatedAt: '2026-10-09 09:30', totalCases: 0, executableCases: 0, completedCases: 0, failedCases: 0, results: [], runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-AUTO-20261006-005', name: '招标报告输出监测', description: '监测招标报告生成过程中的异常输出。', taskType: '自动化', automation: { objectType: 'Trace', collectStartAt: '2026-10-06 08:00', collectEndAt: '2026-10-09 08:00', sessionIdleMinutes: 30, filterMode: '全部满足', filters: [{ id: 'seed-filter-5', field: 'Output Tokens', operator: '大于', value: '1000' }], sampleRatio: 100, totalDataLimit: 100, repeat: '每天', candidateCount: 9, sampledCount: 7, evaluatedCount: 3 }, agentType: '外部', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-04'], status: '失败', tone: 'danger', createdBy: '演示账户', createdAt: '2026-10-06 08:00', updatedAt: '2026-10-08 16:12', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 1, results: [automationResults[3]], runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
-  task({ id: 'TASK-20260922-001', name: '退款客服助手 V3｜退货政策对照组', description: '退款问答评测集上的对照组任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 09:40', updatedAt: '2026-09-22 09:49', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonBaseResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260922-002', name: '退款客服助手 V4｜退货政策实验组 A', description: '退款问答评测集上的实验组任务 A。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 10:12', updatedAt: '2026-09-22 10:23', totalCases: 4, executableCases: 4, completedCases: 3, failedCases: 1, results: comparisonExperimentResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260923-003', name: '退款客服助手 V5｜简洁回答实验组 B', description: '退款问答评测集上的实验组任务 B。', agent: '退款客服助手', agentVersion: 'V5', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 09:16', updatedAt: '2026-09-23 09:25', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonAlternateResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260923-004', name: '退款客服助手 V3｜结果质量对照组', description: '评估器覆盖差异场景中的对照组任务。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:02', updatedAt: '2026-09-23 10:11', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageControlResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260923-005', name: '退款客服助手 V4｜结果质量实验组', description: '只配置结果质量评估器的实验组任务。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:18', updatedAt: '2026-09-23 10:27', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageResultResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260923-006', name: '退款客服助手 V4｜过程质量实验组', description: '只配置检索与轨迹评估器的实验组任务。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-23 10:35', updatedAt: '2026-09-23 10:44', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonCoverageProcessResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260825-001', name: '退款客服助手 V3｜回流问题评测', description: '验证退款问答的任务完成、检索证据和完整 Trace。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12', 'code-required-fields'], status: '部分失败', tone: 'warning', createdBy: '王子磊', createdAt: '2026-08-25 18:12', updatedAt: '2026-08-25 18:19', totalCases: 4, executableCases: 3, completedCases: 3, failedCases: 1, results: refundResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260823-003', name: '退款客服助手 V2｜工具稳定性检查', description: '验证订单查询工具异常时的失败边界。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-53346', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-10', 'P0-12'], status: '失败', tone: 'danger', createdBy: '王子磊', createdAt: '2026-08-23 11:16', updatedAt: '2026-08-23 11:18', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 1, results: failureResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
-  task({ id: 'TASK-20260824-008', name: '招标文件覆盖评测', description: '验证文件分析和最终交付文件的完整性。', agentType: '外部', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: 'DS-24610', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-04', 'P0-08', 'P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-08-24 15:34', updatedAt: '2026-08-24 16:02', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 0, results: tenderResults, runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
-  task({ id: 'TASK-20260825-004', name: '退款问答回归检查', description: '基于历史对话回流验证退款回复的完整性。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-11490', datasetVersion: '草稿', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12'], status: '运行中', tone: 'info', createdBy: '王子磊', createdAt: '2026-08-25 19:42', updatedAt: '2026-08-25 19:44', totalCases: 1, executableCases: 1, completedCases: 0, failedCases: 0, results: historyResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260922-001', name: '退款政策基线验证', description: '验证退款政策基线回答的完整性、检索证据和 Trace。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 09:40', updatedAt: '2026-09-22 09:49', totalCases: 4, executableCases: 4, completedCases: 4, failedCases: 0, results: comparisonBaseResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260922-002', name: '退款政策补充信息验证', description: '验证补充退回方式、运费责任和异常兜底后的退款回答。', agent: '退款客服助手', agentVersion: 'V4', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-05', 'P0-12'], status: '已完成', tone: 'success', createdBy: '王子磊', createdAt: '2026-09-22 10:12', updatedAt: '2026-09-22 10:23', totalCases: 4, executableCases: 4, completedCases: 3, failedCases: 1, results: comparisonExperimentResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260825-001', name: '退款会话异常回流验证', description: '验证退款问答的任务完成、检索证据和完整 Trace。', agent: '退款客服助手', agentVersion: 'V3', datasetId: 'DS-53346', datasetVersion: 'V2', evaluatorIds: ['P0-01', 'P0-02', 'P0-03', 'P0-05', 'P0-07', 'P0-12', 'code-required-fields'], status: '部分失败', tone: 'warning', createdBy: '王子磊', createdAt: '2026-08-25 18:12', updatedAt: '2026-08-25 18:19', totalCases: 4, executableCases: 3, completedCases: 3, failedCases: 1, results: refundResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260823-003', name: '订单工具超时处理验证', description: '验证订单查询工具异常时的失败边界。', agent: '退款客服助手', agentVersion: 'V2', datasetId: 'DS-53346', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-10', 'P0-12'], status: '失败', tone: 'danger', createdBy: '王子磊', createdAt: '2026-08-23 11:16', updatedAt: '2026-08-23 11:18', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 1, results: failureResults, runtime: { concurrency: 1, timeout: 60, continueOnError: true } }),
+  task({ id: 'TASK-20260824-008', name: '招标文件交付完整性验证', description: '验证文件分析和最终交付文件的完整性。', agentType: '外部', agent: '招标文件评估助手', agentVersion: 'V1', datasetId: 'DS-24610', datasetVersion: 'V1', evaluatorIds: ['P0-01', 'P0-04', 'P0-08', 'P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-08-24 15:34', updatedAt: '2026-08-24 16:02', totalCases: 1, executableCases: 1, completedCases: 1, failedCases: 0, results: tenderResults, runtime: { concurrency: 1, timeout: 120, continueOnError: true } }),
 ];
 
 tasks.forEach((item) => {
@@ -924,7 +845,7 @@ const seedCalibration = (taskId: string, caseId: string, evaluatorId: string, ca
 
 seedCalibration('TASK-20260922-001', 'CASE-HIS-024', 'P0-02', 0.5, '“未使用且不影响二次销售”已经表达商品完好条件，实际覆盖 2 个要点。');
 seedCalibration('TASK-20260922-002', 'CASE-UP-018', 'P0-02', 1, '已覆盖审核后、3-5 个工作日、原路退回三个必选要点。');
-seedCalibration('TASK-20260923-003', 'CASE-UP-018', 'P0-02', 1, '表达不同但语义完整，应按全部覆盖计算。');
+seedCalibration('TASK-20260922-002', 'CASE-UP-018', 'P0-02', 1, '表达不同但语义完整，应按全部覆盖计算。');
 
 const metricValue = (item?: EvaluatorResult): number | undefined => {
   if (!item || !['通过', '不通过'].includes(item.evaluationStatus)) return undefined;
@@ -1153,28 +1074,16 @@ const optimizationResult = (selectedCaseCount: number, comparisonId?: string): O
 
 const experiments: OptimizeExperiment[] = [
   ...demoExperiments,
-  { id: 'EXP-20260923-REVIEW', name: '退款客服助手 V4｜退货条件审查', sourceTaskId: 'TASK-20260922-002', agentType: '万智', agent: '退款客服助手', baseVersion: 'V3', candidateVersion: '优化后 Agent', datasetVersion: '退款问答评测集 V2', followUpMode: '先审查配置', status: '待继续实验', tone: 'info', createdAt: '2026-09-23 11:18', selectedCaseIds: ['CASE-HIS-024', 'CASE-UP-019'], selectedCaseCount: 2, result: optimizationResult(2, 'CMP-TASK-20260922-001-TASK-20260922-002') },
-  { id: 'EXP-20260923-DIRECT', name: '退款客服助手 V3｜退货条件直接对比', sourceTaskId: 'TASK-20260922-001', agentType: '万智', agent: '退款客服助手', baseVersion: 'V3', candidateVersion: '优化后 Agent', datasetVersion: '退款问答评测集 V2', followUpMode: '直接实验对比', status: '已完成', tone: 'success', createdAt: '2026-09-23 11:42', selectedCaseIds: ['CASE-HIS-024', 'CASE-UP-019'], selectedCaseCount: 2, result: optimizationResult(2, 'CMP-TASK-20260922-001-TASK-20260922-002') },
-  { id: 'EXP-20260923-EXTERNAL', name: '外部客服助手｜Badcase 优化建议', sourceTaskId: 'TASK-20260824-008', agentType: '外部', agent: '外部客服助手', baseVersion: 'V1', candidateVersion: '不生成配置', datasetVersion: '招标报告评测集 V1', followUpMode: '仅生成建议', status: '已完成', tone: 'success', createdAt: '2026-09-23 12:05', selectedCaseIds: ['CASE-FILE-001'], selectedCaseCount: 1, result: { ...optimizationResult(1), status: '无有效修改', changeSummary: '外部 Agent 不支持自动修改配置，本次只生成优化建议。', beforeConfig: { systemPrompt: '未采集', tools: [], skills: [] }, afterConfig: { systemPrompt: '未采集', tools: [], skills: [] }, changes: [], suggestions: [{ id: 'SUG-EXT-001', problem: '文件分析完成后没有说明报告生成范围。', caseIds: ['CASE-FILE-001'], suggestion: '在交付说明中补充分析范围、评分项和文件结构。' }], scoreRows: [], summary: { improved: 0, declined: 0, unchanged: 0, incomparable: 1 } } },
+  { id: 'EXP-20260923-DIRECT', name: '退款政策说明补齐实验', sourceTaskId: 'TASK-20260922-001', agentType: '万智', agent: '退款客服助手', baseVersion: 'V3', candidateVersion: '优化后 Agent', datasetVersion: '退款问答评测集', followUpMode: '直接实验对比', status: '已完成', tone: 'success', createdAt: '2026-09-23 11:42', selectedCaseIds: ['CASE-HIS-024', 'CASE-UP-019'], selectedCaseCount: 2, result: optimizationResult(2, 'CMP-TASK-20260922-001-TASK-20260922-002') },
 ];
 
 const comparisonDataset = datasets.find((item) => item.id === 'DS-53346');
 const findTask = (id: string) => tasks.find((item) => item.id === id);
 const comparisonControlTask = findTask('TASK-20260922-001');
 const comparisonExperimentATask = findTask('TASK-20260922-002');
-const comparisonExperimentBTask = findTask('TASK-20260923-003');
-const coverageControlTask = findTask('TASK-20260923-004');
-const coverageResultTask = findTask('TASK-20260923-005');
-const coverageProcessTask = findTask('TASK-20260923-006');
 const comparisons: ComparisonRecord[] = [...demoComparisons];
 if (comparisonDataset && comparisonControlTask && comparisonExperimentATask) {
-  comparisons.push(createComparisonRecord(comparisonControlTask, [comparisonExperimentATask], comparisonDataset, evaluators, '退款退货条件｜2 个任务对比'));
-}
-if (comparisonDataset && comparisonControlTask && comparisonExperimentATask && comparisonExperimentBTask) {
-  comparisons.push(createComparisonRecord(comparisonControlTask, [comparisonExperimentATask, comparisonExperimentBTask], comparisonDataset, evaluators, '退款问答质量｜3 个任务对比'));
-}
-if (comparisonDataset && coverageControlTask && coverageResultTask && coverageProcessTask) {
-  comparisons.push(createComparisonRecord(coverageControlTask, [coverageResultTask, coverageProcessTask], comparisonDataset, evaluators, '评估器覆盖差异｜3 个任务对比'));
+  comparisons.push(createComparisonRecord(comparisonControlTask, [comparisonExperimentATask], comparisonDataset, evaluators, '退款政策补充信息对比'));
 }
 
 export const mockEvaluationState: EvaluationState = {
