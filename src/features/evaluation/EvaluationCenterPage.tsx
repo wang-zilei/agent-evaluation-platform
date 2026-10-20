@@ -34,7 +34,7 @@ import type {
   AgentSkillBinding,
   AgentOption, CaseResult, Dataset, DatasetCase, EvaluationModule, EvaluationState,
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
-  ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationFollowUpMode, OptimizationResult, ScoreType, TaskTab,
+  ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationFollowUpMode, OptimizationResult, ScoreType,
   ComparisonCaseRow, ComparisonEvaluatorRow, ComparisonMetricCell, ComparisonOutputCell, ComparisonRuntimeRow, ComparisonTaskRef, EvaluatorResult,
   HumanAnnotation, HumanLabelDefinition, TaskAgentTarget, OptimizationAttributionTag, OptimizationReport, OptimizationReportAction,
 } from './evaluation.types';
@@ -44,7 +44,8 @@ import './auto-eval.css';
 type Toast = { id: number; message: string; tone: 'success' | 'warning' | 'danger' };
 type DatasetScreen = 'list' | 'workspace' | 'upload' | 'generate' | 'history';
 type EvaluatorScreen = 'list' | 'detail' | 'create' | 'optimization';
-type TaskScreen = 'list' | 'create' | 'detail' | 'experiment' | 'comparison';
+type TaskScreen = 'list' | 'create' | 'detail' | 'experiment';
+type ExperimentScreen = 'list' | 'detail';
 type DatasetCreateMode = '用户上传' | '智能生成' | '历史对话回流';
 type AddDataMode = 'choose' | 'manual' | 'file' | 'trace';
 type HistoryDatePreset = '3' | '5' | '7' | '30' | 'custom';
@@ -359,8 +360,8 @@ function FieldBadge({ semantic, required }: { semantic: FieldSemantic; required?
 export default function EvaluationCenterPage() {
   const [state, setState] = useState<EvaluationState>(() => cloneEvaluationState());
   const [module, setModule] = useState<EvaluationModule>('overview');
-  const [taskTab, setTaskTab] = useState<TaskTab>('list');
   const [taskScreen, setTaskScreen] = useState<TaskScreen>('list');
+  const [experimentScreen, setExperimentScreen] = useState<ExperimentScreen>('list');
   const [datasetScreen, setDatasetScreen] = useState<DatasetScreen>('list');
   const [evaluatorScreen, setEvaluatorScreen] = useState<EvaluatorScreen>('list');
   const [traceScreen, setTraceScreen] = useState<TraceScreen>('list');
@@ -377,7 +378,7 @@ export default function EvaluationCenterPage() {
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState(INITIAL_EVALUATION_STATE.evaluators[0]?.id ?? '');
   const [selectedExperimentId, setSelectedExperimentId] = useState(INITIAL_EVALUATION_STATE.experiments[0]?.id ?? '');
   const [selectedComparisonId, setSelectedComparisonId] = useState(INITIAL_EVALUATION_STATE.comparisons[0]?.id ?? '');
-  const [search, setSearch] = useState(''); const [datasetSearch, setDatasetSearch] = useState(''); const [taskSearch, setTaskSearch] = useState(''); const [traceSearch, setTraceSearch] = useState(''); const [scoreFilter, setScoreFilter] = useState('全部结果类型');
+  const [search, setSearch] = useState(''); const [datasetSearch, setDatasetSearch] = useState(''); const [taskSearch, setTaskSearch] = useState(''); const [experimentSearch, setExperimentSearch] = useState(''); const [traceSearch, setTraceSearch] = useState(''); const [scoreFilter, setScoreFilter] = useState('全部结果类型');
   const [toast, setToast] = useState<Toast | null>(null); const [toastId, setToastId] = useState(0); const [casePreview, setCasePreview] = useState<{ item: CaseResult; taskId: string } | null>(null);
   const [caseObservation, setCaseObservation] = useState<{ item: CaseResult; task: EvaluationTask; view: CaseObservationView } | null>(null);
   const [taskReturn, setTaskReturn] = useState(false);
@@ -392,7 +393,7 @@ export default function EvaluationCenterPage() {
   const [calibrationTarget, setCalibrationTarget] = useState<{ taskId: string; caseId: string; evaluatorId: string } | null>(null);
   const [optimizationStart, setOptimizationStart] = useState<{ evaluatorId: string; version: string } | null>(null);
   const notify = (message: string, tone: Toast['tone'] = 'success') => { const id = toastId + 1; setToastId(id); setToast({ id, message, tone }); window.setTimeout(() => setToast((current) => current?.id === id ? null : current), 2600); };
-  const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks' || module === 'automation') { setTaskScreen('list'); if (module === 'tasks') setTaskTab('list'); } if (module === 'traces') { setTraceScreen('list'); setCaseObservation(null); } };
+  const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks' || module === 'automation') setTaskScreen('list'); if (module === 'experiments') setExperimentScreen('list'); if (module === 'traces') { setTraceScreen('list'); setCaseObservation(null); } };
   const openDatasetCreate = (mode: DatasetCreateMode) => {
     setTaskReturn(module === 'tasks' && taskScreen === 'create');
     setDatasetEntryFromTask(module === 'tasks' && taskScreen === 'create');
@@ -434,7 +435,7 @@ export default function EvaluationCenterPage() {
     setTraceScreen('list');
   };
   const openTaskCreate = (preferredAgentId?: string) => { setTaskDraft(makeTaskDraft(state, preferredAgentId)); setTaskScreen('create'); setModule('tasks'); };
-  const openComparison = (item: ComparisonRecord) => { setSelectedComparisonId(item.id); setTaskScreen('comparison'); setModule('tasks'); };
+  const openComparison = (item: ComparisonRecord) => { setSelectedComparisonId(item.id); setExperimentScreen('detail'); setModule('experiments'); };
   const openComparisonPicker = (controlTaskId?: string) => {
     setComparisonInitialControlId(controlTaskId ?? '');
     setComparisonPickerOpen(true);
@@ -448,8 +449,8 @@ export default function EvaluationCenterPage() {
     setState((current) => ({ ...current, comparisons: [record, ...current.comparisons] }));
     setSelectedComparisonId(record.id);
     setComparisonPickerOpen(false);
-    setTaskScreen('comparison');
-    setModule('tasks');
+    setExperimentScreen('detail');
+    setModule('experiments');
     notify('对比实验已创建，已生成指标统计');
   };
   const rebuildComparisons = (current: EvaluationState, tasks: EvaluationTask[]) => current.comparisons.map((record) => {
@@ -825,6 +826,7 @@ export default function EvaluationCenterPage() {
     setCaseObservation(null);
     setModule(next);
     if (next === 'tasks') setTaskScreen('list');
+    if (next === 'experiments') { setExperimentScreen('list'); setExperimentSearch(''); }
     if (next === 'datasets') setDatasetScreen('list');
     if (next === 'evaluators') setEvaluatorScreen('list');
     if (next === 'automation') setTaskScreen('list');
@@ -839,16 +841,16 @@ export default function EvaluationCenterPage() {
   const moduleGroups = [
     { id: 'primary', label: '', items: [{ id: 'overview' as const, label: '总览', icon: Gauge }] },
     { id: 'observation', label: '观测', items: [{ id: 'access' as const, label: '应用接入', icon: PlugZap }, { id: 'traces' as const, label: '观测', icon: Activity }] },
-    { id: 'evaluation', label: '运行与评测', items: [{ id: 'tasks' as const, label: '评测任务', icon: ListChecks }, { id: 'datasets' as const, label: '评测集', icon: Database }, { id: 'evaluators' as const, label: '评估器', icon: ClipboardCheck }, { id: 'automation' as const, label: '自动化', icon: TimerReset }] },
+    { id: 'evaluation', label: '运行与评测', items: [{ id: 'tasks' as const, label: '评测任务', icon: ListChecks }, { id: 'experiments' as const, label: '实验', icon: GitCompare }, { id: 'datasets' as const, label: '评测集', icon: Database }, { id: 'evaluators' as const, label: '评估器', icon: ClipboardCheck }, { id: 'automation' as const, label: '自动化', icon: TimerReset }] },
   ];
   return <div className="evaluation-app">
     <aside className="eval-platform-sidebar">
       <div className="eval-sidebar-brand"><div className="eval-app-mark"><span /><span /><span /></div><strong>评测中心</strong></div>
-      <nav className="eval-sidebar-nav" aria-label="平台功能模块">{moduleGroups.map((group) => <div className="eval-sidebar-group" key={group.id}>{group.label && <span className="eval-sidebar-label">{group.label}</span>}{group.items.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={module === item.id ? 'is-active' : ''} onClick={() => selectModule(item.id)}><Icon size={17} />{item.label}</button>; })}</div>)}</nav>
+      <nav className="eval-sidebar-nav" aria-label="平台功能模块">{moduleGroups.map((group) => <div className="eval-sidebar-group" key={group.id}>{group.label && <span className="eval-sidebar-label">{group.label}</span>}{group.items.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={module === item.id ? 'is-active' : ''} onClick={() => selectModule(item.id)}><Icon size={19} />{item.label}</button>; })}</div>)}</nav>
       <div className="eval-sidebar-footer"><Pill>本地 Mock</Pill></div>
     </aside>
     <div className="evaluation-main">
-      <header className="eval-app-header"><div className="eval-app-title"><h1>{(module === 'tasks' || module === 'automation') && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { overview: '总览', access: '应用接入', traces: '观测', tasks: '评测任务', datasets: '评测集', evaluators: '评估器', automation: '自动化' }[module]}</h1></div>{module !== 'automation' && <div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div>}</header>
+      <header className="eval-app-header"><div className="eval-app-title"><h1>{(module === 'tasks' || module === 'automation') && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'experiments' && experimentScreen === 'detail' ? '对比实验' : { overview: '总览', access: '应用接入', traces: '观测', tasks: '评测任务', experiments: '实验', datasets: '评测集', evaluators: '评估器', automation: '自动化' }[module]}</h1></div>{module !== 'automation' && <div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div>}</header>
       <main className="eval-content">
       {module === 'overview' && <OverviewPage onOpenTrace={() => selectModule('traces')} onOpenTasks={() => selectModule('tasks')} />}
       {module === 'access' && <AccessCenterPage />}
@@ -861,10 +863,11 @@ export default function EvaluationCenterPage() {
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} optimizations={state.evaluatorOptimizations.filter((item) => item.evaluatorId === evaluator.id)} onOpenOptimization={openOptimization} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(evaluator, `${evaluator.name}（自建）`)); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft(evaluatorDraftFrom(evaluator)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'optimization' && selectedOptimization && <EvaluatorOptimizationWorkbench experiment={selectedOptimization} onExperiments={(updater) => setState((current) => ({ ...current, evaluatorOptimizations: updater(current.evaluatorOptimizations) }))} onVersionCreated={(evaluatorId, version, prompt) => setState((current) => ({ ...current, evaluators: current.evaluators.map((item) => item.id === evaluatorId ? { ...item, version, versions: item.versions.includes(version) ? item.versions : [...item.versions, version], prompt, updatedAt: '2026-10-08 15:30' } : item) }))} onBack={() => setEvaluatorScreen('detail')} onNotify={notify} />}
       {module === 'evaluators' && evaluatorScreen === 'create' && (evaluatorKind === '人工评估' ? <HumanEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : evaluatorKind === '代码评估' ? <CodeEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : evaluatorKind === 'Agent 评估器' ? <AgentEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />)}
-      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
+      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} search={taskSearch} setSearch={setTaskSearch} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} task={state.tasks.find((item) => item.id === experiment.sourceTaskId)} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
-      {module === 'tasks' && taskScreen === 'comparison' && comparison && <ComparisonDetail comparison={comparison} onBack={() => { setTaskTab('compare'); setTaskScreen('list'); }} />}
+      {module === 'experiments' && experimentScreen === 'list' && <ExperimentList comparisons={state.comparisons} search={experimentSearch} setSearch={setExperimentSearch} onCreate={() => openComparisonPicker()} onOpen={openComparison} />}
+      {module === 'experiments' && experimentScreen === 'detail' && comparison && <ComparisonDetail comparison={comparison} onBack={showList} />}
       {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'automation' && taskScreen === 'list' && <AutoEvaluationPanel tasks={state.tasks} agents={state.agents} evaluators={state.evaluators} onCreate={(item) => setState((current) => ({ ...current, tasks: [item, ...current.tasks] }))} onUpdate={(item) => setState((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === item.id ? item : task) }))} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onNotify={notify} />}
       {module === 'automation' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} backLabel="返回自动化" onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
@@ -2017,45 +2020,48 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
   </table>;
 }
 
-function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch, tab, setTab, onCreate, onCreateComparison, onOpen, onOpenComparison }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; comparisons: ComparisonRecord[]; search: string; setSearch: (value: string) => void; tab: TaskTab; setTab: (tab: TaskTab) => void; onCreate: () => void; onCreateComparison: () => void; onOpen: (task: EvaluationTask) => void; onOpenComparison: (item: ComparisonRecord) => void }) {
+function TaskList({ tasks, datasets, evaluators, search, setSearch, onCreate, onOpen }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; search: string; setSearch: (value: string) => void; onCreate: () => void; onOpen: (task: EvaluationTask) => void }) {
   const [taskStatusFilter, setTaskStatusFilter] = useState('全部状态');
   const filtered = tasks.filter((task) => {
     const searchMatched = !search || `${task.name} ${task.agent} ${task.taskType ?? '普通评测'}`.toLowerCase().includes(search.toLowerCase());
     const statusMatched = taskStatusFilter === '全部状态' || task.status === taskStatusFilter;
     return searchMatched && statusMatched;
   });
-  const filteredComparisons = comparisons.filter((item) => !search || `${item.name} ${item.dataset} ${item.taskRefs.map((task) => `${task.name} ${task.agent}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="eval-list-page">
-    <div className="eval-task-tabs">{(['list', 'compare'] as TaskTab[]).map((item) => <button type="button" key={item} className={tab === item ? 'is-active' : ''} onClick={() => setTab(item)}>{item === 'list' ? '任务列表' : '对比实验'}</button>)}</div>
-    {tab === 'list' && <>
-      <div className="eval-toolbar eval-task-list-toolbar">
-        <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 Agent" />
-        <label className="eval-task-list-status"><span>状态</span><SelectField value={taskStatusFilter} aria-label="按任务状态筛选" onChange={(event) => setTaskStatusFilter(event.target.value)}><option>全部状态</option>{['待启动', '运行中', '已暂停', '已完成', '部分失败', '失败'].map((status) => <option key={status}>{status}</option>)}</SelectField></label>
-        <button type="button" className="eval-button eval-button--primary eval-task-list-create" onClick={onCreate}><Plus size={16} />新建评测任务</button>
-      </div>
-      <section className="eval-surface table-surface eval-task-list-surface">
-        <EvaluationTaskTable tasks={filtered} datasets={datasets} evaluators={evaluators} onOpen={onOpen} />
-      </section>
-      {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索关键词或任务状态。" />}
-    </>}
-    {tab === 'compare' && <section className="eval-record-page">
-      <div className="eval-toolbar"><SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索对比名称、任务或评测集" /><button type="button" className="eval-button eval-button--primary" onClick={onCreateComparison}><Plus size={15} />创建对比实验</button></div>
-      <section className="eval-surface table-surface">
-        <table className="eval-data-table">
-          <thead><tr><th>对比名称</th><th>对照组</th><th>实验组</th><th>评测集</th><th>Case 对比</th><th>状态</th><th>操作</th></tr></thead>
-          <tbody>{filteredComparisons.map((item) => <tr key={item.id} onClick={() => onOpenComparison(item)}>
-            <td><strong>{item.name}</strong></td>
-            <td>{item.taskRefs.find((task) => task.role === '对照组')?.label}</td>
-            <td><div className="eval-cell-pills">{item.taskRefs.filter((task) => task.role === '实验组').map((task) => <span key={task.taskId}>{task.name}</span>)}</div></td>
-            <td>{item.dataset}</td>
-            <td><div className="eval-cell-pills"><span>有差异 {item.differentCases}</span><span>一致 {item.sameCases}</span><span>无法比较 {item.incomparableCases}</span></div></td>
-            <td><Status label={item.status} /></td>
-            <td><IconButton label="查看对比结果" onClick={() => onOpenComparison(item)}><Eye size={15} /></IconButton></td>
-          </tr>)}</tbody>
-        </table>
-      </section>
-      {filteredComparisons.length === 0 && <EmptyState title={comparisons.length === 0 ? '暂无对比实验' : '没有匹配的对比实验'} description={comparisons.length === 0 ? '从同一评测集的已完成任务中选择对照组和实验组。' : '调整搜索条件。'} />}
-    </section>}
+    <div className="eval-toolbar eval-task-list-toolbar">
+      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 Agent" />
+      <label className="eval-task-list-status"><span>状态</span><SelectField value={taskStatusFilter} aria-label="按任务状态筛选" onChange={(event) => setTaskStatusFilter(event.target.value)}><option>全部状态</option>{['待启动', '运行中', '已暂停', '已完成', '部分失败', '失败'].map((status) => <option key={status}>{status}</option>)}</SelectField></label>
+      <button type="button" className="eval-button eval-button--primary eval-task-list-create" onClick={onCreate}><Plus size={16} />新建评测任务</button>
+    </div>
+    <section className="eval-surface table-surface eval-task-list-surface">
+      <EvaluationTaskTable tasks={filtered} datasets={datasets} evaluators={evaluators} onOpen={onOpen} />
+    </section>
+    {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索关键词或任务状态。" />}
+  </div>;
+}
+
+function ExperimentList({ comparisons, search, setSearch, onCreate, onOpen }: { comparisons: ComparisonRecord[]; search: string; setSearch: (value: string) => void; onCreate: () => void; onOpen: (item: ComparisonRecord) => void }) {
+  const filtered = comparisons.filter((item) => !search || `${item.name} ${item.dataset} ${item.taskRefs.map((task) => `${task.name} ${task.agent}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()));
+  return <div className="eval-list-page">
+    <div className="eval-toolbar">
+      <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索实验名称、任务或评测集" />
+      <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={15} />新建实验</button>
+    </div>
+    <section className="eval-surface table-surface">
+      <table className="eval-data-table">
+        <thead><tr><th>实验名称</th><th>对照组</th><th>实验组</th><th>评测集</th><th>Case 对比</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>{filtered.map((item) => <tr key={item.id} onClick={() => onOpen(item)}>
+          <td><strong>{item.name}</strong></td>
+          <td>{item.taskRefs.find((task) => task.role === '对照组')?.label}</td>
+          <td><div className="eval-cell-pills">{item.taskRefs.filter((task) => task.role === '实验组').map((task) => <span key={task.taskId}>{task.name}</span>)}</div></td>
+          <td>{item.dataset}</td>
+          <td><div className="eval-cell-pills"><span>有差异 {item.differentCases}</span><span>一致 {item.sameCases}</span><span>无法比较 {item.incomparableCases}</span></div></td>
+          <td><Status label={item.status} /></td>
+          <td><IconButton label="查看实验结果" onClick={() => onOpen(item)}><Eye size={15} /></IconButton></td>
+        </tr>)}</tbody>
+      </table>
+    </section>
+    {filtered.length === 0 && <EmptyState title={comparisons.length === 0 ? '暂无实验' : '没有匹配的实验'} description={comparisons.length === 0 ? '从同一评测集的已完成任务中选择对照组和实验组。' : '调整搜索条件。'} />}
   </div>;
 }
 
@@ -2490,7 +2496,7 @@ function ComparisonDetail({ comparison, onBack }: { comparison: ComparisonRecord
   });
   const judgmentTone = (judgment: ComparisonCaseRow['judgment']) => judgment === '一致' ? 'green' : judgment === '有差异' ? 'amber' : 'neutral';
   return <div className="eval-detail-page eval-comparison-detail">
-    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回对比实验</button><Pill tone={comparison.status === '已完成' ? 'green' : 'amber'}>{comparison.status}</Pill></div>
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回实验列表</button><Pill tone={comparison.status === '已完成' ? 'green' : 'amber'}>{comparison.status}</Pill></div>
     <header className="eval-comparison-detail-header">
       <div><span className="eval-eyebrow">COMPARISON RESULT</span><h2>{comparison.name}</h2><p>{comparison.dataset} · 版本 {comparison.datasetVersion}</p></div>
     </header>
