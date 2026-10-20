@@ -1,4 +1,4 @@
-export type EvaluationModule = 'tasks' | 'datasets' | 'evaluators' | 'applications' | 'traces' | 'automation';
+export type EvaluationModule = 'overview' | 'access' | 'tasks' | 'datasets' | 'evaluators' | 'traces' | 'automation';
 export type TaskTab = 'list' | 'compare';
 export type TaskScreen = 'list' | 'detail' | 'create' | 'experiment' | 'comparison';
 export type DatasetScreen = 'list' | 'workspace' | 'upload' | 'history';
@@ -441,7 +441,7 @@ export type AgentOption = {
   versions: string[];
   description: string;
   source: '万智' | '外部';
-  protocol: 'Trace 回流' | 'Langfuse' | 'A2A';
+  protocol: '实时上报' | '框架适配' | '数据库转换';
 };
 
 export type HistoryTraceRecord = {
