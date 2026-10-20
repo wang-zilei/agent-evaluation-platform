@@ -616,7 +616,7 @@ export const queryAgentDataset: Dataset = {
   id: QUERY_AGENT_DATASET_ID,
   name: '网点与订单问数验证集',
   description: '45 条合成验证 Case，覆盖 SQL 编写规范、工作流、本体查询 MCP 和只读数据库查询 MCP。保留查询契约、消息级 raw Trace、SQL 与冻结结果。',
-  tags: ['问数', 'SQL', 'Skills', 'MCP', '本体'],
+  tags: ['问数', 'SQL', 'Skills', 'MCP', '本体', '验证集'],
   status: '已提交',
   source: '用户上传',
   createdAt: '2026-10-16 18:00',

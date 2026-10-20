@@ -805,7 +805,7 @@ export const financialComplianceDataset: Dataset = {
   id: FINANCIAL_COMPLIANCE_DATASET_ID,
   name: '金融合规问答验证集',
   description: '覆盖单轮条款问答、多轮追问、规则版本冲突、客户拒绝配合和跨境资料传输。Case 与观测 Trace 使用同一 trace_id。',
-  tags: ['金融合规', 'GraphRAG', '单轮', '多轮'],
+  tags: ['金融合规', 'GraphRAG', '单轮', '多轮', '验证集'],
   status: '已提交',
   source: '用户上传',
   createdAt: '2026-10-20 09:30',

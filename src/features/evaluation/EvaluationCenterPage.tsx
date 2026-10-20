@@ -573,6 +573,21 @@ export default function EvaluationCenterPage() {
     notify(`评测集「${target.name}」已删除`);
   };
 
+  const createDatasetTag = (datasetId: string, tag: string) => {
+    const target = state.datasets.find((item) => item.id === datasetId);
+    const normalized = tag.trim();
+    if (!target || !normalized) return;
+    if (target.tags.includes(normalized)) {
+      notify('该评测集已存在这个标签', 'warning');
+      return;
+    }
+    setState((current) => ({
+      ...current,
+      datasets: current.datasets.map((item) => item.id === datasetId ? { ...item, tags: [...item.tags, normalized], updatedAt: currentTimestamp() } : item),
+    }));
+    notify(`标签「${normalized}」已添加到 ${target.name}`);
+  };
+
   const submitDatasetVersion = (id: string, source: 'dataset' | 'task') => {
     const target = getDatasetById(state, id);
     if (!target?.draftVersionId) { notify('当前没有可提交的草稿', 'warning'); return; }
@@ -854,7 +869,7 @@ export default function EvaluationCenterPage() {
       <main className="eval-content">
       {module === 'overview' && <OverviewPage onOpenTrace={() => selectModule('traces')} onOpenTasks={() => selectModule('tasks')} />}
       {module === 'access' && <AccessCenterPage />}
-      {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} onDelete={(item) => deleteDataset(item.id)} />}
+      {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} onDelete={(item) => deleteDataset(item.id)} onCreateTag={createDatasetTag} />}
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'history' && <DatasetHistoryPage draft={datasetDraft} setDraft={setDatasetDraft} agents={observationHistorySource?.agents ?? state.agents} historySource={observationHistorySource?.conversations ?? historyConversations} historyAnchor={observationHistorySource?.anchor ?? TODAY} fromObservation={Boolean(observationHistorySource)} onBack={datasetReturnToObservation ? closeObservationBackflow : showList} onCreate={createDataset} />}
@@ -897,18 +912,37 @@ function CreateMenu({ onCreate }: { onCreate: (mode: DatasetCreateMode) => void 
   </div>;
 }
 
-function DatasetList({ datasets, search, setSearch, onCreate, onOpen, onDelete }: { datasets: Dataset[]; search: string; setSearch: (value: string) => void; onCreate: (mode: DatasetCreateMode) => void; onOpen: (dataset: Dataset) => void; onDelete: (dataset: Dataset) => void }) {
+function DatasetList({ datasets, search, setSearch, onCreate, onOpen, onDelete, onCreateTag }: { datasets: Dataset[]; search: string; setSearch: (value: string) => void; onCreate: (mode: DatasetCreateMode) => void; onOpen: (dataset: Dataset) => void; onDelete: (dataset: Dataset) => void; onCreateTag: (datasetId: string, tag: string) => void }) {
   const [tagFilter, setTagFilter] = useState('全部标签');
+  const [statusFilter, setStatusFilter] = useState('全部状态');
+  const [tagEditor, setTagEditor] = useState<{ datasetId: string; name: string; error: string } | null>(null);
   const tags = [...new Set(datasets.flatMap((dataset) => dataset.tags))].sort((left, right) => left.localeCompare(right, 'zh-CN'));
+  const tagEditorDataset = tagEditor ? datasets.find((dataset) => dataset.id === tagEditor.datasetId) : undefined;
   const filtered = datasets.filter((dataset) => {
     const searchMatched = !search || `${dataset.id} ${dataset.name} ${dataset.description} ${dataset.tags.join(' ')}`.toLowerCase().includes(search.toLowerCase());
     const tagMatched = tagFilter === '全部标签' || dataset.tags.includes(tagFilter);
-    return searchMatched && tagMatched;
+    const statusMatched = statusFilter === '全部状态' || dataset.status === statusFilter;
+    return searchMatched && tagMatched && statusMatched;
   });
+  const saveTag = () => {
+    if (!tagEditor || !tagEditorDataset) return;
+    const name = tagEditor.name.trim();
+    if (!name) {
+      setTagEditor((current) => current ? { ...current, error: '请填写标签名称' } : current);
+      return;
+    }
+    if (tagEditorDataset.tags.some((tag) => tag.toLowerCase() === name.toLowerCase())) {
+      setTagEditor((current) => current ? { ...current, error: '该评测集已有同名标签' } : current);
+      return;
+    }
+    onCreateTag(tagEditorDataset.id, name);
+    setTagEditor(null);
+  };
   return <div className="eval-list-page eval-dataset-list-page">
     <div className="eval-toolbar eval-dataset-list-toolbar">
       <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、ID、描述或标签" />
       <label className="eval-dataset-tag-filter"><Tag size={14} /><SelectField aria-label="按标签筛选评测集" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option>全部标签</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</SelectField></label>
+      <label className="eval-task-list-status eval-dataset-status-filter"><span>状态</span><SelectField aria-label="按状态筛选评测集" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>全部状态</option><option>已提交</option><option>草稿</option></SelectField></label>
       <span className="eval-toolbar-count">{filtered.length} 个评测集</span>
       <CreateMenu onCreate={onCreate} />
     </div>
@@ -919,7 +953,7 @@ function DatasetList({ datasets, search, setSearch, onCreate, onOpen, onDelete }
           {filtered.map((dataset) => <tr key={dataset.id} tabIndex={0} onClick={() => onOpen(dataset)} onKeyDown={(event) => { if (event.key === 'Enter') onOpen(dataset); }}>
             <td className="eval-dataset-list__name"><div className="eval-cell-title"><strong>{dataset.name}</strong></div></td>
             <td className="eval-dataset-list__description"><p title={dataset.description || '暂无描述'}>{dataset.description || '暂无描述'}</p></td>
-            <td><div className="eval-dataset-tags">{dataset.tags.map((tag) => <button type="button" key={tag} className={tagFilter === tag ? 'is-active' : ''} onClick={(event) => { event.stopPropagation(); setTagFilter((current) => current === tag ? '全部标签' : tag); }}>{tag}</button>)}</div></td>
+            <td><div className="eval-dataset-tag-cell"><button type="button" className="eval-dataset-tag-create" aria-label={`为 ${dataset.name} 创建标签`} title="创建标签" onClick={(event) => { event.stopPropagation(); setTagEditor({ datasetId: dataset.id, name: '', error: '' }); }}><Tag size={14} /></button><div className="eval-dataset-tags">{dataset.tags.map((tag) => <button type="button" key={tag} className={tagFilter === tag ? 'is-active' : ''} onClick={(event) => { event.stopPropagation(); setTagFilter((current) => current === tag ? '全部标签' : tag); }}>{tag}</button>)}</div></div></td>
             <td><Status label={dataset.status} /></td>
             <td className="eval-dataset-list__number">{dataset.cases.length}</td>
             <td className="eval-dataset-list__version"><span title={dataset.versions[0]?.label ?? '未采集'}>{dataset.versions[0]?.label ?? '未采集'}</span></td>
@@ -933,7 +967,16 @@ function DatasetList({ datasets, search, setSearch, onCreate, onOpen, onDelete }
         </tbody>
       </table>
     </section>
-    {filtered.length === 0 && <EmptyState title="没有匹配的评测集" description="调整搜索或标签筛选，或新建一个评测集。" />}
+    {filtered.length === 0 && <EmptyState title="没有匹配的评测集" description="调整搜索、标签或状态筛选，或新建一个评测集。" />}
+    {tagEditor && <div className="eval-overlay" onClick={() => setTagEditor(null)}>
+      <section className="eval-modal eval-dataset-tag-modal" onClick={(event) => event.stopPropagation()}>
+        <header className="eval-modal__header"><div><h2>创建标签</h2><p>添加到「{tagEditorDataset?.name ?? '当前评测集'}」</p></div><IconButton label="关闭创建标签" onClick={() => setTagEditor(null)}><X size={16} /></IconButton></header>
+        <div className="eval-modal__body">
+          <label className="eval-field"><span>标签名称 <b>*</b></span><input autoFocus maxLength={20} value={tagEditor.name} placeholder="例如：验证集" onChange={(event) => setTagEditor((current) => current ? { ...current, name: event.target.value, error: '' } : current)} onKeyDown={(event) => { if (event.key === 'Enter') saveTag(); }} />{tagEditor.error ? <small className="eval-form-error">{tagEditor.error}</small> : <small>{tagEditor.name.length}/20</small>}</label>
+        </div>
+        <footer className="eval-modal__footer"><button type="button" className="eval-button eval-button--ghost" onClick={() => setTagEditor(null)}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!tagEditor.name.trim()} onClick={saveTag}><Check size={15} />创建并添加</button></footer>
+      </section>
+    </div>}
   </div>;
 }
 
