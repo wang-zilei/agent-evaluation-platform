@@ -1175,7 +1175,6 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
               {dataset.fields.map((field) => <td key={field.id} title={item.values[field.id] || ''}>{item.values[field.id] || <em>未采集</em>}</td>)}
               <td className="is-actions">
                 <button type="button" className="eval-text-button" onClick={() => openManualCaseEditor(item)}>编辑</button>
-                <button type="button" className="eval-text-button" onClick={() => onNotify(`${item.id} 详情已打开`)}>查看</button>
                 <IconButton label={`删除 ${item.id}`} onClick={() => deleteCase(item.id)}><Trash2 size={14} /></IconButton>
               </td>
             </tr>)}
