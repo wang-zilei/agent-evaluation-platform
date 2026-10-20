@@ -4,7 +4,7 @@ export type TaskScreen = 'list' | 'detail' | 'create' | 'experiment' | 'comparis
 export type DatasetScreen = 'list' | 'workspace' | 'upload' | 'history';
 export type EvaluatorMode = 'preset' | 'custom';
 export type ScoreType = 'pass_fail' | 'numeric';
-export type EvaluatorKind = '模型评估器' | '代码评估' | '人工评估';
+export type EvaluatorKind = '模型评估器' | '代码评估' | 'Agent 评估器' | '人工评估';
 export type StatusTone = 'success' | 'warning' | 'info' | 'danger' | 'neutral';
 export type TaskStatus = '待启动' | '运行中' | '已暂停' | '已完成' | '部分失败' | '失败';
 export type ResultStatus = '通过' | '不通过' | '无法执行' | '证据不足' | '执行失败' | '待人工评估';
@@ -104,6 +104,26 @@ export type CodeEvaluatorDiagnostic = {
   actual?: string;
 };
 
+export type AgentSkillBinding = {
+  id: string;
+  name: string;
+  description: string;
+  kind: '评测工作流' | '校验脚本' | '业务规则';
+  source: '平台内置' | '自定义';
+  scriptCount: number;
+  enabled: boolean;
+};
+
+export type AgentMcpConnection = {
+  id: string;
+  name: string;
+  description: string;
+  transport: 'HTTP' | 'SSE' | 'STDIO';
+  endpoint: string;
+  status: '已连接' | '待验证' | '已停用';
+  tools: string[];
+};
+
 export type Evaluator = {
   id: string;
   name: string;
@@ -129,6 +149,8 @@ export type Evaluator = {
   rules?: CodeEvaluatorRule[];
   outputExample?: string;
   dependencies?: string;
+  skills?: AgentSkillBinding[];
+  mcpConnections?: AgentMcpConnection[];
 };
 
 export type EvaluatorSnapshot = {
@@ -140,6 +162,8 @@ export type EvaluatorSnapshot = {
   variables: VariableDefinition[];
   scoreType: ScoreType;
   passThreshold?: number;
+  skills?: AgentSkillBinding[];
+  mcpConnections?: AgentMcpConnection[];
 };
 
 export type HumanEvaluation = {
@@ -231,6 +255,22 @@ export type CaseAttemptSnapshot = {
   createdAt: string;
 };
 
+export type QueryAgentEvidence = {
+  expectedSql?: string;
+  agentSql?: string;
+  expectedResult?: unknown;
+  agentResult?: unknown;
+  snapshotId?: string;
+  queryContract?: unknown;
+  rawTrace?: {
+    input?: { messages?: unknown[] };
+    output?: { messages?: unknown[] };
+  };
+  rawTraceMessageCount?: number;
+  traceId?: string;
+  tags?: string[];
+};
+
 export type CaseResult = {
   caseId: string;
   status: ResultStatus;
@@ -246,6 +286,7 @@ export type CaseResult = {
   humanAnnotations?: Record<string, HumanAnnotation>;
   userFeedback?: string;
   agentConfiguration: string;
+  queryAgent?: QueryAgentEvidence;
   duration?: string;
   runtime?: RuntimeMetrics;
 };

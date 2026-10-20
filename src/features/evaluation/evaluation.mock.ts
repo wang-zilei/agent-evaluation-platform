@@ -1,6 +1,16 @@
 import { demoComparisons, demoDataset, demoEvaluators, demoExperiments, demoTasks } from './evaluation-demo';
 import { evaluatorOptimizations } from './auto-eval.mock';
+import {
+  QUERY_AGENT_CORE_EVALUATOR_IDS,
+  QUERY_AGENT_DATASET_ID,
+  createQueryAgentResults,
+  queryAgentAgents,
+  queryAgentDataset,
+  queryAgentEvaluators,
+} from './query-agent.mock';
 import type {
+  AgentMcpConnection,
+  AgentSkillBinding,
   AgentOption,
   AgentConfigSnapshot,
   CaseResult,
@@ -363,6 +373,7 @@ const evaluatorDefinitions: Array<Pick<Evaluator, 'id' | 'name' | 'purpose' | 'c
 ];
 
 export const agents: AgentOption[] = [
+  ...queryAgentAgents,
   { id: 'agent-refund', name: '退款客服助手', versions: ['V4', 'V3', 'V2'], description: '处理退款政策、申请进度和售后咨询。', source: '万智', protocol: '实时上报' },
   { id: 'agent-tender', name: '招标文件评估助手', versions: ['V1'], description: '分析招标文件并生成结构化评分报告。', source: '外部', protocol: '框架适配' },
   { id: 'agent-research', name: '网页研究助手', versions: ['V2', 'V1'], description: '基于网页检索完成带来源的研究任务。', source: '万智', protocol: '实时上报' },
@@ -592,11 +603,166 @@ export const humanLabels: HumanLabelDefinition[] = [
   { id: 'HUMAN-SERVICE', name: '服务体验', description: '按 0-1 分评估语气、清晰度和服务动作。', scoreType: 'numeric', scoreMin: 0, scoreMax: 1, passThreshold: 0.8 },
 ];
 
+export const agentSkillLibrary: AgentSkillBinding[] = [
+  {
+    id: 'trace-span-retrieve',
+    name: 'Trace Span Retrieve',
+    description: '从截断或压缩的 Agent Trace 中精确恢复关键 Span、工具参数和执行结果。',
+    kind: '评测工作流',
+    source: '平台内置',
+    scriptCount: 2,
+    enabled: true,
+  },
+  {
+    id: 'business-rule-check',
+    name: '业务规则核验',
+    description: '按领域规则、阈值和例外条件拆分检查项，并输出可定位的证据。',
+    kind: '业务规则',
+    source: '平台内置',
+    scriptCount: 3,
+    enabled: true,
+  },
+  {
+    id: 'json-evidence-pack',
+    name: '证据打包脚本',
+    description: '把输入、输出、Trace 节点和外部查询结果整理成结构化证据包。',
+    kind: '校验脚本',
+    source: '平台内置',
+    scriptCount: 1,
+    enabled: true,
+  },
+  {
+    id: 'metric-recalculate',
+    name: '指标重算脚本',
+    description: '重新计算金额、时延、覆盖率和业务口径，避免依赖 Agent 自述。',
+    kind: '校验脚本',
+    source: '平台内置',
+    scriptCount: 4,
+    enabled: true,
+  },
+];
 
-evaluators.push(...demoEvaluators);
+export const agentMcpLibrary: AgentMcpConnection[] = [
+  {
+    id: 'order-service',
+    name: '订单查询服务',
+    description: '读取订单、退款和物流终态，用于核验 Agent 是否真实完成业务动作。',
+    transport: 'HTTP',
+    endpoint: 'https://mcp.internal.example/orders',
+    status: '已连接',
+    tools: ['get_order', 'get_refund_status', 'get_shipment'],
+  },
+  {
+    id: 'policy-service',
+    name: '售后政策知识库',
+    description: '查询退款、退货和例外类目的权威业务规则与版本。',
+    transport: 'SSE',
+    endpoint: 'https://mcp.internal.example/after-sales-policy',
+    status: '已连接',
+    tools: ['search_policy', 'get_policy_clause'],
+  },
+  {
+    id: 'ticket-service',
+    name: '工单状态服务',
+    description: '核对投诉、人工接管和升级工单的实际处理状态。',
+    transport: 'HTTP',
+    endpoint: 'https://mcp.internal.example/tickets',
+    status: '待验证',
+    tools: ['get_ticket', 'list_handoffs'],
+  },
+];
+
+const skillRef = (id: string): AgentSkillBinding => structuredClone(agentSkillLibrary.find((item) => item.id === id) ?? agentSkillLibrary[0]);
+const mcpRef = (id: string): AgentMcpConnection => structuredClone(agentMcpLibrary.find((item) => item.id === id) ?? agentMcpLibrary[0]);
+
+export const agentEvaluators: Evaluator[] = [
+  {
+    id: 'agent-trace-audit',
+    name: 'Trace 证据核查',
+    kind: 'Agent 评估器',
+    mode: 'preset',
+    version: '0.1.0',
+    versions: ['0.1.0'],
+    description: '通过评测工作流恢复关键 Trace、调用脚本核对证据，再判断执行过程是否真实有效。',
+    purpose: '解决长 Trace 截断、关键证据分散和 Agent 自述不可信的问题。',
+    category: '过程核查',
+    scoreType: 'numeric',
+    model: 'Doubao-Seed-1.6',
+    prompt: '# 评估目标\n\n核查 Agent 是否真实完成关键工具动作，并用恢复后的 Trace 证据支持结论。\n\n# 输入\n\n{{Input}}\n{{Agent Output}}\n{{Trace}}\n\n# 工作流\n\n1. 使用 Trace Span Retrieve 恢复关键节点。\n2. 使用证据打包脚本核对工具调用与最终输出。\n3. 返回 0 到 1 的 score、reason 和 evidence_refs。\n\n只返回 JSON。',
+    variables: [
+      { name: 'Input', semantic: 'Input', required: true },
+      { name: 'Agent Output', semantic: 'Agent Output', required: true },
+      { name: 'Trace', semantic: 'Trace', required: true },
+    ],
+    skills: [skillRef('trace-span-retrieve'), skillRef('json-evidence-pack')],
+    mcpConnections: [],
+    creator: '系统',
+    updatedAt: '2026-10-18 10:20',
+    runCount: 36,
+    passThreshold: 0.8,
+  },
+  {
+    id: 'agent-business-outcome',
+    name: '业务终态核验',
+    kind: 'Agent 评估器',
+    mode: 'preset',
+    version: '0.1.1',
+    versions: ['0.1.0', '0.1.1'],
+    description: '调用业务 MCP 查询订单或工单终态，不把 Agent 的“已完成”表述直接当作成功。',
+    purpose: '核验发信、建单、退款和工单升级等外部副作用是否真实发生。',
+    category: '业务结果',
+    scoreType: 'pass_fail',
+    model: 'Doubao-Seed-1.6-flash',
+    prompt: '# 评估目标\n\n核验当前 Case 对应的业务终态是否满足成功条件。\n\n# 输入\n\n{{Input}}\n{{Agent Output}}\n{{Trace}}\n\n# 工作流\n\n1. 从 Trace 提取业务对象和声明结果。\n2. 通过订单查询服务读取权威终态。\n3. 返回 result、reason 和 evidence_refs。\n\n只返回 JSON。',
+    variables: [
+      { name: 'Input', semantic: 'Input', required: true },
+      { name: 'Agent Output', semantic: 'Agent Output', required: true },
+      { name: 'Trace', semantic: 'Trace', required: true },
+    ],
+    skills: [skillRef('business-rule-check')],
+    mcpConnections: [mcpRef('order-service')],
+    creator: '系统',
+    updatedAt: '2026-10-18 10:40',
+    runCount: 24,
+  },
+  {
+    id: 'agent-refund-policy',
+    name: '退款流程合规',
+    kind: 'Agent 评估器',
+    mode: 'custom',
+    version: '0.2.0',
+    versions: ['0.1.0', '0.2.0'],
+    description: '结合售后政策 MCP 与金额重算脚本，检查退款路径、运费责任和人工升级边界。',
+    purpose: '验证退款客服是否按最新政策和真实订单状态处理例外场景。',
+    category: '业务专项',
+    scoreType: 'pass_fail',
+    model: 'Doubao-Seed-1.6',
+    prompt: '# 评估目标\n\n检查退款回复是否同时满足业务政策、订单状态和用户确认要求。\n\n# 输入\n\n{{Input}}\n{{Expected Output}}\n{{Agent Output}}\n{{Trace}}\n\n# 工作流\n\n1. 使用售后政策知识库查询适用条款。\n2. 使用指标重算脚本复算退款金额与运费。\n3. 返回 result、reason 和 evidence_refs。\n\n只返回 JSON。',
+    variables: [
+      { name: 'Input', semantic: 'Input', required: true },
+      { name: 'Expected Output', semantic: 'Expected Output', required: true },
+      { name: 'Agent Output', semantic: 'Agent Output', required: true },
+      { name: 'Trace', semantic: 'Trace', required: true },
+    ],
+    skills: [skillRef('business-rule-check'), skillRef('metric-recalculate')],
+    mcpConnections: [mcpRef('policy-service'), mcpRef('ticket-service')],
+    creator: '王子磊',
+    updatedAt: '2026-10-19 16:35',
+    runCount: 12,
+  },
+];
+
+
+evaluators.push(...agentEvaluators, ...demoEvaluators, ...queryAgentEvaluators);
+
+const queryAgentSeedEvaluators = [...QUERY_AGENT_CORE_EVALUATOR_IDS, 'tool_trace', 'trace_structure', 'answer_grounded', 'semantic_intent', 'root_cause', 'trace_faithfulness']
+  .map((id) => queryAgentEvaluators.find((evaluator) => evaluator.id === id))
+  .filter((evaluator): evaluator is Evaluator => Boolean(evaluator));
+const queryAgentSeedResults = createQueryAgentResults(queryAgentSeedEvaluators);
 
 const datasets: Dataset[] = [
   demoDataset,
+  queryAgentDataset,
   {
     id: 'DS-53346',
     name: '退款问答评测集',
@@ -682,6 +848,7 @@ const task = (input: Omit<EvaluationTask, 'totalCases' | 'executableCases' | 'co
 
 const tasks: EvaluationTask[] = [
   ...demoTasks,
+  task({ id: 'TASK-QUERY-20261016-001', name: '问数 Agent Mock｜45 条综合回归', description: '验证结果一致性、SQL 契约、只读安全、Trace 结构和语义评估。不执行 SQL，不调用模型。', agent: '问数 Agent Mock', agentVersion: 'Loop V1', datasetId: QUERY_AGENT_DATASET_ID, datasetVersion: 'query-agent-v1', evaluatorIds: queryAgentSeedEvaluators.map((evaluator) => evaluator.id), status: '部分失败', tone: 'warning', createdBy: '演示账户', createdAt: '2026-10-16 18:02', updatedAt: '2026-10-16 18:04', totalCases: queryAgentSeedResults.length, executableCases: queryAgentSeedResults.length, completedCases: queryAgentSeedResults.length, failedCases: queryAgentSeedResults.filter((item) => ['不通过', '执行失败'].includes(item.status)).length, results: queryAgentSeedResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-AUTO-20261008-001', name: '退款会话质量监测', description: '监测退款会话的回答与执行轨迹。', taskType: '自动化', automation: { objectType: '对话', collectStartAt: '2026-10-08 09:00', collectEndAt: '2026-10-15 09:00', sessionIdleMinutes: 30, filterMode: '全部满足', filters: [{ id: 'seed-filter-1', field: 'Input', operator: '包含', value: '退款' }], sampleRatio: 20, totalDataLimit: 500, repeat: '每天', candidateCount: 21, sampledCount: 8, evaluatedCount: 4 }, agent: '退款客服助手', agentVersion: 'V4', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-07', 'P0-12'], status: '运行中', tone: 'info', createdBy: '演示账户', createdAt: '2026-10-08 09:00', updatedAt: '2026-10-08 14:20', totalCases: automationResults.length, executableCases: automationResults.length, completedCases: automationResults.length, failedCases: 0, results: automationResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-AUTO-20261008-002', name: '工具调用稳定性监测', description: '监测订单查询工具的执行质量。', taskType: '自动化', automation: { objectType: 'Trace', collectStartAt: '2026-10-08 10:00', collectEndAt: '2026-10-18 10:00', sessionIdleMinutes: 30, filterMode: '任一满足', filters: [{ id: 'seed-filter-2', field: 'Trace', operator: '包含', value: '订单查询' }], sampleRatio: 50, totalDataLimit: 1000, repeat: '每天', candidateCount: 48, sampledCount: 18, evaluatedCount: 11 }, agent: '退款客服助手', agentVersion: 'V4', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-11', 'P0-12'], status: '已暂停', tone: 'warning', createdBy: '演示账户', createdAt: '2026-10-08 10:00', updatedAt: '2026-10-09 09:20', totalCases: 2, executableCases: 2, completedCases: 2, failedCases: 0, results: automationResults.slice(0, 2), runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),
   task({ id: 'TASK-AUTO-20261007-003', name: '高耗时 Trace 检查', description: '检查耗时超过阈值的执行轨迹。', taskType: '自动化', automation: { objectType: 'Trace', collectStartAt: '2026-10-07 09:00', collectEndAt: '2026-10-08 09:00', sessionIdleMinutes: 30, filterMode: '全部满足', filters: [{ id: 'seed-filter-3', field: '耗时', operator: '大于', value: '3000' }], sampleRatio: 100, totalDataLimit: 200, repeat: '一次性', candidateCount: 14, sampledCount: 14, evaluatedCount: 14 }, agent: '退款客服助手', agentVersion: 'V3', datasetId: '', datasetVersion: '动态采集', evaluatorIds: ['P0-12'], status: '已完成', tone: 'success', createdBy: '演示账户', createdAt: '2026-10-07 09:00', updatedAt: '2026-10-08 09:18', totalCases: automationResults.length, executableCases: automationResults.length, completedCases: automationResults.length, failedCases: 0, results: automationResults, runtime: { concurrency: 2, timeout: 60, continueOnError: true } }),

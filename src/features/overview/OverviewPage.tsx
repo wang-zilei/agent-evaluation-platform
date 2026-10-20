@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   ArrowRight,
   Bot,
@@ -7,9 +7,8 @@ import {
   CircleAlert,
   ClipboardCheck,
   Clock3,
-  Layers3,
-  Search,
 } from 'lucide-react';
+import { TIME_PRESETS, formatDateTime, formatDateTimeInput, getTimeRange, type TimePresetKey, type TimeRange } from './overview-time';
 import './overview.css';
 
 type MetricKey = 'sessions' | 'conversations' | 'users' | 'tokens' | 'duration' | 'ttft' | 'score';
@@ -216,21 +215,74 @@ export default function OverviewPage({
 }) {
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>('sessions');
   const [scope, setScope] = useState<Scope>('总计');
-  const [timeRange, setTimeRange] = useState('1天');
-  const [application, setApplication] = useState('全部 Agent 应用');
   const [agent, setAgent] = useState('全部 Agent');
-  const [lastQuery, setLastQuery] = useState('10:18:30');
+  const [timePreset, setTimePreset] = useState<TimePresetKey>('1d');
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [timeAnchor, setTimeAnchor] = useState(() => new Date());
+  const [customRange, setCustomRange] = useState<TimeRange | null>(null);
+  const timePickerRef = useRef<HTMLDivElement>(null);
   const metric = METRICS.find((item) => item.key === selectedMetric) ?? METRICS[0];
+  const selectedTimePreset = TIME_PRESETS.find((item) => item.key === timePreset) ?? TIME_PRESETS[6];
+  const timeRange = useMemo(() => getTimeRange(timePreset, timeAnchor, customRange), [timePreset, timeAnchor, customRange]);
+
+  useEffect(() => {
+    if (!timePickerOpen) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (timePickerRef.current?.contains(event.target as Node)) return;
+      setTimePickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTimePickerOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [timePickerOpen]);
+
+  const toggleTimePicker = () => {
+    setTimeAnchor(new Date());
+    setTimePickerOpen((current) => !current);
+  };
+
+  const selectTimePreset = (key: TimePresetKey) => {
+    const nextAnchor = new Date();
+    setTimeAnchor(nextAnchor);
+    setTimePreset(key);
+    if (key === 'custom') {
+      setCustomRange((current) => current ?? getTimeRange('1d', nextAnchor));
+      return;
+    }
+    setTimePickerOpen(false);
+  };
+
+  const customRangeInvalid = timePreset === 'custom' && (!customRange || customRange.start.getTime() > customRange.end.getTime());
 
   return <div className="overview-page">
     <div className="ov-dashboard-toolbar">
       <div className="ov-query-controls">
-        <label className="ov-select-control"><Layers3 size={15} /><select aria-label="选择 Agent 应用" value={application} onChange={(event) => setApplication(event.target.value)}><option>全部 Agent 应用</option><option>客户服务</option><option>数据分析</option><option>业务办公</option></select></label>
         <label className="ov-select-control"><Bot size={15} /><select aria-label="选择 Agent" value={agent} onChange={(event) => setAgent(event.target.value)}><option>全部 Agent</option><option>退款客服助手</option><option>经营问数助手</option><option>招标评估助手</option><option>网页研究助手</option><option>合同审查助手</option></select></label>
-        <button type="button" className="ov-query-button" onClick={() => setLastQuery(new Date().toLocaleTimeString('zh-CN', { hour12: false }))}><Search size={15} />查询</button>
-        <span className="ov-last-query">最近查询 {lastQuery}</span>
+        <div className="ov-time-range" ref={timePickerRef}>
+          <button type="button" className="ov-time-range__trigger" aria-haspopup="dialog" aria-expanded={timePickerOpen} onClick={toggleTimePicker}>
+            <span className="ov-time-range__preset">{selectedTimePreset.label}</span>
+            <span className="ov-time-range__text">{formatDateTime(timeRange.start)} ~ {formatDateTime(timeRange.end)}</span>
+            <ChevronDown size={15} />
+          </button>
+          {timePickerOpen && <div className="ov-time-picker" role="dialog" aria-label="时间选择">
+            <h3>时间选择</h3>
+            <div className="ov-time-picker__grid">
+              {TIME_PRESETS.map((option) => <button type="button" key={option.key} className={option.key === timePreset ? 'is-selected' : ''} onClick={() => selectTimePreset(option.key)}>{option.label}</button>)}
+            </div>
+            {timePreset === 'custom' && <div className="ov-time-picker__custom">
+              <label><span>开始时间</span><input type="datetime-local" step="1" value={formatDateTimeInput(customRange?.start ?? timeRange.start)} max={formatDateTimeInput(timeRange.end)} onChange={(event) => { const start = new Date(event.target.value); if (!Number.isNaN(start.getTime())) setCustomRange({ start, end: customRange?.end ?? timeRange.end }); }} /></label>
+              <label><span>结束时间</span><input type="datetime-local" step="1" min={formatDateTimeInput(timeRange.start)} value={formatDateTimeInput(customRange?.end ?? timeRange.end)} onChange={(event) => { const end = new Date(event.target.value); if (!Number.isNaN(end.getTime())) setCustomRange({ start: customRange?.start ?? timeRange.start, end }); }} /></label>
+              <button type="button" className="ov-time-picker__apply" disabled={customRangeInvalid} onClick={() => setTimePickerOpen(false)}>应用</button>
+            </div>}
+          </div>}
+        </div>
       </div>
-      <select className="ov-time-select" aria-label="选择时间范围" value={timeRange} onChange={(event) => setTimeRange(event.target.value)}><option>1天</option><option>7天</option><option>30天</option></select>
     </div>
 
     <section className="ov-metric-strip-wrap" aria-label="监控指标">
@@ -238,7 +290,7 @@ export default function OverviewPage({
     </section>
 
     <TimeSeriesPanel metric={metric} scope={scope} onScopeChange={setScope} onMetricChange={setSelectedMetric} />
-    <p className="ov-chart-caption"><Clock3 size={13} />{timeRange === '1天' ? '近 24 小时' : timeRange === '7天' ? '近 7 天' : '近 30 天'}按小时聚合，柱高表示所选指标的时序变化。</p>
+    <p className="ov-chart-caption"><Clock3 size={13} />{selectedTimePreset.label}范围，按小时聚合，柱高表示所选指标的时序变化。</p>
 
     <div className="ov-module-grid ov-module-grid--three">
       <section className="ov-module" style={{ '--module-accent': '#55a6c8' } as CSSProperties}>

@@ -1,7 +1,23 @@
 import data from './trace-data/traces.json';
 import type { ObservedSession, ObservedTrace } from './trace.types';
 
-export const observedTraces = data as ObservedTrace[];
+const MOCK_TRACE_METADATA: Record<string, Pick<ObservedTrace, 'agent' | 'duration' | 'feedback'>> = {
+  turn1: { agent: '行业研究 Agent', duration: 126_000, feedback: '有帮助' },
+  turn2: { agent: '行业研究 Agent', duration: 395_000, feedback: '来源需复核' },
+  turn3: { agent: '行业研究 Agent', duration: 274_000, feedback: '结构清晰' },
+};
+
+// The imported traces keep their original fields. Missing list-level metadata is
+// filled only in the normalized display projection for this Mock prototype.
+export const observedTraces = (data as ObservedTrace[]).map((trace) => {
+  const mock = MOCK_TRACE_METADATA[trace.id];
+  return {
+    ...trace,
+    agent: trace.agent ?? mock?.agent ?? null,
+    duration: trace.duration ?? mock?.duration ?? null,
+    feedback: trace.feedback ?? mock?.feedback ?? null,
+  };
+});
 
 const sumTokens = (values: Array<number | null>) => {
   const collected = values.filter((value): value is number => value !== null);

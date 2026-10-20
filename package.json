@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "convert:query-agent": "node scripts/convert-query-agent-demo.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",

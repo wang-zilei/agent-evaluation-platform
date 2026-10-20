@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Search, X } from 'lucide-react';
+import { ArrowLeft, Clock3, Coins, Cpu, Footprints, Search, Wrench, X, type LucideIcon } from 'lucide-react';
 import type { ObservedSession, ObservedTrace, TraceEvent } from './trace.types';
 
 export type ObservationView = 'trace' | 'session';
@@ -36,6 +36,54 @@ const formatTime = (value: string | null) => {
   if (!value) return '未采集';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+};
+
+const formatClock = (value: Date | null) => {
+  if (!value || Number.isNaN(value.getTime())) return '未采集';
+  return [value.getHours(), value.getMinutes(), value.getSeconds()].map((part) => String(part).padStart(2, '0')).join(':');
+};
+
+const formatDuration = (value: number | null) => {
+  if (value === null) return '未采集';
+  if (value < 60_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}s`;
+  const minutes = Math.floor(value / 60_000);
+  const seconds = Math.round((value % 60_000) / 1_000);
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+};
+
+const sumCollected = (...values: Array<number | null>) => {
+  const collected = values.filter((value): value is number => value !== null);
+  return collected.length ? collected.reduce((total, value) => total + value, 0) : null;
+};
+
+const summarizeEvents = (events: TraceEvent[]) => events.reduce((summary, event) => {
+  summary[event.kind] += 1;
+  return summary;
+}, { user: 0, assistant: 0, tool: 0 });
+
+const summarizeModels = (events: TraceEvent[]) => {
+  const assistants = events.filter((event): event is Extract<TraceEvent, { kind: 'assistant' }> => event.kind === 'assistant' && Boolean(event.model));
+  if (assistants.length === 0) return { model: null, provider: null, count: 0 };
+  const counts = new Map<string, number>();
+  assistants.forEach((event) => {
+    if (event.model) counts.set(event.model, (counts.get(event.model) ?? 0) + 1);
+  });
+  const model = [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
+  const provider = assistants.find((event) => event.model === model)?.provider ?? null;
+  return { model, provider, count: counts.size };
+};
+
+const summarizeTools = (events: TraceEvent[]) => {
+  const tools = events.filter((event): event is Extract<TraceEvent, { kind: 'tool' }> => event.kind === 'tool');
+  const succeeded = tools.filter((event) => event.status === 'success').length;
+  return { total: tools.length, succeeded, failed: tools.length - succeeded };
+};
+
+const traceTimeRange = (occurredAt: string | null, duration: number | null) => {
+  if (!occurredAt) return '时间范围未采集';
+  const start = new Date(occurredAt);
+  const end = duration === null ? null : new Date(start.getTime() + duration);
+  return end ? `${formatClock(start)} → ${formatClock(end)}` : formatClock(start);
 };
 
 const FILTER_NOW = Date.parse('2026-09-22T16:00:00+08:00');
@@ -93,33 +141,32 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
 
     {view === 'trace' && <section className="eval-surface table-surface eval-obs-table-wrap" aria-label="Trace 列表">
       <table className="eval-data-table eval-obs-table">
-        <thead><tr><th>Trace ID</th><th>Agent</th><th>Input</th><th>Output</th><th>耗时</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
+        <thead><tr><th>开始时间</th><th>Agent</th><th>Input</th><th>Output</th><th>耗时</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
         <tbody>{filteredTraces.map((trace) => <tr key={trace.id} role="button" tabIndex={0} aria-label={`查看 Trace ${trace.traceId ?? trace.id}`} onClick={() => onOpenTrace(trace)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenTrace(trace); } }}>
-          <td><div className="eval-cell-title"><strong className="eval-mono">{trace.traceId ?? trace.id}</strong><small>{formatTime(trace.occurredAt)}</small></div></td>
-          <td>{formatValue(trace.agent)}</td>
+          <td><div className="eval-obs-date"><strong>{formatTime(trace.occurredAt)}</strong><small>Turn {trace.turn}</small></div></td>
+          <td className="is-nowrap">{formatValue(trace.agent)}</td>
           <td className="is-clip" title={trace.input}>{trace.input || '未采集'}</td>
           <td className="is-clip" title={trace.output}>{trace.output || '未采集'}</td>
-          <td>{formatValue(trace.duration)}</td>
-          <td>{formatValue(trace.feedback)}</td>
-          <td>{formatNumber(trace.inputTokens)}</td>
-          <td>{formatNumber(trace.outputTokens)}</td>
+          <td className="is-nowrap">{formatDuration(trace.duration)}</td>
+          <td className="is-nowrap">{formatValue(trace.feedback)}</td>
+          <td className="is-nowrap">{formatNumber(trace.inputTokens)}</td>
+          <td className="is-nowrap">{formatNumber(trace.outputTokens)}</td>
         </tr>)}</tbody>
       </table>
     </section>}
 
     {view === 'session' && <section className="eval-surface table-surface eval-obs-table-wrap" aria-label="Session 列表">
       <table className="eval-data-table eval-obs-table eval-session-table">
-        <thead><tr><th>Session ID</th><th>Agent</th><th>开始时间</th><th>Traces</th><th>Input</th><th>Output</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
+        <thead><tr><th>开始时间</th><th>Agent</th><th>Traces</th><th>Input</th><th>Output</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
         <tbody>{filteredSessions.map((session) => <tr key={session.id} role="button" tabIndex={0} aria-label={`查看 Session ${session.id}`} onClick={() => onOpenSession(session)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenSession(session); } }}>
-          <td><div className="eval-cell-title"><strong className="eval-mono">{session.id}</strong><small>{session.turns.length} 轮对话</small></div></td>
-          <td>{formatValue(session.agent)}</td>
-          <td>{formatTime(session.startedAt)}</td>
-          <td>{session.turns.length}</td>
+          <td><div className="eval-obs-date"><strong>{formatTime(session.startedAt)}</strong><small>{session.turns.length} 轮对话</small></div></td>
+          <td className="is-nowrap">{formatValue(session.agent)}</td>
+          <td className="is-nowrap">{session.turns.length}</td>
           <td className="is-clip" title={session.turns[0]?.input}>{session.turns[0]?.input || '未采集'}</td>
           <td className="is-clip" title={session.turns.at(-1)?.output}>{session.turns.at(-1)?.output || '未采集'}</td>
           <td>{formatValue(session.feedback)}</td>
-          <td>{formatNumber(session.inputTokens)}</td>
-          <td>{formatNumber(session.outputTokens)}</td>
+          <td className="is-nowrap">{formatNumber(session.inputTokens)}</td>
+          <td className="is-nowrap">{formatNumber(session.outputTokens)}</td>
         </tr>)}</tbody>
       </table>
     </section>}
@@ -134,6 +181,10 @@ export function TraceDetail({ trace, onBack }: {
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(trace.events[0]?.id ?? null);
   const selected = trace.events.find((event) => event.id === selectedId);
+  const eventSummary = summarizeEvents(trace.events);
+  const toolSummary = summarizeTools(trace.events);
+  const modelSummary = summarizeModels(trace.events);
+  const totalTokens = sumCollected(trace.inputTokens, trace.outputTokens);
 
   return <div className="eval-detail-page eval-trace-detail-page">
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Trace</button></div>
@@ -141,6 +192,13 @@ export function TraceDetail({ trace, onBack }: {
       <div><span className="eval-eyebrow">TRACE · TURN {trace.turn}</span><h2>{trace.traceId ?? trace.id}</h2></div>
       <span className="eval-trace-source">{trace.sourceFile}</span>
     </header>
+    <ObservationSummary ariaLabel="Trace 运行摘要" items={[
+      { label: 'Steps', value: String(trace.events.length), detail: `USER ${eventSummary.user} / ASSISTANT ${eventSummary.assistant} / TOOL ${eventSummary.tool}`, icon: Footprints, tone: 'blue' },
+      { label: '工具调用', value: String(toolSummary.total), detail: `成功 ${toolSummary.succeeded} / 失败 ${toolSummary.failed}`, icon: Wrench, tone: 'amber' },
+      { label: 'Tokens', value: formatNumber(totalTokens), detail: `输入 ${formatNumber(trace.inputTokens)} / 输出 ${formatNumber(trace.outputTokens)}`, icon: Coins, tone: 'violet' },
+      { label: '耗时', value: formatDuration(trace.duration), detail: traceTimeRange(trace.occurredAt, trace.duration), icon: Clock3, tone: 'green' },
+      { label: '模型', value: modelSummary.model ?? '未采集', detail: modelSummary.provider ? `${modelSummary.provider} · ${modelSummary.count} 个模型` : '提供方未采集', icon: Cpu, tone: 'rose' },
+    ]} />
     {trace.compressed && <p className="eval-trace-note">首条为会话摘要，前序消息未完整提供。</p>}
     <div className="eval-trace-split">
       <section className="eval-dsh-ledger" aria-label="执行轨迹">
@@ -162,7 +220,15 @@ export function SessionDetail({ session, onBack }: { session: ObservedSession; o
   const sessionEvents = useMemo<SessionEvent[]>(() => session.turns.flatMap((trace) => trace.events.map((event) => ({ key: `${trace.id}:${event.id}`, trace, event }))), [session]);
   const [selectedKey, setSelectedKey] = useState<string | null>(sessionEvents[0]?.key ?? null);
   const selected = sessionEvents.find((item) => item.key === selectedKey);
-  const eventCount = sessionEvents.length;
+  const eventSummary = summarizeEvents(sessionEvents.map((item) => item.event));
+  const toolSummary = summarizeTools(sessionEvents.map((item) => item.event));
+  const modelSummary = summarizeModels(sessionEvents.map((item) => item.event));
+  const totalTokens = sumCollected(session.inputTokens, session.outputTokens);
+  const totalDuration = sumCollected(...session.turns.map((trace) => trace.duration));
+  const lastTrace = session.turns.at(-1);
+  const sessionEnd = lastTrace?.occurredAt && lastTrace.duration !== null
+    ? new Date(new Date(lastTrace.occurredAt).getTime() + lastTrace.duration)
+    : null;
 
   return <div className="eval-detail-page eval-trace-detail-page eval-session-detail-page">
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Session</button></div>
@@ -170,12 +236,13 @@ export function SessionDetail({ session, onBack }: { session: ObservedSession; o
       <div><span className="eval-eyebrow">SESSION</span><h2>{session.id}</h2></div>
       <span className="eval-trace-source">{formatTime(session.startedAt)}</span>
     </header>
-    <div className="eval-session-metrics" aria-label="会话汇总">
-      <div><span>对话轮次</span><strong>{session.turns.length}</strong></div>
-      <div><span>执行节点</span><strong>{eventCount}</strong></div>
-      <div><span>Input Tokens</span><strong>{formatNumber(session.inputTokens)}</strong></div>
-      <div><span>Output Tokens</span><strong>{formatNumber(session.outputTokens)}</strong></div>
-    </div>
+    <ObservationSummary ariaLabel="Session 运行摘要" items={[
+      { label: 'Steps', value: String(sessionEvents.length), detail: `${session.turns.length} 个 Turn / USER ${eventSummary.user} / ASSISTANT ${eventSummary.assistant}`, icon: Footprints, tone: 'blue' },
+      { label: '工具调用', value: String(toolSummary.total), detail: `成功 ${toolSummary.succeeded} / 失败 ${toolSummary.failed}`, icon: Wrench, tone: 'amber' },
+      { label: 'Tokens', value: formatNumber(totalTokens), detail: `输入 ${formatNumber(session.inputTokens)} / 输出 ${formatNumber(session.outputTokens)}`, icon: Coins, tone: 'violet' },
+      { label: '耗时', value: formatDuration(totalDuration), detail: `${formatClock(session.startedAt ? new Date(session.startedAt) : null)} → ${formatClock(sessionEnd)}`, icon: Clock3, tone: 'green' },
+      { label: '模型', value: modelSummary.model ?? '未采集', detail: modelSummary.provider ? `${modelSummary.provider} · ${modelSummary.count} 个模型` : '提供方未采集', icon: Cpu, tone: 'rose' },
+    ]} />
     <div className="eval-trace-split">
       <section className="eval-session-ledger" aria-label="会话执行轨迹">
         {session.turns.map((trace) => <article className="eval-session-turn" key={trace.id} aria-label={`Turn ${trace.turn}`}>
@@ -196,6 +263,26 @@ export function SessionDetail({ session, onBack }: { session: ObservedSession; o
       </aside>
     </div>
   </div>;
+}
+
+type ObservationSummaryItem = {
+  label: string;
+  value: string;
+  detail: string;
+  icon: LucideIcon;
+  tone: 'blue' | 'amber' | 'violet' | 'green' | 'rose';
+};
+
+function ObservationSummary({ items, ariaLabel }: { items: ObservationSummaryItem[]; ariaLabel: string }) {
+  return <section className="eval-observation-summary" aria-label={ariaLabel}>
+    {items.map((item) => {
+      const Icon = item.icon;
+      return <article className="eval-observation-summary__card" key={item.label}>
+        <span className={`eval-observation-summary__icon is-${item.tone}`}><Icon size={18} /></span>
+        <div><span>{item.label}</span><strong className={item.label === '模型' ? 'is-text' : undefined}>{item.value}</strong><small>{item.detail}</small></div>
+      </article>;
+    })}
+  </section>;
 }
 
 function EventRow({ event, selectionId, active, onSelect }: { event: TraceEvent; selectionId: string; active: boolean; onSelect: (id: string) => void }) {

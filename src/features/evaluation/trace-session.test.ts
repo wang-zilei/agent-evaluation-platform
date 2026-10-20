@@ -13,6 +13,15 @@ describe('observation session grouping', () => {
     expect(observedSessions[0].outputTokens).toBe(40636);
   });
 
+  it('fills list-facing mock metadata without changing raw trace data', () => {
+    observedTraces.forEach((trace) => {
+      expect(trace.agent).toBe('行业研究 Agent');
+      expect(trace.duration).toBeGreaterThan(0);
+      expect(trace.feedback).toBeTruthy();
+    });
+    expect(observedSessions[0].feedback).toBe('有帮助；来源需复核；结构清晰');
+  });
+
   it('keeps traces without a session id as single-turn sessions', () => {
     const standalone = groupObservedSessions([{ ...observedTraces[0], id: 'standalone', sessionId: null }]);
     expect(standalone).toHaveLength(1);
