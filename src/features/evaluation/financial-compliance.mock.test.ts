@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FINANCIAL_COMPLIANCE_AGENT_VERSION,
+  financialComplianceAgent,
   financialComplianceDataset,
   financialComplianceObservedTraces,
   financialComplianceResults,
@@ -26,5 +28,10 @@ describe('financial compliance validation mock', () => {
     const trace = financialComplianceObservedTraces.find((item) => item.traceId === result?.observedTraceId);
     expect(result?.agentOutput).toBe(trace?.output);
     expect(trace?.input).toContain('不方便解释来源');
+  });
+
+  it('exposes an Agent version rather than an architecture label', () => {
+    expect(FINANCIAL_COMPLIANCE_AGENT_VERSION).toBe('V1');
+    expect(financialComplianceAgent.versions).toEqual(['V1']);
   });
 });

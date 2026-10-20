@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  QUERY_AGENT_AGENT_VERSION,
   QUERY_AGENT_CORE_EVALUATOR_IDS,
   createQueryAgentResults,
+  queryAgentAgents,
   queryAgentDataset,
   queryAgentEvaluators,
   queryAgentSourceCases,
@@ -34,5 +36,10 @@ describe('query agent migration mock', () => {
     expect(QUERY_AGENT_CORE_EVALUATOR_IDS).toEqual(['result_match', 'sql_contract', 'sql_safety']);
     expect(queryAgentEvaluators.find((item) => item.id === 'sql_contract')?.prompt).toBe('');
     expect(queryAgentEvaluators.find((item) => item.id === 'semantic_intent')?.prompt).toContain('不要重新执行 SQL');
+  });
+
+  it('exposes an Agent version rather than an architecture label', () => {
+    expect(QUERY_AGENT_AGENT_VERSION).toBe('V1');
+    expect(queryAgentAgents[0].versions).toEqual(['V1']);
   });
 });

@@ -40,8 +40,8 @@ const METRICS: Metric[] = [
 ];
 
 const AGENT_ROWS = [
-  { name: '金融合规问答 Agent', version: 'GraphRAG', coverage: 100, passRate: 50.0, averageScore: 0.82 },
-  { name: '问数 Agent', version: 'Skills + MCP', coverage: 100, passRate: 91.1, averageScore: 0.86 },
+  { name: '金融合规问答 Agent', version: 'V1', coverage: 100, passRate: 50.0, averageScore: 0.82 },
+  { name: '问数 Agent', version: 'V1', coverage: 100, passRate: 91.1, averageScore: 0.86 },
   { name: '退款客服助手', version: 'V4', coverage: 92, passRate: 91.8, averageScore: 0.86 },
   { name: '招标评估助手', version: 'V1', coverage: 43, passRate: 78.2, averageScore: 0.72 },
   { name: '网页研究助手', version: 'V2', coverage: 81, passRate: 87.1, averageScore: 0.84 },

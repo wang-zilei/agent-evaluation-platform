@@ -2535,7 +2535,6 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
     : [];
   const requiredMissing = requiredEvaluators.filter((evaluator) => !config.evaluatorIds.includes(evaluator.id));
   const selectedAgents = config.agentTargets.map((target) => ({ target, agent: state.agents.find((item) => item.id === target.agentId) }));
-  const selected = evaluatorCards.map((id) => state.evaluators.find((item) => item.id === id)).filter((item): item is Evaluator => Boolean(item));
   const submitted = state.datasets.filter((item) => item.versions.some((version) => version.status === '已提交'));
   const selectedVersion = dataset?.versions.find((version) => version.id === config.datasetVersion);
   const bindings = evaluatorCards.map((evaluatorId, index) => {
@@ -2565,7 +2564,7 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
     { id: 4, label: '评估器' },
   ];
   const stepDescriptions: Record<TaskCreateStep, string> = {
-    1: '设置任务名称，后续配置会关联到当前评测任务。',
+    1: '填写任务名称和评测目的。',
     2: '选择本次评测的 Agent 和运行版本。',
     3: '选择已提交的评测集和冻结版本。',
     4: '配置评估器并确认输入字段绑定。',
@@ -2620,7 +2619,6 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回任务列表</button><Pill tone="violet">草稿</Pill></div>
     <header className="eval-task-wizard-header">
       <div><span>评测任务</span><h2>{config.name.trim() || '新建评测任务'}</h2></div>
-      <div className="eval-task-wizard-step-meta"><span>{step} / 4</span><strong>{currentStep.label}</strong></div>
     </header>
     <nav className="eval-task-stepper" aria-label="新建评测任务步骤">
       {steps.map((item) => <button type="button" key={item.id} className={`${step === item.id ? 'is-active' : ''}${step > item.id ? ' is-complete' : ''}`} disabled={!canOpenStep(item.id)} onClick={() => setStep(item.id)}><span>{step > item.id ? <Check size={15} /> : item.id}</span><strong>{item.label}</strong></button>)}
@@ -2632,11 +2630,13 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
           <span>{String(step).padStart(2, '0')}</span>
           <div><h3>{currentStep.label}</h3><p>{stepDescriptions[step]}</p></div>
         </div>
-        {step === 4 && <div className="eval-task-step-heading__actions">{selected.length > 0 && <span>{selected.length} 个已选</span>}<button type="button" className="eval-button eval-button--ghost" onClick={addEvaluatorCard}><Plus size={15} />添加评估器</button></div>}
       </header>
 
-      {step === 1 && <div className="eval-task-step-content eval-task-step-content--task-info">
-        <label className="eval-field eval-task-name-field"><span>评测名称 <b>*</b></span><input autoFocus maxLength={50} value={config.name} placeholder="例如：退款客服助手 V3 回流问题评测" onChange={(event) => setConfig((current) => ({ ...current, name: event.target.value }))} /><small>{config.name.length}/50</small></label>
+      {step === 1 && <div className="eval-task-step-content">
+        <div className="eval-task-info-form">
+          <label className="eval-field eval-task-name-field"><span>任务名称 <b>*</b></span><input autoFocus maxLength={50} value={config.name} placeholder="例如：退款客服助手 V3 回流问题评测" onChange={(event) => setConfig((current) => ({ ...current, name: event.target.value }))} /><small>{config.name.length}/50</small></label>
+          <label className="eval-field eval-task-description-field"><span>任务描述</span><textarea maxLength={200} rows={4} value={config.description} placeholder="说明本次评测要验证的问题或变更" onChange={(event) => setConfig((current) => ({ ...current, description: event.target.value }))} /><small>{config.description.length}/200</small></label>
+        </div>
       </div>}
 
       {step === 2 && <div className="eval-task-step-content">
@@ -2648,23 +2648,25 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
             {agent && <div className="eval-agent-target-description"><span>描述</span><p>{agent.description}</p></div>}
           </div>)}
         </div>
-        <button type="button" className="eval-evaluator-add-trigger" onClick={addAgentTarget}><Plus size={16} />添加 Agent</button>
+        <button type="button" className="eval-evaluator-add-trigger eval-agent-add-trigger" onClick={addAgentTarget}><Plus size={16} />添加 Agent</button>
       </div>}
 
       {step === 3 && <div className="eval-task-step-content">
-        <div className="eval-task-form-row eval-task-form-row--action">
-          <label className="eval-field"><span>评测集 <b>*</b></span><SelectField value={config.datasetId} onChange={(event) => changeDataset(event.target.value)}>{submitted.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>
-          <label className="eval-field"><span>版本 <b>*</b></span><SelectField value={config.datasetVersion} disabled={!dataset} onChange={(event) => setConfig((current) => ({ ...current, datasetVersion: event.target.value }))}>{dataset?.versions.filter((version) => version.status === '已提交').map((version) => <option key={version.id} value={version.id}>{version.label}</option>)}</SelectField></label>
-          <CreateMenu onCreate={onCreateDataset} />
-        </div>
-        {!submitted.length && <div className="eval-inline-warning"><CircleAlert size={15} />当前没有可运行的已提交评测集，请先新建评测集。</div>}
-        {dataset && <div className="eval-task-selection-detail">
-          <div className="eval-task-selection-summary">
-            <div className="eval-task-selection-copy"><span>评测集说明</span><p>{dataset.description || '暂无描述'}</p></div>
-            <div className="eval-task-selection-stats"><div><span>版本</span><strong>{selectedVersion?.label ?? '未选择'}</strong></div><div><span>数据总量</span><strong>{dataset.cases.length}</strong><small>条 Case</small></div></div>
+        <div className="eval-task-dataset-panel">
+          <div className="eval-task-form-row eval-task-form-row--action">
+            <label className="eval-field"><span>评测集 <b>*</b></span><SelectField value={config.datasetId} onChange={(event) => changeDataset(event.target.value)}>{submitted.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>
+            <label className="eval-field"><span>版本 <b>*</b></span><SelectField value={config.datasetVersion} disabled={!dataset} onChange={(event) => setConfig((current) => ({ ...current, datasetVersion: event.target.value }))}>{dataset?.versions.filter((version) => version.status === '已提交').map((version) => <option key={version.id} value={version.id}>{version.label}</option>)}</SelectField></label>
+            <CreateMenu onCreate={onCreateDataset} />
           </div>
-          <div className="eval-task-selection-fields"><span>字段</span><div className="eval-task-field-tags">{dataset.fields.map((field) => <FieldBadge key={field.id} semantic={field.semantic} required={field.required} />)}</div></div>
-        </div>}
+          {!submitted.length && <div className="eval-inline-warning"><CircleAlert size={15} />当前没有可运行的已提交评测集，请先新建评测集。</div>}
+          {dataset && <div className="eval-task-selection-detail">
+            <div className="eval-task-selection-summary">
+              <div className="eval-task-selection-copy"><span>评测集说明</span><p>{dataset.description || '暂无描述'}</p></div>
+              <div className="eval-task-selection-stats"><div><span>版本</span><strong>{selectedVersion?.label ?? '未选择'}</strong></div><div><span>数据总量</span><strong>{dataset.cases.length}</strong><small>条 Case</small></div></div>
+            </div>
+            <div className="eval-task-selection-fields"><span>字段</span><div className="eval-task-field-tags">{dataset.fields.map((field) => <FieldBadge key={field.id} semantic={field.semantic} required={field.required} />)}</div></div>
+          </div>}
+        </div>
       </div>}
 
       {step === 4 && <div className="eval-task-step-content">
@@ -2676,10 +2678,7 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
           {requiredMissing.length > 0 && <div className="eval-inline-warning"><CircleAlert size={15} />缺少 {requiredMissing.length} 个核心硬门禁。</div>}
         </div>}
         {isQueryDataset && requiredMissing.length > 0 && <div className="eval-inline-warning">请先补齐核心硬门禁评估器。</div>}
-        {bindings.length === 0 ? <div className="eval-task-evaluator-empty">
-          <span><ClipboardCheck size={22} /></span>
-          <div><strong>尚未添加评估器</strong><p>开始评测前至少需要一个可执行评估器。</p></div>
-        </div> : <div className="eval-selected-evaluators">
+        <div className="eval-selected-evaluators">
           {bindings.map(({ evaluator, variables, missing, options }, index) => <article className="eval-selected-evaluator" key={`evaluator-card-${index}`}>
             <header>
               <div>
@@ -2697,7 +2696,7 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
             </> : <p>请选择一个评估器。</p>}
           </article>)}
         </div>
-        }
+        <button type="button" className="eval-evaluator-add-trigger" onClick={addEvaluatorCard}><Plus size={16} />添加评估器</button>
       </div>}
     </section>
 

@@ -16,7 +16,7 @@ import type { ObservedTrace, TraceEvent as ObservationTraceEvent } from './trace
 export const QUERY_AGENT_DATASET_ID = 'DS-QUERY-AGENT-45';
 export const QUERY_AGENT_CORE_EVALUATOR_IDS = ['result_match', 'sql_contract', 'sql_safety'];
 export const QUERY_AGENT_AGENT_ID = 'agent-query';
-export const QUERY_AGENT_AGENT_VERSION = 'Skills + MCP';
+export const QUERY_AGENT_AGENT_VERSION = 'V1';
 const QUERY_AGENT_OBSERVED_CASE_IDS = ['syn-query-01', 'syn-query-25', 'syn-query-43'] as const;
 const QUERY_AGENT_AGENT_CONFIG = 'Skills：SQL 编写规范、SQL 编写工作流；MCP：本体查询、只读 SQL 查询';
 

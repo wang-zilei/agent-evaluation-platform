@@ -13,7 +13,7 @@ import type {
 import type { ObservedTrace, TraceContext, TraceEvent as ObservationTraceEvent } from './trace.types';
 
 export const FINANCIAL_COMPLIANCE_AGENT_ID = 'agent-financial-compliance';
-export const FINANCIAL_COMPLIANCE_AGENT_VERSION = 'GraphRAG 当前配置';
+export const FINANCIAL_COMPLIANCE_AGENT_VERSION = 'V1';
 export const FINANCIAL_COMPLIANCE_DATASET_ID = 'DS-FIN-COMPLIANCE-VALIDATION';
 export const FINANCIAL_COMPLIANCE_DATASET_VERSION_ID = 'financial-compliance-validation';
 
