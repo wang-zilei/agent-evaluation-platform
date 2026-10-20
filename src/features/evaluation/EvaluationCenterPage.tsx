@@ -16,7 +16,7 @@ import {
   isQueryAgentDataset,
 } from './query-agent.mock';
 import { observedSessions, observedTraces } from './trace.data';
-import { SessionDetail, TraceDetail, TraceList, type ObservationView } from './TraceWorkspace';
+import { SessionDetail, TraceDetail, TraceList, type ObservationBackflowSelection, type ObservationView } from './TraceWorkspace';
 import { AutoEvaluationPanel } from './AutoEvaluation';
 import { EvaluatorCalibrationModal, EvaluatorOptimizationList, EvaluatorOptimizationStartModal, EvaluatorOptimizationWorkbench } from './EvaluatorOptimization';
 import type { EvaluatorCalibration, EvaluatorOptimizationExperiment } from './evaluation.types';
@@ -40,6 +40,7 @@ type TaskScreen = 'list' | 'create' | 'detail' | 'experiment' | 'comparison';
 type DatasetCreateMode = '用户上传' | '智能生成' | '历史对话回流';
 type AddDataMode = 'choose' | 'manual' | 'file' | 'trace';
 type HistoryDatePreset = '3' | '5' | '7' | '30' | 'custom';
+type ObservationHistorySource = { conversations: HistoryConversation[]; agents: AgentOption[]; anchor: string };
 type TaskCreateStep = 1 | 2 | 3 | 4;
 type TraceScreen = 'list' | 'detail';
 type CaseObservationView = 'trace' | 'session';
@@ -206,6 +207,59 @@ const makeDatasetDraft = (state: EvaluationState, mode: DatasetCreateMode = '用
     historyFeedback: '全部', historySelected: {}, historyExpanded: null, historyPage: 1,
   };
 };
+const compactObservationText = (value: string, fallback: string) => {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (!compact) return fallback;
+  return compact.length > 72 ? `${compact.slice(0, 72)}…` : compact;
+};
+const normalizeHistoryDate = (value: string | null) => {
+  const match = value?.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}` : TODAY;
+};
+const formatObservationHistoryTime = (value: string | null) => {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', hour12: false }).slice(0, 16);
+};
+const observedHistoryAgentId = (agent: string | null) => `observed:${agent ?? '未采集 Agent'}`;
+const observedHistoryTrace = (trace: ObservedTrace) => ({
+  id: trace.traceId ?? trace.id,
+  name: `Turn ${trace.turn}`,
+  summary: compactObservationText(trace.output, `${trace.events.length} 个执行节点`),
+  input: trace.input || '未采集',
+  agentOutput: trace.output || '未采集',
+  userFeedback: trace.feedback ?? '',
+  occurredAt: formatObservationHistoryTime(trace.occurredAt),
+});
+const buildObservationHistorySource = (selection: ObservationBackflowSelection): ObservationHistorySource => {
+  const conversations: HistoryConversation[] = selection.view === 'trace'
+    ? selection.traces.map((trace) => ({
+      id: `OBS-TRACE-${trace.id}`,
+      title: compactObservationText(trace.input, trace.traceId ?? trace.id),
+      occurredAt: formatObservationHistoryTime(trace.occurredAt),
+      agentId: observedHistoryAgentId(trace.agent),
+      agentVersion: '采集记录',
+      traces: [observedHistoryTrace(trace)],
+    }))
+    : selection.sessions.map((session) => ({
+      id: `OBS-SESSION-${session.id}`,
+      title: compactObservationText(session.turns[0]?.input ?? '', session.id),
+      occurredAt: formatObservationHistoryTime(session.startedAt),
+      agentId: observedHistoryAgentId(session.agent),
+      agentVersion: '采集记录',
+      traces: session.turns.map(observedHistoryTrace),
+    }));
+  const agents = [...new Set(conversations.map((conversation) => conversation.agentId))].map((agentId) => ({
+    id: agentId,
+    name: agentId.startsWith('observed:') ? agentId.slice('observed:'.length) : agentId,
+    versions: ['采集记录'],
+    description: '从观测列表带入的已采集轨迹。',
+    source: '万智' as const,
+    protocol: '实时上报' as const,
+  }));
+  const anchor = conversations.map((conversation) => normalizeHistoryDate(conversation.occurredAt)).sort().at(-1) ?? TODAY;
+  return { conversations, agents, anchor };
+};
 const CODE_TEMPLATE: Record<CodeEvaluatorLanguage, string> = {
   Python: `from evaluator import EvalResult, Diagnostic
 
@@ -315,6 +369,8 @@ export default function EvaluationCenterPage() {
   const [evaluatorMode, setEvaluatorMode] = useState<EvaluatorMode>('preset');
   const [evaluatorKind, setEvaluatorKind] = useState<EvaluatorKind>('代码评估');
   const [datasetDraft, setDatasetDraft] = useState<DatasetDraft>(() => makeDatasetDraft(INITIAL_EVALUATION_STATE));
+  const [observationHistorySource, setObservationHistorySource] = useState<ObservationHistorySource | null>(null);
+  const [datasetReturnToObservation, setDatasetReturnToObservation] = useState(false);
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(() => makeTaskDraft(INITIAL_EVALUATION_STATE));
   const [evaluatorDraft, setEvaluatorDraft] = useState<EvaluatorDraft>(makeEvaluatorDraft);
   const [selectedDatasetId, setSelectedDatasetId] = useState(INITIAL_EVALUATION_STATE.datasets[0]?.id ?? '');
@@ -341,9 +397,42 @@ export default function EvaluationCenterPage() {
   const openDatasetCreate = (mode: DatasetCreateMode) => {
     setTaskReturn(module === 'tasks' && taskScreen === 'create');
     setDatasetEntryFromTask(module === 'tasks' && taskScreen === 'create');
+    setObservationHistorySource(null);
+    setDatasetReturnToObservation(false);
     setDatasetDraft((current) => ({ ...current, mode }));
     setDatasetScreen(mode === '用户上传' ? 'upload' : mode === '智能生成' ? 'generate' : 'history');
     setModule('datasets');
+  };
+  const openObservationBackflow = (selection: ObservationBackflowSelection) => {
+    const source = buildObservationHistorySource(selection);
+    if (!source.conversations.length || !source.agents.length) {
+      notify('请先选择要回流的 Trace 或 Session', 'warning');
+      return;
+    }
+    const firstAgent = source.agents[0];
+    const draft = makeDatasetDraft(state, '历史对话回流');
+    setObservationHistorySource(source);
+    setDatasetReturnToObservation(true);
+    setDatasetEntryFromTask(false);
+    setTaskReturn(false);
+    setDatasetDraft({
+      ...draft,
+      historyAgentId: firstAgent.id,
+      historyVersion: firstAgent.versions[0] ?? '',
+      historyPreset: '30',
+      historyStart: shiftDate(source.anchor, -29),
+      historyEnd: source.anchor,
+      historySelected: Object.fromEntries(source.conversations.map((conversation) => [conversation.id, conversation.traces.map((trace) => trace.id)])),
+    });
+    setDatasetScreen('history');
+    setModule('datasets');
+  };
+  const closeObservationBackflow = () => {
+    setObservationHistorySource(null);
+    setDatasetReturnToObservation(false);
+    setDatasetScreen('list');
+    setModule('traces');
+    setTraceScreen('list');
   };
   const openTaskCreate = (preferredAgentId?: string) => { setTaskDraft(makeTaskDraft(state, preferredAgentId)); setTaskScreen('create'); setModule('tasks'); };
   const openComparison = (item: ComparisonRecord) => { setSelectedComparisonId(item.id); setTaskScreen('comparison'); setModule('tasks'); };
@@ -463,6 +552,8 @@ export default function EvaluationCenterPage() {
     const normalizedFields = fields.map((field) => ({ ...field, id: `${id}-${field.id}` }));
     const dataset: Dataset = { id, name: draft.name.trim(), description: draft.description.trim(), tags: tags.length ? tags : [fallbackTag], status: '草稿', source: draft.mode, createdAt, updatedAt: createdAt, createdBy: '演示账户', fields: normalizedFields, cases: cases.map((item) => ({ ...item, values: Object.fromEntries(Object.entries(item.values).map(([key, value]) => [`${id}-${key}`, value])) })), draftVersionId: versionId, versions: [{ id: versionId, label: '草稿', status: '草稿', caseCount: cases.length, createdAt, createdBy: '演示账户', note }] };
     setState((current) => ({ ...current, datasets: [dataset, ...current.datasets] })); setSelectedDatasetId(id);
+    setDatasetReturnToObservation(false);
+    setObservationHistorySource(null);
     if (taskReturn) {
       setDatasetScreen('workspace');
       notify('评测集草稿已创建，提交后自动用于当前任务');
@@ -699,9 +790,11 @@ export default function EvaluationCenterPage() {
   };
 
   function historyForDraft(draft: DatasetDraft) {
+    const source = observationHistorySource?.conversations ?? historyConversations;
+    const anchor = observationHistorySource?.anchor ?? TODAY;
     const days = draft.historyPreset === 'custom' ? null : Number(draft.historyPreset);
-    const range = draft.historyPreset === 'custom' ? { start: startOfDay(draft.historyStart), end: endOfDay(draft.historyEnd) } : { start: startOfDay(shiftDate(TODAY, -((days ?? 7) - 1))), end: endOfDay(TODAY) };
-    return historyConversations.filter((conversation) => {
+    const range = draft.historyPreset === 'custom' ? { start: startOfDay(draft.historyStart), end: endOfDay(draft.historyEnd) } : { start: startOfDay(shiftDate(anchor, -((days ?? 7) - 1))), end: endOfDay(anchor) };
+    return source.filter((conversation) => {
       if (conversation.agentId !== draft.historyAgentId || conversation.agentVersion !== draft.historyVersion) return false;
       const stamp = dateStamp(conversation.occurredAt); if (stamp < range.start || stamp > range.end) return false;
       const feedback = conversation.traces.some((trace) => trace.userFeedback.trim());
@@ -745,6 +838,8 @@ export default function EvaluationCenterPage() {
       setTraceScreen('list');
       setObservationView('trace');
       setTraceSearch('');
+      setObservationHistorySource(null);
+      setDatasetReturnToObservation(false);
     }
   };
   const moduleGroups = [
@@ -766,7 +861,7 @@ export default function EvaluationCenterPage() {
       {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} onDelete={(item) => deleteDataset(item.id)} />}
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
-      {module === 'datasets' && datasetScreen === 'history' && <DatasetHistoryPage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
+      {module === 'datasets' && datasetScreen === 'history' && <DatasetHistoryPage draft={datasetDraft} setDraft={setDatasetDraft} agents={observationHistorySource?.agents ?? state.agents} historySource={observationHistorySource?.conversations ?? historyConversations} historyAnchor={observationHistorySource?.anchor ?? TODAY} fromObservation={Boolean(observationHistorySource)} onBack={datasetReturnToObservation ? closeObservationBackflow : showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} />}
       {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(item, `${item.name}（自建）`)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} optimizations={state.evaluatorOptimizations.filter((item) => item.evaluatorId === evaluator.id)} onOpenOptimization={openOptimization} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(evaluator, `${evaluator.name}（自建）`)); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft(evaluatorDraftFrom(evaluator)); setEvaluatorScreen('create'); }} />}
@@ -779,7 +874,7 @@ export default function EvaluationCenterPage() {
       {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'automation' && taskScreen === 'list' && <AutoEvaluationPanel tasks={state.tasks} agents={state.agents} evaluators={state.evaluators} onCreate={(item) => setState((current) => ({ ...current, tasks: [item, ...current.tasks] }))} onUpdate={(item) => setState((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === item.id ? item : task) }))} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onNotify={notify} />}
       {module === 'automation' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} backLabel="返回自动化" onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
-      {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} sessions={observedSessions} view={observationView} onViewChange={setObservationView} search={traceSearch} setSearch={setTraceSearch} onOpenTrace={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} onOpenSession={(item) => { setSelectedSessionId(item.id); setTraceScreen('detail'); }} />}
+      {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} sessions={observedSessions} view={observationView} onViewChange={setObservationView} search={traceSearch} setSearch={setTraceSearch} onOpenTrace={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} onOpenSession={(item) => { setSelectedSessionId(item.id); setTraceScreen('detail'); }} onBackflow={openObservationBackflow} />}
       {module === 'traces' && traceScreen === 'detail' && observationView === 'trace' && (caseObservationTrace ?? selectedTrace) && <TraceDetail key={(caseObservationTrace ?? selectedTrace)?.id} trace={caseObservationTrace ?? selectedTrace} onBack={showList} />}
       {module === 'traces' && traceScreen === 'detail' && observationView === 'session' && (caseObservationSession ?? selectedSession) && <SessionDetail key={(caseObservationSession ?? selectedSession)?.id} session={caseObservationSession ?? selectedSession} onBack={showList} />}
       </main>
@@ -902,21 +997,21 @@ function DatasetGeneratePage({ draft, setDraft, agents, onBack, onCreate }: { dr
   </div>;
 }
 
-function DatasetHistoryPage({ draft, setDraft, agents, onBack, onCreate }: { draft: DatasetDraft; setDraft: Dispatch<SetStateAction<DatasetDraft>>; agents: AgentOption[]; onBack: () => void; onCreate: (draft: DatasetDraft) => void }) {
+function DatasetHistoryPage({ draft, setDraft, agents, historySource, historyAnchor, fromObservation = false, onBack, onCreate }: { draft: DatasetDraft; setDraft: Dispatch<SetStateAction<DatasetDraft>>; agents: AgentOption[]; historySource: HistoryConversation[]; historyAnchor: string; fromObservation?: boolean; onBack: () => void; onCreate: (draft: DatasetDraft) => void }) {
   const selectedAgent = agents.find((agent) => agent.id === draft.historyAgentId) ?? agents[0];
   const history = useMemo(() => {
     const days = draft.historyPreset === 'custom' ? null : Number(draft.historyPreset);
     const range = draft.historyPreset === 'custom'
       ? { start: startOfDay(draft.historyStart), end: endOfDay(draft.historyEnd) }
-      : { start: startOfDay(shiftDate(TODAY, -((days ?? 7) - 1))), end: endOfDay(TODAY) };
-    return historyConversations.filter((conversation) => {
+      : { start: startOfDay(shiftDate(historyAnchor, -((days ?? 7) - 1))), end: endOfDay(historyAnchor) };
+    return historySource.filter((conversation) => {
       if (conversation.agentId !== draft.historyAgentId || conversation.agentVersion !== draft.historyVersion) return false;
       const stamp = dateStamp(conversation.occurredAt);
       if (stamp < range.start || stamp > range.end) return false;
       const hasFeedback = conversation.traces.some((trace) => trace.userFeedback.trim());
       return draft.historyFeedback === '全部' || (draft.historyFeedback === '有反馈' ? hasFeedback : !hasFeedback);
     });
-  }, [draft.historyAgentId, draft.historyVersion, draft.historyPreset, draft.historyStart, draft.historyEnd, draft.historyFeedback]);
+  }, [draft.historyAgentId, draft.historyVersion, draft.historyPreset, draft.historyStart, draft.historyEnd, draft.historyFeedback, historyAnchor, historySource]);
   const selectedHistoryCount = Object.values(draft.historySelected).filter((ids) => ids.length > 0).length;
   const historyPageCount = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
   const currentHistoryPage = Math.min(draft.historyPage, historyPageCount);
@@ -933,7 +1028,7 @@ function DatasetHistoryPage({ draft, setDraft, agents, onBack, onCreate }: { dra
   });
   const canCreate = Boolean(draft.name.trim() && draft.historyAgentId && draft.historyVersion && selectedHistoryCount);
   return <div className="eval-create-page">
-    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回评测集</button><Pill tone="violet">轨迹回流</Pill></div>
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />{fromObservation ? '返回观测' : '返回评测集'}</button><Pill tone="violet">轨迹回流</Pill></div>
     <section className="eval-create-single eval-create-single--compact">
       <div className="eval-form-grid eval-dataset-basic-fields">
         <label className="eval-field"><span>评测集名称 <b>*</b></span><input maxLength={50} value={draft.name} placeholder="例如：历史会话回流集" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
@@ -941,9 +1036,9 @@ function DatasetHistoryPage({ draft, setDraft, agents, onBack, onCreate }: { dra
         <label className="eval-field"><span>标签</span><input maxLength={80} value={draft.tags} placeholder="例如：售后, 回归, Badcase" onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} /><small>多个标签用逗号分隔，用于评测集列表筛选。</small></label>
       </div>
       <div className="eval-create-section">
-        <div className="eval-create-section__head"><div><span className="eval-eyebrow">TRACE REPLAY</span><h4>选择对话和 Trace</h4><p>勾选整段对话等于勾选全部 Trace，也可以只选部分 Trace。</p></div><Pill tone="green">{selectedHistoryCount} 个对话已选</Pill></div>
+        <div className="eval-create-section__head"><div><span className="eval-eyebrow">TRACE REPLAY</span><h4>选择对话和 Trace</h4><p>{fromObservation ? `已从观测列表带入 ${selectedHistoryCount} 条记录，可继续调整。` : '勾选整段对话等于勾选全部 Trace，也可以只选部分 Trace。'}</p></div><Pill tone="green">{selectedHistoryCount} 个对话已选</Pill></div>
         <div className="eval-form-grid"><label className="eval-field"><span>Agent <b>*</b></span><select value={draft.historyAgentId} onChange={(event) => { const agent = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, historyAgentId: event.target.value, historyVersion: agent?.versions[0] ?? '', historySelected: {}, historyPage: 1 })); }}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label><label className="eval-field"><span>版本 <b>*</b></span><select value={draft.historyVersion} disabled={!draft.historyAgentId} onChange={(event) => setDraft((current) => ({ ...current, historyVersion: event.target.value, historySelected: {}, historyPage: 1 }))}>{(selectedAgent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</select></label></div>
-        <div className="eval-history-filterbar"><label className="eval-field"><span>日期</span><select value={draft.historyPreset} onChange={(event) => setDraft((current) => ({ ...current, historyPreset: event.target.value as HistoryDatePreset, historyPage: 1 }))}><option value="3">近 3 天</option><option value="5">近 5 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="custom">自定义</option></select></label><label className="eval-field"><span>是否有反馈记录</span><select value={draft.historyFeedback} onChange={(event) => setDraft((current) => ({ ...current, historyFeedback: event.target.value as DatasetDraft['historyFeedback'], historyPage: 1 }))}><option>全部</option><option>有反馈</option><option>无反馈</option></select></label>{draft.historyPreset === 'custom' && <><label className="eval-field"><span>开始日期</span><input type="date" value={draft.historyStart} max={draft.historyEnd} onChange={(event) => setDraft((current) => ({ ...current, historyStart: event.target.value, historyPage: 1 }))} /></label><label className="eval-field"><span>结束日期</span><input type="date" value={draft.historyEnd} min={draft.historyStart} max={TODAY} onChange={(event) => setDraft((current) => ({ ...current, historyEnd: event.target.value, historyPage: 1 }))} /></label></>}</div>
+        <div className="eval-history-filterbar"><label className="eval-field"><span>日期</span><select value={draft.historyPreset} onChange={(event) => setDraft((current) => ({ ...current, historyPreset: event.target.value as HistoryDatePreset, historyPage: 1 }))}><option value="3">近 3 天</option><option value="5">近 5 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="custom">自定义</option></select></label><label className="eval-field"><span>是否有反馈记录</span><select value={draft.historyFeedback} onChange={(event) => setDraft((current) => ({ ...current, historyFeedback: event.target.value as DatasetDraft['historyFeedback'], historyPage: 1 }))}><option>全部</option><option>有反馈</option><option>无反馈</option></select></label>{draft.historyPreset === 'custom' && <><label className="eval-field"><span>开始日期</span><input type="date" value={draft.historyStart} max={draft.historyEnd} onChange={(event) => setDraft((current) => ({ ...current, historyStart: event.target.value, historyPage: 1 }))} /></label><label className="eval-field"><span>结束日期</span><input type="date" value={draft.historyEnd} min={draft.historyStart} max={historyAnchor} onChange={(event) => setDraft((current) => ({ ...current, historyEnd: event.target.value, historyPage: 1 }))} /></label></>}</div>
         {history.length === 0 ? <EmptyState title="暂无符合条件的轨迹" description="调整 Agent、版本、日期或反馈筛选。" /> : <><div className="eval-history-list">{visibleHistory.map((conversation) => { const selected = draft.historySelected[conversation.id] ?? []; const allSelected = selected.length === conversation.traces.length; const partial = selected.length > 0 && !allSelected; const expanded = draft.historyExpanded === conversation.id; return <div className={`eval-history-item${selected.length ? ' is-selected' : ''}`} key={conversation.id}><div className="eval-history-item__head"><button type="button" className="eval-icon-button" onClick={() => setDraft((current) => ({ ...current, historyExpanded: expanded ? null : conversation.id }))} aria-label={expanded ? '收起对话' : '展开对话'}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button><input type="checkbox" checked={allSelected} ref={(element) => { if (element) element.indeterminate = partial; }} onChange={() => toggleConversation(conversation)} /><div className="eval-history-item__title"><strong>{conversation.title}</strong><span>{conversation.id} · {conversation.traces.length} 条 Trace</span></div><time>{conversation.occurredAt}</time></div>{expanded && <div className="eval-history-item__traces">{conversation.traces.map((trace) => <label key={trace.id}><input type="checkbox" checked={selected.includes(trace.id)} onChange={() => toggleTrace(conversation.id, trace.id)} /><span><strong>{trace.name} · {trace.summary}</strong><small>{trace.input}{trace.userFeedback ? ` · ${trace.userFeedback}` : ''}</small></span></label>)}</div>}</div>; })}</div><div className="eval-pagination"><span>共 {history.length} 条对话</span><div><button type="button" className="eval-page-button" disabled={currentHistoryPage <= 1} onClick={() => setDraft((current) => ({ ...current, historyPage: Math.max(1, current.historyPage - 1) }))}><ChevronLeft size={14} />上一页</button><b>{currentHistoryPage} / {historyPageCount}</b><button type="button" className="eval-page-button" disabled={currentHistoryPage >= historyPageCount} onClick={() => setDraft((current) => ({ ...current, historyPage: Math.min(historyPageCount, current.historyPage + 1) }))}>下一页<ChevronRight size={14} /></button></div></div></>}
       </div>
     </section>

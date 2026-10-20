@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Clock3, Coins, Cpu, Footprints, Layers3, Search, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Clock3, Coins, Cpu, Footprints, History, Layers3, Search, Wrench, X, type LucideIcon } from 'lucide-react';
 import type { ObservedSession, ObservedTrace, TraceEvent } from './trace.types';
 
 export type ObservationView = 'trace' | 'session';
+export type ObservationBackflowSelection = {
+  view: ObservationView;
+  traces: ObservedTrace[];
+  sessions: ObservedSession[];
+};
 
 const OBSERVATION_LABELS: Record<ObservationView, string> = { trace: 'Trace', session: 'Session' };
 export function ObservationTabs({ view, onViewChange, onResetSearch }: { view: ObservationView; onViewChange: (view: ObservationView) => void; onResetSearch?: () => void }) {
@@ -97,19 +102,19 @@ type TraceListProps = {
   setSearch: (value: string) => void;
   onOpenTrace: (trace: ObservedTrace) => void;
   onOpenSession: (session: ObservedSession) => void;
+  onBackflow: (selection: ObservationBackflowSelection) => void;
 };
 
-export function TraceList({ traces, sessions, view, onViewChange, search, setSearch, onOpenTrace, onOpenSession }: TraceListProps) {
+export function TraceList({ traces, sessions, view, onViewChange, search, setSearch, onOpenTrace, onOpenSession, onBackflow }: TraceListProps) {
   const [agentFilter, setAgentFilter] = useState('全部');
-  const [abnormalFilter, setAbnormalFilter] = useState('全部');
   const [timeFilter, setTimeFilter] = useState('全部');
+  const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const agents = useMemo(() => ['全部', ...[...new Set(traces.map((trace) => trace.agent ?? '未采集'))]], [traces]);
 
-  const matchesFilters = (item: { agent: string | null; abnormal: boolean | null; occurredAt: string | null }) => {
+  const matchesFilters = (item: { agent: string | null; occurredAt: string | null }) => {
     const agentLabel = item.agent ?? '未采集';
     if (agentFilter !== '全部' && agentLabel !== agentFilter) return false;
-    if (abnormalFilter === '异常' && !item.abnormal) return false;
-    if (abnormalFilter === '正常' && item.abnormal) return false;
     if (timeFilter !== '全部') {
       if (!item.occurredAt) return false;
       const start = FILTER_NOW - Number(timeFilter) * 24 * 60 * 60 * 1000;
@@ -120,29 +125,52 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
 
   const filteredTraces = traces.filter((trace) => {
     const haystack = `${trace.traceId ?? ''} ${trace.agent ?? ''} ${trace.input} ${trace.output}`.toLowerCase();
-    return (!search || haystack.includes(search.toLowerCase())) && matchesFilters({ agent: trace.agent, abnormal: trace.abnormal, occurredAt: trace.occurredAt });
+    return (!search || haystack.includes(search.toLowerCase())) && matchesFilters({ agent: trace.agent, occurredAt: trace.occurredAt });
   });
 
   const filteredSessions = sessions.filter((session) => {
     const haystack = `${session.id} ${session.agent ?? ''} ${session.turns.map((turn) => `${turn.traceId ?? ''} ${turn.input} ${turn.output}`).join(' ')}`.toLowerCase();
-    return (!search || haystack.includes(search.toLowerCase())) && matchesFilters({ agent: session.agent, abnormal: session.abnormal, occurredAt: session.startedAt });
+    return (!search || haystack.includes(search.toLowerCase())) && matchesFilters({ agent: session.agent, occurredAt: session.startedAt });
   });
 
+  const activeIds = view === 'trace' ? filteredTraces.map((trace) => trace.id) : filteredSessions.map((session) => session.id);
+  const selectedIds = view === 'trace' ? selectedTraceIds : selectedSessionIds;
+  const allFilteredSelected = activeIds.length > 0 && activeIds.every((id) => selectedIds.includes(id));
+  const someFilteredSelected = activeIds.some((id) => selectedIds.includes(id)) && !allFilteredSelected;
+  const selectedCount = selectedIds.length;
+  const toggleAllFiltered = () => {
+    const update = view === 'trace' ? setSelectedTraceIds : setSelectedSessionIds;
+    update((current) => allFilteredSelected ? current.filter((id) => !activeIds.includes(id)) : [...new Set([...current, ...activeIds])]);
+  };
+  const toggleSelected = (id: string) => {
+    const update = view === 'trace' ? setSelectedTraceIds : setSelectedSessionIds;
+    update((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+  const requestBackflow = () => {
+    if (!selectedCount) return;
+    onBackflow({
+      view,
+      traces: view === 'trace' ? traces.filter((trace) => selectedTraceIds.includes(trace.id)) : [],
+      sessions: view === 'session' ? sessions.filter((session) => selectedSessionIds.includes(session.id)) : [],
+    });
+  };
+
   return <div className="eval-list-page eval-trace-page">
-    <div className="eval-section-head"><div><span className="eval-eyebrow">OBSERVATION</span><h2>{OBSERVATION_LABELS[view]}</h2></div></div>
-    <div className="eval-toolbar eval-obs-toolbar">
+    <div className="eval-observation-view-row">
       <ObservationTabs view={view} onViewChange={onViewChange} onResetSearch={() => setSearch('')} />
+    </div>
+    <div className="eval-toolbar eval-obs-toolbar">
       <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={view === 'session' ? '搜索 Session ID、Agent 或输入' : '搜索 Trace ID、Agent 或输入'} /></label>
       <select aria-label="时间筛选" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value)}><option value="全部">全部时间</option><option value="1">近 1 天</option><option value="7">近 7 天</option><option value="30">近 30 天</option></select>
       <select aria-label="Agent 筛选" value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>{agents.map((agent) => <option key={agent} value={agent}>{agent === '全部' ? '全部 Agent' : agent}</option>)}</select>
-      <select aria-label="是否异常筛选" value={abnormalFilter} onChange={(event) => setAbnormalFilter(event.target.value)}><option>全部</option><option>正常</option><option>异常</option></select>
-      <span className="eval-toolbar-count">{view === 'trace' ? filteredTraces.length : filteredSessions.length} 条</span>
+      <button type="button" className={`eval-button eval-obs-backflow-button${selectedCount ? ' eval-button--primary' : ''}`} disabled={selectedCount === 0} onClick={requestBackflow}><History size={14} />轨迹回流{selectedCount ? `（${selectedCount}）` : ''}</button>
     </div>
 
     {view === 'trace' && <section className="eval-surface table-surface eval-obs-table-wrap" aria-label="Trace 列表">
       <table className="eval-data-table eval-obs-table">
-        <thead><tr><th>开始时间</th><th>Agent</th><th>Input</th><th>Output</th><th>耗时</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
-        <tbody>{filteredTraces.map((trace) => <tr key={trace.id} role="button" tabIndex={0} aria-label={`查看 Trace ${trace.traceId ?? trace.id}`} onClick={() => onOpenTrace(trace)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenTrace(trace); } }}>
+        <thead><tr><th className="is-observation-select"><input type="checkbox" aria-label="全选当前筛选 Trace" checked={allFilteredSelected} ref={(element) => { if (element) element.indeterminate = someFilteredSelected; }} disabled={filteredTraces.length === 0} onChange={toggleAllFiltered} /></th><th>开始时间</th><th>Agent</th><th>Input</th><th>Output</th><th>耗时</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
+        <tbody>{filteredTraces.map((trace) => <tr key={trace.id} className={selectedTraceIds.includes(trace.id) ? 'is-observation-selected' : undefined} role="button" tabIndex={0} aria-label={`查看 Trace ${trace.traceId ?? trace.id}`} onClick={() => onOpenTrace(trace)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenTrace(trace); } }}>
+          <td className="is-observation-select"><input type="checkbox" aria-label={`选择 Trace ${trace.traceId ?? trace.id}`} checked={selectedTraceIds.includes(trace.id)} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onChange={() => toggleSelected(trace.id)} /></td>
           <td><div className="eval-obs-date"><strong>{formatTime(trace.occurredAt)}</strong></div></td>
           <td className="is-nowrap">{formatValue(trace.agent)}</td>
           <td className="is-clip" title={trace.input}>{trace.input || '未采集'}</td>
@@ -157,8 +185,9 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
 
     {view === 'session' && <section className="eval-surface table-surface eval-obs-table-wrap" aria-label="Session 列表">
       <table className="eval-data-table eval-obs-table eval-session-table">
-        <thead><tr><th>开始时间</th><th>Agent</th><th>Traces</th><th>Input</th><th>Output</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
-        <tbody>{filteredSessions.map((session) => <tr key={session.id} role="button" tabIndex={0} aria-label={`查看 Session ${session.id}`} onClick={() => onOpenSession(session)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenSession(session); } }}>
+        <thead><tr><th className="is-observation-select"><input type="checkbox" aria-label="全选当前筛选 Session" checked={allFilteredSelected} ref={(element) => { if (element) element.indeterminate = someFilteredSelected; }} disabled={filteredSessions.length === 0} onChange={toggleAllFiltered} /></th><th>开始时间</th><th>Agent</th><th>Traces</th><th>Input</th><th>Output</th><th>Feedback</th><th>Input Tokens</th><th>Output Tokens</th></tr></thead>
+        <tbody>{filteredSessions.map((session) => <tr key={session.id} className={selectedSessionIds.includes(session.id) ? 'is-observation-selected' : undefined} role="button" tabIndex={0} aria-label={`查看 Session ${session.id}`} onClick={() => onOpenSession(session)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenSession(session); } }}>
+          <td className="is-observation-select"><input type="checkbox" aria-label={`选择 Session ${session.id}`} checked={selectedSessionIds.includes(session.id)} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onChange={() => toggleSelected(session.id)} /></td>
           <td><div className="eval-obs-date"><strong>{formatTime(session.startedAt)}</strong></div></td>
           <td className="is-nowrap">{formatValue(session.agent)}</td>
           <td className="is-nowrap">{session.turns.length}</td>
