@@ -4169,17 +4169,15 @@
   white-space: nowrap;
 }
 .eval-task-summary-section {
-  padding: 19px 20px 20px;
-  border: 1px solid var(--eval-border);
-  border-radius: 10px;
-  background: #fbfbfc;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
 }
 .eval-evaluator-statistics {
-  border-color: #e0e5ec;
-  background: #fbfcfe;
+  background: transparent;
 }
 .eval-evaluator-statistics__table-wrap {
-  margin-top: 13px;
   overflow-x: auto;
   border: 1px solid #dfe5ec;
   border-radius: 8px;
@@ -4269,169 +4267,35 @@
   color: var(--eval-faint);
   font-size: 9px;
 }
-.eval-agent-runtime__heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.eval-agent-runtime__table {
-  margin-top: 14px;
-  overflow-x: auto;
-  border: 1px solid #e0e5eb;
-  border-radius: 9px;
-  background: #fff;
-}
-.eval-agent-runtime__table-head,
-.eval-agent-runtime__group,
-.eval-agent-runtime__stat-row {
+.eval-agent-runtime__metrics-table {
   min-width: 900px;
 }
-.eval-agent-runtime__table-head,
-.eval-agent-runtime__stat-row {
-  display: grid;
-  grid-template-columns: minmax(150px, .9fr) 110px minmax(340px, 2fr) 100px;
-  align-items: center;
-  gap: 18px;
-  padding: 0 16px;
-}
-.eval-agent-runtime__table-head {
-  min-height: 40px;
-  color: var(--eval-muted);
-  background: #f6f8fb;
-  font-size: 10px;
-  font-weight: 650;
-}
-.eval-agent-runtime__group {
-  min-height: 31px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  border-top: 1px solid #edf0f3;
-  color: #7b8491;
-  background: #fafbfc;
-  font-size: 10px;
-  font-weight: 700;
-}
-.eval-agent-runtime__stat-row {
-  min-height: 76px;
-  border-top: 1px solid #edf0f3;
-  --runtime-accent: #6889b6;
-}
-.eval-agent-runtime__stat-row.is-firstTokenLatency { --runtime-accent: #45a99a; }
-.eval-agent-runtime__stat-row.is-inputTokens { --runtime-accent: #979438; }
-.eval-agent-runtime__stat-row.is-outputTokens { --runtime-accent: #b97842; }
-.eval-agent-runtime__stat-row.is-totalTokens { --runtime-accent: #7372b1; }
-.eval-agent-runtime__metric-name {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.eval-agent-runtime__metric-name i {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
-  border-radius: 50%;
-  background: var(--runtime-accent);
-}
-.eval-agent-runtime__metric-name strong {
-  overflow: hidden;
-  color: var(--eval-ink);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.eval-agent-runtime__average {
-  color: var(--eval-ink);
-  font-size: 17px;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-.eval-agent-runtime__count {
-  color: var(--eval-muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.eval-agent-runtime__count strong {
-  color: var(--eval-text);
-  font-size: 13px;
-}
-.eval-runtime-range {
-  min-width: 0;
+.eval-agent-runtime__metrics-table th:nth-child(1) { width: 20%; }
+.eval-agent-runtime__metrics-table th:nth-child(2) { width: 34%; }
+.eval-agent-runtime__metrics-table th:nth-child(3) { width: 12%; }
+.eval-agent-runtime__metrics-table th:nth-child(4) { width: 20%; }
+.eval-agent-runtime__metrics-table th:nth-child(5) { width: 14%; }
+.eval-runtime-distribution {
   color: var(--runtime-accent, #6889b6);
 }
-.eval-runtime-range.is-empty {
-  min-height: 52px;
+.eval-runtime-distribution.is-agentDuration { --runtime-accent: #6889b6; }
+.eval-runtime-distribution.is-firstTokenLatency { --runtime-accent: #45a99a; }
+.eval-runtime-distribution.is-inputTokens { --runtime-accent: #979438; }
+.eval-runtime-distribution.is-outputTokens { --runtime-accent: #b97842; }
+.eval-runtime-distribution.is-totalTokens { --runtime-accent: #7372b1; }
+.eval-runtime-distribution.is-empty {
+  min-height: 24px;
   display: grid;
   place-items: center;
   color: var(--eval-faint);
   font-size: 9px;
 }
-.eval-runtime-range__values {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: end;
-  gap: 14px;
-}
-.eval-runtime-range__values > span {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.eval-runtime-range__values > span:nth-child(2) {
-  align-items: center;
-  text-align: center;
-}
-.eval-runtime-range__values > span:last-child {
-  align-items: flex-end;
-  text-align: right;
-}
-.eval-runtime-range__values small {
-  color: var(--eval-faint);
-  font-size: 9px;
-}
-.eval-runtime-range__values strong {
-  color: var(--eval-text);
-  font-size: 11px;
-  font-weight: 650;
-}
-.eval-runtime-range__values .is-average strong {
-  color: var(--runtime-accent);
-  font-size: 12px;
-}
-.eval-runtime-range__track {
-  position: relative;
-  height: 6px;
-  margin: 9px 5px 0;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #f2f4f6 0%, #e5e9ee 50%, #f2f4f6 100%);
-}
-.eval-runtime-range__track::before,
-.eval-runtime-range__track::after {
-  position: absolute;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  border: 1px solid #c9d0d8;
-  border-radius: 50%;
-  background: #fff;
-  content: "";
-  transform: translateY(-50%);
-}
-.eval-runtime-range__track::before { left: -4px; }
-.eval-runtime-range__track::after { right: -4px; }
-.eval-runtime-range__track i {
-  position: absolute;
-  top: 50%;
-  width: 13px;
-  height: 13px;
-  border: 3px solid #fff;
-  border-radius: 50%;
+.eval-runtime-distribution .eval-evaluator-distribution__bar > span {
   background: currentColor;
-  box-shadow: 0 1px 4px rgba(28, 34, 44, .2);
-  transform: translate(-50%, -50%);
 }
+.eval-runtime-distribution .eval-evaluator-distribution__bar > .is-low { opacity: .28; }
+.eval-runtime-distribution .eval-evaluator-distribution__bar > .is-mid { opacity: .55; }
+.eval-runtime-distribution .eval-evaluator-distribution__bar > .is-high { opacity: .9; }
 .eval-task-list-name {
   display: block;
   max-width: 230px;
@@ -4577,11 +4441,6 @@
   .eval-task-overview__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .eval-agent-runtime__heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-  }
 }
 
 @media (max-width: 720px) {
@@ -4622,15 +4481,6 @@
   }
   .eval-task-overview__grid {
     grid-template-columns: 1fr;
-  }
-  .eval-task-summary-section {
-    padding: 16px;
-  }
-  .eval-agent-runtime__grid {
-    grid-template-columns: 1fr;
-  }
-  .eval-agent-runtime__card:last-child {
-    grid-column: auto;
   }
   .eval-task-list-toolbar {
     flex-wrap: wrap;

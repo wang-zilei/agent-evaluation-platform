@@ -2496,22 +2496,23 @@ const formatTaskMetric = (value: number | undefined, name: string): string => {
   return name === '首字时延' ? `${Math.round(value * 1000)} ms` : `${value.toFixed(1)} s`;
 };
 
-function RuntimeRangeIndicator({ metric }: { metric: TaskRuntimeMetric }) {
-  if (!metric.values.length || metric.min === undefined || metric.max === undefined || metric.average === undefined) {
-    return <div className="eval-runtime-range is-empty"><span>未采集</span></div>;
+function RuntimeDistribution({ metric }: { metric: TaskRuntimeMetric }) {
+  if (!metric.values.length || metric.min === undefined || metric.max === undefined) {
+    return <div className="eval-runtime-distribution is-empty"><span>未采集</span></div>;
   }
-  const averagePosition = metric.max === metric.min
-    ? 50
-    : Math.max(3, Math.min(97, (metric.average - metric.min) / (metric.max - metric.min) * 100));
-  return <div className="eval-runtime-range">
-    <div className="eval-runtime-range__values">
-      <span><small>最低</small><strong>{formatTaskMetric(metric.min, metric.name)}</strong></span>
-      <span className="is-average"><small>平均</small><strong>{formatTaskMetric(metric.average, metric.name)}</strong></span>
-      <span><small>最高</small><strong>{formatTaskMetric(metric.max, metric.name)}</strong></span>
+  const buckets = [0, 1, 2].map((bucket) => metric.values.filter((value) => {
+    if (metric.max === metric.min) return bucket === 1;
+    const ratio = (value - metric.min!) / (metric.max! - metric.min!);
+    return (ratio < 1 / 3 ? 0 : ratio < 2 / 3 ? 1 : 2) === bucket;
+  }).length);
+  const widths = buckets.map((count) => metric.values.length ? count / metric.values.length * 100 : 0);
+  return <div className={`eval-runtime-distribution is-${metric.key}`}>
+    <div className="eval-evaluator-distribution__bar" role="img" aria-label={`${metric.name} 数值分布：低 ${buckets[0]}，中 ${buckets[1]}，高 ${buckets[2]}`}>
+      <span className="is-low" style={{ width: `${widths[0]}%` }} />
+      <span className="is-mid" style={{ width: `${widths[1]}%` }} />
+      <span className="is-high" style={{ width: `${widths[2]}%` }} />
     </div>
-    <div className="eval-runtime-range__track" role="img" aria-label={`${metric.name}，最低 ${formatTaskMetric(metric.min, metric.name)}，平均 ${formatTaskMetric(metric.average, metric.name)}，最高 ${formatTaskMetric(metric.max, metric.name)}`}>
-      <i style={{ left: `${averagePosition}%` }} />
-    </div>
+    <div className="eval-evaluator-distribution__labels"><span>低</span><span>高</span></div>
   </div>;
 }
 
@@ -2521,8 +2522,7 @@ function TaskSummaryReport({ task, evaluatorRows, runtimeRows }: { task: Evaluat
   const successRate = completedCases ? successfulCases / completedCases * 100 : undefined;
   const averageScore = averageNumbers(evaluatorRows.flatMap((row) => row.scores));
   const rateText = successRate === undefined ? '未采集' : Number.isInteger(successRate) ? `${successRate}%` : `${successRate.toFixed(1)}%`;
-  const latencyRows = runtimeRows.filter((row) => ['agentDuration', 'firstTokenLatency'].includes(row.key));
-  const tokenRows = runtimeRows.filter((row) => !['agentDuration', 'firstTokenLatency'].includes(row.key));
+  const runtimeGroup = (key: string) => ['agentDuration', 'firstTokenLatency'].includes(key) ? '响应性能' : 'Token 消耗';
   const renderScoreDistribution = (scores: number[]) => {
     const total = scores.length;
     const buckets = [0, 1, 2].map((bucket) => scores.filter((score) => Math.min(2, score < 0.5 ? 0 : score < 0.8 ? 1 : 2) === bucket).length);
@@ -2580,23 +2580,18 @@ function TaskSummaryReport({ task, evaluatorRows, runtimeRows }: { task: Evaluat
       </div>
     </section>
     <section className="eval-task-summary-section eval-agent-runtime">
-      <div className="eval-agent-runtime__heading"><h3>Agent 运行数据</h3></div>
-      <div className="eval-agent-runtime__table">
-        <div className="eval-agent-runtime__table-head"><span>指标</span><span>平均值</span><span>取值范围</span><span>有效样本</span></div>
-        <div className="eval-agent-runtime__group"><span>响应性能</span></div>
-        {latencyRows.map((row) => <div className={`eval-agent-runtime__stat-row is-${row.key}`} key={row.key}>
-          <div className="eval-agent-runtime__metric-name"><i /><strong>{row.name}</strong></div>
-          <strong className="eval-agent-runtime__average">{formatTaskMetric(row.average, row.name)}</strong>
-          <RuntimeRangeIndicator metric={row} />
-          <span className="eval-agent-runtime__count"><strong>{row.validCount}</strong> / {task.totalCases}</span>
-        </div>)}
-        <div className="eval-agent-runtime__group"><span>Token 消耗</span></div>
-        {tokenRows.map((row) => <div className={`eval-agent-runtime__stat-row is-${row.key}`} key={row.key}>
-          <div className="eval-agent-runtime__metric-name"><i /><strong>{row.name}</strong></div>
-          <strong className="eval-agent-runtime__average">{formatTaskMetric(row.average, row.name)}</strong>
-          <RuntimeRangeIndicator metric={row} />
-          <span className="eval-agent-runtime__count"><strong>{row.validCount}</strong> / {task.totalCases}</span>
-        </div>)}
+      <h3>Agent 运行数据</h3>
+      <div className="eval-evaluator-statistics__table-wrap">
+        <table className="eval-evaluator-statistics__table eval-agent-runtime__metrics-table">
+          <thead><tr><th>指标</th><th>数值分布</th><th>平均值</th><th>范围</th><th>有效样本</th></tr></thead>
+          <tbody>{runtimeRows.map((row) => <tr className={`is-${row.key}`} key={row.key}>
+            <td><strong>{row.name}</strong><small>{runtimeGroup(row.key)}</small></td>
+            <td><RuntimeDistribution metric={row} /></td>
+            <td className="eval-evaluator-statistics__number">{formatTaskMetric(row.average, row.name)}</td>
+            <td>{row.min === undefined || row.max === undefined ? '未采集' : `${formatTaskMetric(row.min, row.name)} - ${formatTaskMetric(row.max, row.name)}`}</td>
+            <td><strong>{row.validCount}</strong><small>共 {task.totalCases} 条</small></td>
+          </tr>)}</tbody>
+        </table>
       </div>
     </section>
   </div>;
