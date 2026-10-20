@@ -1848,15 +1848,15 @@
 .eval-task-stepper button:disabled > strong { color: var(--eval-faint); }
 .eval-task-step-panel { min-height: 510px; padding: 28px 30px; border: 1px solid var(--eval-border); border-radius: 12px; background: #fff; }
 .eval-task-step-content { max-width: 1220px; margin: 0 auto; }
-.eval-task-wizard--create .eval-task-stepper { gap: 4px; margin: 0 0 12px; padding: 5px; border: 0; border-radius: 12px; background: #e9ebf0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .72); }
+.eval-task-wizard--create .eval-task-stepper { gap: 4px; margin: 0 0 12px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .eval-task-wizard--create .eval-task-stepper button { min-height: 48px; border: 0; border-radius: 8px; color: #737783; background: transparent; transition: color .16s ease, background-color .16s ease, box-shadow .16s ease; }
 .eval-task-wizard--create .eval-task-stepper button:not(:last-child)::after { display: none; }
-.eval-task-wizard--create .eval-task-stepper button > span { width: 24px; height: 24px; flex-basis: 24px; color: #737783; background: #f7f8fa; font-size: 10px; }
+.eval-task-wizard--create .eval-task-stepper button > span { width: 24px; height: 24px; flex-basis: 24px; color: #9a9da7; background: transparent; font-size: 10px; }
 .eval-task-wizard--create .eval-task-stepper button > strong { font-size: 12px; font-weight: 600; }
-.eval-task-wizard--create .eval-task-stepper button.is-active { color: var(--eval-ink); background: #fff; box-shadow: 0 2px 8px rgba(32, 34, 43, .09); }
+.eval-task-wizard--create .eval-task-stepper button.is-active { color: var(--eval-ink); background: #fff; box-shadow: 0 5px 16px rgba(32, 34, 43, .1); }
 .eval-task-wizard--create .eval-task-stepper button.is-active > span { color: #fff; background: var(--eval-violet); }
-.eval-task-wizard--create .eval-task-stepper button.is-complete { color: #1b7455; background: #edf7f2; }
-.eval-task-wizard--create .eval-task-stepper button.is-complete > span { color: #177245; background: #dff2e9; }
+.eval-task-wizard--create .eval-task-stepper button.is-complete { color: #1b7455; background: transparent; }
+.eval-task-wizard--create .eval-task-stepper button.is-complete > span { color: #177245; background: transparent; }
 .eval-task-wizard--create .eval-task-stepper button:disabled > strong { color: #a1a4ad; }
 .eval-task-wizard--create .eval-task-step-panel { min-height: 0; display: flex; flex-direction: column; padding: 0; overflow: hidden; border: 0; border-radius: 14px; background: #fff; box-shadow: 0 14px 36px rgba(30, 32, 40, .07), 0 1px 3px rgba(30, 32, 40, .04); }
 .eval-task-step-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 24px 26px 12px; border: 0; background: transparent; }
