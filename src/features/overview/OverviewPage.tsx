@@ -1,8 +1,10 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   Activity,
   ArrowRight,
   Bot,
+  Check,
+  ChevronDown,
   CircleAlert,
   Clock3,
   Database,
@@ -18,7 +20,103 @@ import {
 import './overview.css';
 
 type Tone = 'green' | 'violet' | 'amber' | 'red' | 'neutral';
-type Period = '7' | '14' | '30';
+type TimePresetId =
+  | '1m'
+  | '5m'
+  | '15m'
+  | '30m'
+  | '1h'
+  | '4h'
+  | '1d'
+  | 'today'
+  | 'yesterday'
+  | 'day-before'
+  | '1w'
+  | 'this-week'
+  | 'last-week'
+  | '30d'
+  | 'this-month'
+  | 'last-month'
+  | 'this-quarter'
+  | 'custom';
+type OpenFilter = 'time' | 'agent' | null;
+type TimeRange = { start: Date; end: Date };
+
+const TIME_PRESETS: { id: TimePresetId; label: string }[] = [
+  { id: '1m', label: '1分钟' },
+  { id: '5m', label: '5分钟' },
+  { id: '15m', label: '15分钟' },
+  { id: '30m', label: '30分钟' },
+  { id: '1h', label: '1小时' },
+  { id: '4h', label: '4小时' },
+  { id: '1d', label: '1天' },
+  { id: 'today', label: '今天' },
+  { id: 'yesterday', label: '昨天' },
+  { id: 'day-before', label: '前天' },
+  { id: '1w', label: '1周' },
+  { id: 'this-week', label: '本周' },
+  { id: 'last-week', label: '上周' },
+  { id: '30d', label: '30天' },
+  { id: 'this-month', label: '本月' },
+  { id: 'last-month', label: '上月' },
+  { id: 'this-quarter', label: '本季度' },
+  { id: 'custom', label: '自定义' },
+];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+
+const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const addDays = (date: Date, days: number) => new Date(date.getTime() + days * DAY_MS);
+
+const startOfWeek = (date: Date) => addDays(startOfDay(date), -((date.getDay() + 6) % 7));
+
+const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+
+const startOfQuarter = (date: Date) => new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1);
+
+const formatDateTime = (date: Date) => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const formatDateTimeInput = (date: Date) => formatDateTime(date).replace(' ', 'T');
+
+const parseDateTimeInput = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+function getPresetRange(id: TimePresetId, now: Date): TimeRange {
+  const end = new Date(now);
+  if (id.endsWith('m')) return { start: new Date(end.getTime() - Number(id.slice(0, -1)) * MINUTE_MS), end };
+  if (id.endsWith('h')) return { start: new Date(end.getTime() - Number(id.slice(0, -1)) * 60 * MINUTE_MS), end };
+  if (id === '1d') return { start: new Date(end.getTime() - DAY_MS), end };
+  if (id === 'today') return { start: startOfDay(end), end };
+  if (id === 'yesterday') {
+    const day = addDays(startOfDay(end), -1);
+    return { start: day, end: new Date(startOfDay(end).getTime() - 1000) };
+  }
+  if (id === 'day-before') {
+    const day = addDays(startOfDay(end), -2);
+    return { start: day, end: new Date(addDays(startOfDay(end), -1).getTime() - 1000) };
+  }
+  if (id === '1w') return { start: addDays(end, -7), end };
+  if (id === 'this-week') return { start: startOfWeek(end), end };
+  if (id === 'last-week') {
+    const thisWeek = startOfWeek(end);
+    return { start: addDays(thisWeek, -7), end: new Date(thisWeek.getTime() - 1000) };
+  }
+  if (id === '30d') return { start: addDays(end, -30), end };
+  if (id === 'this-month') return { start: startOfMonth(end), end };
+  if (id === 'last-month') {
+    const thisMonth = startOfMonth(end);
+    return { start: new Date(end.getFullYear(), end.getMonth() - 1, 1), end: new Date(thisMonth.getTime() - 1000) };
+  }
+  if (id === 'this-quarter') return { start: startOfQuarter(end), end };
+  return { start: new Date(end.getTime() - DAY_MS), end };
+}
 
 type Kpi = {
   label: string;
@@ -310,8 +408,8 @@ function KpiCard({ item }: { item: Kpi }) {
   </article>;
 }
 
-function QualityTrend({ period }: { period: Period }) {
-  const points = QUALITY_SERIES.slice(-Number(period));
+function QualityTrend({ period }: { period: number }) {
+  const points = QUALITY_SERIES.slice(-Math.max(1, Math.min(period, QUALITY_SERIES.length)));
   const width = 760;
   const height = 236;
   const left = 42;
@@ -362,6 +460,140 @@ function StatusPill({ status }: { status: AgentHealth['status'] }) {
   return <span className={`ov-status ov-status--${tone}`}><i />{status}</span>;
 }
 
+function TimeFilter({
+  open,
+  onToggle,
+  value,
+  onChange,
+  now,
+  customStart,
+  customEnd,
+  onCustomStartChange,
+  onCustomEndChange,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  value: TimePresetId;
+  onChange: (value: TimePresetId) => void;
+  now: Date;
+  customStart: string;
+  customEnd: string;
+  onCustomStartChange: (value: string) => void;
+  onCustomEndChange: (value: string) => void;
+}) {
+  const selected = TIME_PRESETS.find((item) => item.id === value) ?? TIME_PRESETS[6];
+  const range = value === 'custom'
+    ? {
+        start: parseDateTimeInput(customStart) ?? getPresetRange('1d', now).start,
+        end: parseDateTimeInput(customEnd) ?? now,
+      }
+    : getPresetRange(value, now);
+
+  return <div className="ov-filter">
+    <button
+      type="button"
+      className={`ov-filter-trigger${open ? ' is-open' : ''}`}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-controls="ov-time-popover"
+      onClick={onToggle}
+    >
+      <span className="ov-filter-trigger__badge">{selected.label}</span>
+      <span className="ov-filter-trigger__value">{formatDateTime(range.start)} ~ {formatDateTime(range.end)}</span>
+      <ChevronDown size={15} aria-hidden="true" />
+    </button>
+    {open && <div className="ov-filter-popover ov-time-popover" id="ov-time-popover" role="dialog" aria-label="时间选择">
+      <strong className="ov-filter-popover__title">时间选择</strong>
+      <div className="ov-time-options">
+        {TIME_PRESETS.map((item) => <button
+          type="button"
+          key={item.id}
+          className={item.id === value ? 'is-active' : ''}
+          aria-pressed={item.id === value}
+          onClick={() => onChange(item.id)}
+        >{item.label}</button>)}
+      </div>
+      {value === 'custom' && <div className="ov-custom-range">
+        <label><span>开始时间</span><input type="datetime-local" step="1" value={customStart} onChange={(event) => onCustomStartChange(event.target.value)} /></label>
+        <label><span>结束时间</span><input type="datetime-local" step="1" value={customEnd} onChange={(event) => onCustomEndChange(event.target.value)} /></label>
+      </div>}
+    </div>}
+  </div>;
+}
+
+function AgentFilter({
+  open,
+  onToggle,
+  selected,
+  onChange,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  selected: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const allAgentNames = AGENT_HEALTH.map((item) => item.name);
+  const allSelected = selected.length === 0;
+  const label = allSelected ? '全部 Agent' : selected.length === 1 ? selected[0] : `已选 ${selected.length} 个 Agent`;
+  const visibleAgents = AGENT_HEALTH.filter((item) => item.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const checkedAgents = new Set(selected);
+
+  const toggleAgent = (name: string) => {
+    if (allSelected) {
+      onChange([name]);
+      return;
+    }
+    const next = selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name];
+    onChange(next.length === allAgentNames.length || next.length === 0 ? [] : next);
+  };
+
+  return <div className="ov-filter">
+    <button
+      type="button"
+      className={`ov-filter-trigger ov-agent-filter-trigger${open ? ' is-open' : ''}`}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-controls="ov-agent-popover"
+      onClick={onToggle}
+    >
+      <Bot size={15} aria-hidden="true" />
+      <span className="ov-filter-trigger__single">{label}</span>
+      <ChevronDown size={15} aria-hidden="true" />
+    </button>
+    {open && <div className="ov-filter-popover ov-agent-popover" id="ov-agent-popover" role="dialog" aria-label="Agent 筛选">
+      <label className="ov-agent-search">
+        <Search size={15} aria-hidden="true" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索 Agent..." aria-label="搜索 Agent" />
+      </label>
+      <div className="ov-agent-options">
+        <button type="button" className="ov-agent-option" aria-pressed={allSelected} onClick={() => onChange([])}>
+          <span className={`ov-checkbox${allSelected ? ' is-checked' : ''}`}>{allSelected && <Check size={12} />}</span>
+          <span>全部 Agent</span>
+        </button>
+        {visibleAgents.map((agent) => {
+          const checked = checkedAgents.has(agent.name);
+          return <button
+            type="button"
+            key={agent.id}
+            className="ov-agent-option"
+            aria-pressed={checked}
+            onClick={() => toggleAgent(agent.name)}
+          >
+            <span className={`ov-checkbox${checked ? ' is-checked' : ''}`}>{checked && <Check size={12} />}</span>
+            <span>{agent.name}</span>
+            <small>{agent.domain}</small>
+          </button>;
+        })}
+        {!visibleAgents.length && <div className="ov-agent-empty">没有匹配的 Agent</div>}
+      </div>
+      <div className="ov-agent-popover__footer">
+        <button type="button" onClick={() => { onChange([]); setSearch(''); }}>清空</button>
+      </div>
+    </div>}
+  </div>;
+}
+
 export default function OverviewPage({
   onOpenAccess,
   onOpenTrace,
@@ -371,21 +603,60 @@ export default function OverviewPage({
   onOpenTrace: () => void;
   onOpenTasks: () => void;
 }) {
-  const [period, setPeriod] = useState<Period>('7');
-  const [domain, setDomain] = useState('全部业务域');
-  const [query, setQuery] = useState('');
+  const [now] = useState(() => new Date());
+  const [timePreset, setTimePreset] = useState<TimePresetId>('1d');
+  const [customStart, setCustomStart] = useState(() => formatDateTimeInput(new Date(now.getTime() - DAY_MS)));
+  const [customEnd, setCustomEnd] = useState(() => formatDateTimeInput(now));
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
+  const [openFilter, setOpenFilter] = useState<OpenFilter>(null);
   const [updatedAt, setUpdatedAt] = useState('10:18:30');
+  const filterBarRef = useRef<HTMLDivElement>(null);
+  const timeRange = timePreset === 'custom'
+    ? {
+        start: parseDateTimeInput(customStart) ?? getPresetRange('1d', now).start,
+        end: parseDateTimeInput(customEnd) ?? now,
+      }
+    : getPresetRange(timePreset, now);
+  const trendPeriod = Math.max(1, Math.min(30, Math.ceil((timeRange.end.getTime() - timeRange.start.getTime()) / DAY_MS)));
   const filteredAgents = useMemo(() => AGENT_HEALTH.filter((item) => {
-    const domainMatch = domain === '全部业务域' || item.domain === domain;
-    const queryMatch = !query || `${item.name} ${item.source} ${item.version} ${item.issue}`.toLowerCase().includes(query.toLowerCase());
-    return domainMatch && queryMatch;
-  }), [domain, query]);
+    return !selectedAgents.length || selectedAgents.includes(item.name);
+  }), [selectedAgents]);
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!filterBarRef.current?.contains(event.target as Node)) setOpenFilter(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenFilter(null);
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, []);
 
   return <div className="overview-page">
     <div className="ov-toolbar">
-      <div className="ov-toolbar__filters">
-        <label><span>业务域</span><select value={domain} onChange={(event) => setDomain(event.target.value)}><option>全部业务域</option><option>客户服务</option><option>数据分析</option><option>研究分析</option><option>业务办公</option><option>风险管理</option></select></label>
-        <label><span>时间范围</span><select value={period} onChange={(event) => setPeriod(event.target.value as Period)}><option value="7">近 7 天</option><option value="14">近 14 天</option><option value="30">近 30 天</option></select></label>
+      <div className="ov-toolbar__filters" ref={filterBarRef}>
+        <TimeFilter
+          open={openFilter === 'time'}
+          onToggle={() => setOpenFilter((current) => current === 'time' ? null : 'time')}
+          value={timePreset}
+          onChange={setTimePreset}
+          now={now}
+          customStart={customStart}
+          customEnd={customEnd}
+          onCustomStartChange={setCustomStart}
+          onCustomEndChange={setCustomEnd}
+        />
+        <AgentFilter
+          open={openFilter === 'agent'}
+          onToggle={() => setOpenFilter((current) => current === 'agent' ? null : 'agent')}
+          selected={selectedAgents}
+          onChange={setSelectedAgents}
+        />
         <span className="ov-freshness"><Clock3 size={13} />更新于 {updatedAt}</span>
       </div>
       <div className="ov-toolbar__actions">
@@ -409,7 +680,7 @@ export default function OverviewPage({
           <div><span>今日已评测</span><strong>28.9K</strong><em>覆盖率 73.2%</em></div>
           <div><span>好评与差评差</span><strong>+81.7%</strong><em>用户反馈样本 12.4K</em></div>
         </div>
-        <QualityTrend period={period} />
+        <QualityTrend period={trendPeriod} />
         <footer className="ov-panel__footer"><span>通过率仅统计有效样本；证据不足、无法执行与执行失败不折算为 0。</span><button type="button" onClick={onOpenTasks}>查看评测任务<ArrowRight size={14} /></button></footer>
       </section>
 
@@ -431,7 +702,6 @@ export default function OverviewPage({
     <section className="ov-panel ov-agent-panel">
       <header className="ov-panel__header ov-agent-panel__header">
         <div><span className="ov-eyebrow">AGENT PORTFOLIO</span><h3>Agent 健康度</h3><p>按业务影响、质量变化和评测覆盖综合排序。</p></div>
-        <label className="ov-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Agent、来源或风险" /></label>
       </header>
       <div className="ov-table-wrap">
         <table className="ov-agent-table">
