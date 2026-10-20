@@ -11,6 +11,8 @@ import type {
   EvaluationTask,
   Evaluator,
   EvaluatorResult,
+  OptimizationAttributionTag,
+  OptimizationReportAction,
   OptimizationResult,
   OptimizationSuggestion,
   OptimizeExperiment,
@@ -340,6 +342,61 @@ const demoSuggestions: OptimizationSuggestion[] = [
   },
 ];
 
+const demoAttributionTags: OptimizationAttributionTag[] = [
+  { id: 'prompt-completion', category: 'Prompt', label: '任务完成条件不明确', count: 6 },
+  { id: 'skill-flow', category: 'Skill', label: '关键流程与知识缺失', count: 5 },
+  { id: 'model-instruction', category: '模型', label: '指令遵循失败', count: 2 },
+  { id: 'prompt-constraint', category: 'Prompt', label: '回答约束缺失', count: 4 },
+  { id: 'tool-result', category: '工具', label: '返回结果不符合定义', count: 2 },
+  { id: 'skill-exception', category: 'Skill', label: '例外场景知识缺失', count: 3 },
+  { id: 'model-external', category: '模型', label: '外部结果使用错误', count: 1 },
+  { id: 'prompt-context', category: 'Prompt', label: '必要上下文缺失', count: 1 },
+  { id: 'tool-params', category: '工具', label: '参数定义不完整', count: 1 },
+  { id: 'model-context', category: '模型', label: '上下文信息遗漏', count: 1 },
+];
+
+const demoReportActions: OptimizationReportAction[] = [
+  {
+    id: 'ACT-OPT-001',
+    priority: '优先处理',
+    target: 'system_prompt',
+    changeType: '修改',
+    title: '补充回答结构与异常处理边界',
+    summary: '要求回答固定按“结论—适用条件—操作步骤—例外与人工入口”组织；订单号缺失时先追问，工具失败时不得推断退款进度或到账时效。',
+    reason: '6 条 Badcase 都存在缺少决策条件或异常边界的问题，其中 2 条同时出现工具失败后继续生成业务结论。',
+    caseIds: ['CASE-RF-001', 'CASE-RF-002', 'CASE-RF-003', 'CASE-RF-004', 'CASE-RF-005', 'CASE-RF-006'],
+    evaluatorIds: ['EVAL-COMPLETE', 'EVAL-COVERAGE', 'EVAL-INSTRUCTION', 'EVAL-FAITHFUL', 'EVAL-RISK'],
+    tagIds: ['prompt-completion', 'model-instruction', 'prompt-constraint', 'model-external'],
+    validation: '复用 6 条 Badcase，检查任务完成度、指令遵循、回答忠实度和风险控制是否达到对应阈值。',
+  },
+  {
+    id: 'ACT-OPT-002',
+    priority: '随后处理',
+    target: 'tools',
+    changeType: '修改',
+    title: '完善订单查询参数与失败返回',
+    summary: '明确完整订单号为必填参数，并统一订单号缺失、服务超时、订单不存在和跨境节点异常的返回结构；异常结果不得被当作成功响应。',
+    reason: 'CASE-RF-002、CASE-RF-003 均出现订单信息不可用后继续生成退款结论，工具边界和返回定义没有被 Agent 正确识别。',
+    caseIds: ['CASE-RF-002', 'CASE-RF-003'],
+    evaluatorIds: ['EVAL-INSTRUCTION', 'EVAL-FAITHFUL', 'EVAL-RISK'],
+    tagIds: ['tool-result', 'tool-params', 'model-external'],
+    validation: '构造订单号缺失、服务超时、订单不存在和跨境节点异常四类请求，确认工具失败不会进入成功分支。',
+  },
+  {
+    id: 'ACT-OPT-003',
+    priority: '随后处理',
+    target: 'skills',
+    changeType: '修改',
+    title: '补齐售后政策流程与例外知识',
+    summary: '在售后政策 Skill 中补充寄回方式、运费承担、部分退款金额、复议材料和人工升级规则，并要求按场景输出用户完成售后的必要动作。',
+    reason: '4 条流程型 Badcase 只回答原则，没有覆盖寄回、凭证、退款拆分或复议材料等可执行信息。',
+    caseIds: ['CASE-RF-001', 'CASE-RF-004', 'CASE-RF-005', 'CASE-RF-006'],
+    evaluatorIds: ['EVAL-COMPLETE', 'EVAL-COVERAGE', 'EVAL-RISK'],
+    tagIds: ['skill-flow', 'skill-exception', 'prompt-completion'],
+    validation: '检查 Expected Output 要点覆盖率，并确认例外类目、跨境异常和复议场景都提供人工升级路径。',
+  },
+];
+
 const demoOptimizationResult: OptimizationResult = {
   status: '优化成功',
   selectedCaseCount: 6,
@@ -352,6 +409,21 @@ const demoOptimizationResult: OptimizationResult = {
     { target: 'skills', changeType: '修改', before: demoBeforeConfig.skills.map((item) => `${item.name}\n${item.content}`).join('\n\n'), after: demoAfterConfig.skills.map((item) => `${item.name}\n${item.content}`).join('\n\n'), reason: '问题模式是“知识规则存在但没有转成回答要求”。CASE-RF-001、004、005、006 的 EVAL-COVERAGE 都低于 0.80，评分原因分别指出寄回方式、质量问题凭证、部分退货金额拆分和复议材料缺失。修改 Skill 使规则按场景输出，并补充跨境售后和人工升级边界。', caseIds: ['CASE-RF-001', 'CASE-RF-004', 'CASE-RF-005', 'CASE-RF-006'], evaluatorIds: ['EVAL-COMPLETE', 'EVAL-COVERAGE', 'EVAL-RISK'], evidence: 'Expected Output 要求回答条件、流程、费用、例外和下一步动作，现有 Skill 只有原则性描述。', expectedEffect: '验证集验收覆盖率从 0.12-0.50 提升到 0.92 以上，回归集回答保持一致。' },
   ],
   suggestions: demoSuggestions,
+  report: {
+    generatedAt: '2026-09-24 10:18',
+    summary: [
+      '6 条 Badcase 共产生 21 个失败评估项，涉及 5 个评估器。',
+      '问题主要集中在 Prompt 回答约束、Skill 流程知识和工具异常返回。',
+      '优先补充回答结构与订单查询边界，可覆盖全部 6 条 Badcase。',
+    ],
+    attributionTags: demoAttributionTags,
+    actions: demoReportActions,
+    unresolved: [{
+      id: 'UNR-OPT-001',
+      title: '退款复议材料标准需要业务维护',
+      reason: '质量问题、物流问题和金额争议的材料清单属于业务知识，建议售后运营确认后再写入 Skill。',
+    }],
+  },
   scoreRows,
   summary: demoSummary,
   comparisonId: 'CMP-OPT-REFUND-10',

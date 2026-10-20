@@ -36,7 +36,7 @@ import type {
   EvaluationTask, Evaluator, EvaluatorMode, FieldDefinition, FieldSemantic, HistoryConversation,
   ComparisonRecord, EvaluatorKind, OptimizeExperiment, OptimizationFollowUpMode, OptimizationResult, ScoreType, TaskTab,
   ComparisonCaseRow, ComparisonEvaluatorRow, ComparisonMetricCell, ComparisonOutputCell, ComparisonRuntimeRow, ComparisonTaskRef, EvaluatorResult,
-  HumanAnnotation, HumanLabelDefinition, TaskAgentTarget,
+  HumanAnnotation, HumanLabelDefinition, TaskAgentTarget, OptimizationAttributionTag, OptimizationReport, OptimizationReportAction,
 } from './evaluation.types';
 import './evaluation.css';
 import './auto-eval.css';
@@ -54,7 +54,7 @@ type TraceScreen = 'list' | 'detail';
 type CaseObservationView = 'trace' | 'session';
 type HumanAnnotationFilter = '' | '已标注' | '未标注';
 type EvaluatorResultFilter = '通过' | '不通过';
-type OptimizationDetailTab = 'config' | 'metrics' | 'details';
+type OptimizationDetailTab = 'report' | 'metrics' | 'details';
 type TaskEvaluatorMetric = {
   name: string;
   average?: number;
@@ -863,7 +863,7 @@ export default function EvaluationCenterPage() {
       {module === 'evaluators' && evaluatorScreen === 'create' && (evaluatorKind === '人工评估' ? <HumanEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : evaluatorKind === '代码评估' ? <CodeEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : evaluatorKind === 'Agent 评估器' ? <AgentEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />)}
       {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} comparisons={state.comparisons} search={taskSearch} setSearch={setTaskSearch} tab={taskTab} setTab={setTaskTab} onCreate={openTaskCreate} onCreateComparison={() => openComparisonPicker()} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onOpenComparison={openComparison} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
-      {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
+      {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} task={state.tasks.find((item) => item.id === experiment.sourceTaskId)} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
       {module === 'tasks' && taskScreen === 'comparison' && comparison && <ComparisonDetail comparison={comparison} onBack={() => { setTaskTab('compare'); setTaskScreen('list'); }} />}
       {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'automation' && taskScreen === 'list' && <AutoEvaluationPanel tasks={state.tasks} agents={state.agents} evaluators={state.evaluators} onCreate={(item) => setState((current) => ({ ...current, tasks: [item, ...current.tasks] }))} onUpdate={(item) => setState((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === item.id ? item : task) }))} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onNotify={notify} />}
@@ -2059,45 +2059,194 @@ function TaskList({ tasks, datasets, evaluators, comparisons, search, setSearch,
   </div>;
 }
 
-function ConfigCompare({ experiment }: { experiment: OptimizeExperiment }) {
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const labels: Record<string, string> = { system_prompt: '系统提示词', tools: '工具描述', skills: 'Skills 内容' };
-  const sections = experiment.result.changes.map((change) => ({ ...change, label: labels[change.target] ?? change.target }));
-  if (!sections.length) return <EmptyState title="没有可直接修改的配置" description="本次只展示不能自动修改的问题建议。" />;
-  return <div className="eval-config-compare">
-    <div className="eval-config-compare__legend"><span><i className="is-before" />优化前</span><span><i className="is-after" />优化后</span><em>点击行展开优化原因</em></div>
-    {sections.map((section) => <div key={`${section.target}-${section.changeType}`}>
-      <section className="eval-config-compare__row">
-        <div className="eval-config-compare__label"><strong>{section.label}</strong><Pill tone={section.changeType === '新增' ? 'green' : section.changeType === '删除' ? 'amber' : 'violet'}>{section.changeType}</Pill></div>
-        <div className="eval-config-compare__side"><span>优化前</span><pre>{section.before || '未采集'}</pre></div>
-        <div className="eval-config-compare__side is-after"><span>优化后</span><pre>{section.after || '未采集'}</pre></div>
-        <IconButton label={expanded === section.target ? '收起优化原因' : '展开优化原因'} onClick={() => setExpanded((current) => current === section.target ? null : section.target)}><ChevronDown size={15} /></IconButton>
-      </section>
-      {expanded === section.target && <div className="eval-config-compare__details">
-        <div><span>问题证据</span><p>{section.evidence || section.reason}</p></div>
-        <div><span>优化原因</span><p>{section.reason}</p></div>
-        <div><span>预期影响</span><p>{section.expectedEffect || '改善关联 Case 的评估器通过状态。'}</p></div>
-        <div><span>关联 Case / 评估器</span><p>{section.caseIds.map((caseId) => <Pill key={caseId}>{caseId}</Pill>)}{section.evaluatorIds?.map((evaluatorId) => <Pill key={evaluatorId} tone="violet">{evaluatorId}</Pill>)}</p></div>
-      </div>}
-    </div>)}
+const optimizationTargetLabels: Record<OptimizationReportAction['target'], string> = {
+  system_prompt: '系统提示词',
+  tools: '工具配置',
+  skills: 'Skill 内容',
+};
+
+const attributionCategoryClass = (category: OptimizationAttributionTag['category']) => {
+  if (category === 'Prompt') return 'prompt';
+  if (category === '工具') return 'tool';
+  if (category === 'Skill') return 'skill';
+  return 'model';
+};
+
+const fallbackAttributionForEvaluator = (result: EvaluatorResult): Omit<OptimizationAttributionTag, 'count'> => {
+  if (result.evaluatorId === 'EVAL-COMPLETE') return { id: `tag-${result.evaluatorId}`, category: 'Prompt', label: '任务完成条件不明确' };
+  if (result.evaluatorId === 'EVAL-COVERAGE') return { id: `tag-${result.evaluatorId}`, category: 'Skill', label: '关键流程与知识缺失' };
+  if (result.evaluatorId === 'EVAL-INSTRUCTION') return { id: `tag-${result.evaluatorId}`, category: '模型', label: '指令遵循失败' };
+  if (result.evaluatorId === 'EVAL-FAITHFUL') return { id: `tag-${result.evaluatorId}`, category: '模型', label: '外部结果使用错误' };
+  if (result.evaluatorId === 'EVAL-RISK') return { id: `tag-${result.evaluatorId}`, category: 'Prompt', label: '回答约束缺失' };
+  return { id: `tag-${result.evaluatorId}`, category: '模型', label: result.evaluatorName || '评估失败' };
+};
+
+const buildFallbackOptimizationReport = (result: OptimizationResult, selectedResults: CaseResult[]): OptimizationReport => {
+  const tagMap = new Map<string, OptimizationAttributionTag>();
+  selectedResults.forEach((caseResult) => caseResult.evaluatorResults
+    .filter((item) => item.evaluationStatus !== '通过')
+    .forEach((item) => {
+      const tag = fallbackAttributionForEvaluator(item);
+      const current = tagMap.get(tag.id);
+      tagMap.set(tag.id, { ...tag, count: (current?.count ?? 0) + 1 });
+    }));
+  const actions: OptimizationReportAction[] = result.changes
+    .filter((change) => change.changeType !== '未变化')
+    .map((change, index) => ({
+      id: `fallback-action-${change.target}`,
+      priority: index === 0 ? '优先处理' : '随后处理',
+      target: change.target,
+      changeType: change.changeType === '新增' ? '新增' : '修改',
+      title: `${optimizationTargetLabels[change.target]}优化`,
+      summary: change.reason,
+      reason: change.evidence || change.reason,
+      caseIds: change.caseIds,
+      evaluatorIds: change.evaluatorIds ?? [],
+      tagIds: [],
+      validation: '重新运行关联 Badcase，并检查评估器结果与回归集是否稳定。',
+    }));
+  return {
+    generatedAt: '',
+    summary: [result.changeSummary],
+    attributionTags: [...tagMap.values()],
+    actions,
+    unresolved: result.suggestions
+      .filter((item) => item.handling !== '已纳入配置修改')
+      .map((item) => ({ id: item.id, title: item.problem, reason: item.unfixableReason || item.suggestion })),
+  };
+};
+
+function OptimizationReportEvidence({ action, selectedResults }: { action: OptimizationReportAction; selectedResults: CaseResult[] }) {
+  const rows = action.caseIds.map((caseId) => {
+    const caseResult = selectedResults.find((item) => item.caseId === caseId);
+    if (!caseResult) return null;
+    const failures = caseResult.evaluatorResults.filter((item) => item.evaluationStatus !== '通过' && (!action.evaluatorIds.length || action.evaluatorIds.includes(item.evaluatorId)));
+    return { caseResult, failures };
+  }).filter((item): item is { caseResult: CaseResult; failures: EvaluatorResult[] } => Boolean(item));
+
+  if (!rows.length) return <EmptyState title="暂无关联明细" description="当前报告没有可回查的 Badcase 执行结果。" />;
+  return <div className="eval-report-evidence">
+    <div className="eval-report-evidence__head"><strong>关联 Badcase</strong><span>{rows.length} 条</span></div>
+    <div className="eval-report-evidence__table-wrap">
+      <table className="eval-report-evidence__table">
+        <thead><tr><th>Case</th><th>失败评估器</th><th>Input</th><th>Agent Output</th><th>定位依据</th></tr></thead>
+        <tbody>{rows.map(({ caseResult, failures }) => <tr key={caseResult.caseId}>
+          <td><strong>{caseResult.caseId}</strong><small>{failures.length} 个失败项</small></td>
+          <td><div className="eval-report-finding-chips">{failures.map((failure) => <span key={failure.evaluatorId}>{failure.evaluatorName}<b>{failure.scoreType === 'numeric' && typeof failure.evaluationResult === 'number' ? failure.evaluationResult.toFixed(2) : failure.evaluationStatus}</b></span>)}</div></td>
+          <td><p>{caseResult.input || '未采集'}</p></td>
+          <td><p>{caseResult.agentOutput || '未采集'}</p></td>
+          <td><p>{failures.length ? failures.map((failure) => failure.evaluationReason).join('；') : '未找到匹配的评估器证据。'}</p></td>
+        </tr>)}</tbody>
+      </table>
+    </div>
   </div>;
 }
 
-function OptimizationSuggestions({ suggestions }: { suggestions: OptimizationResult['suggestions'] }) {
-  if (!suggestions.length) return <EmptyState title="暂无优化建议" description="当前 Badcase 没有发现需要人工处理的问题。" />;
-  return <div className="eval-suggestion-list">{suggestions.map((suggestion) => <article className="eval-suggestion-row" key={suggestion.id}>
-    <div className="eval-suggestion-problem">
-      <div className="eval-suggestion-title"><strong>{suggestion.problem}</strong><Pill tone={suggestion.handling === '已纳入配置修改' ? 'green' : suggestion.handling === '需人工处理' ? 'amber' : 'neutral'}>{suggestion.handling || '待处理'}</Pill></div>
-      <div>{suggestion.caseIds.map((caseId) => <Pill key={caseId}>{caseId}</Pill>)}{suggestion.evaluatorIds?.map((evaluatorId) => <Pill key={evaluatorId} tone="violet">{evaluatorId}</Pill>)}</div>
-    </div>
-    <div className="eval-suggestion-advice">
-      <span>评估器依据</span><p>{suggestion.evidence || '未提供可追踪依据。'}</p>
-      <span>根因判断</span><p>{suggestion.rootCause || '未提供根因判断。'}</p>
-      <span>修改建议</span><p>{suggestion.suggestion}</p>
-      <span>预期影响</span><p>{suggestion.expectedEffect || '未提供预期影响。'}</p>
-      {suggestion.unfixableReason && <><span>超出优化范围</span><p>{suggestion.unfixableReason}</p></>}
-    </div>
-  </article>)}</div>;
+function OptimizationReportView({ experiment, task }: { experiment: OptimizeExperiment; task?: EvaluationTask }) {
+  const [showScope, setShowScope] = useState(false);
+  const [expandedAction, setExpandedAction] = useState<string | null>(null);
+  const selectedResults = experiment.selectedCaseIds
+    .map((caseId) => task?.results.find((item) => item.caseId === caseId))
+    .filter((item): item is CaseResult => Boolean(item));
+  const report = experiment.result.report ?? buildFallbackOptimizationReport(experiment.result, selectedResults);
+  const tagById = new Map(report.attributionTags.map((tag) => [tag.id, tag]));
+  const evaluatorMap = new Map<string, { id: string; name: string; scoreType: EvaluatorResult['scoreType']; total: number; passed: number; affected: number; scores: number[] }>();
+
+  selectedResults.forEach((caseResult) => caseResult.evaluatorResults.forEach((result) => {
+    const current = evaluatorMap.get(result.evaluatorId) ?? { id: result.evaluatorId, name: result.evaluatorName, scoreType: result.scoreType, total: 0, passed: 0, affected: 0, scores: [] };
+    current.total += 1;
+    if (result.evaluationStatus === '通过') current.passed += 1;
+    else {
+      current.affected += 1;
+      if (result.scoreType === 'numeric' && typeof result.evaluationResult === 'number') current.scores.push(result.evaluationResult);
+    }
+    evaluatorMap.set(result.evaluatorId, current);
+  }));
+
+  const evaluatorRows = [...evaluatorMap.values()].sort((left, right) => right.affected - left.affected || left.name.localeCompare(right.name, 'zh-CN'));
+  const failedFindings = evaluatorRows.reduce((sum, row) => sum + row.affected, 0);
+  const coveredCaseCount = new Set(report.actions.flatMap((action) => action.caseIds)).size;
+  const layerTotals = report.attributionTags.reduce<Record<string, number>>((totals, tag) => ({ ...totals, [tag.category]: (totals[tag.category] ?? 0) + tag.count }), {});
+  const dominantLayer = Object.entries(layerTotals).sort((left, right) => right[1] - left[1])[0]?.[0];
+
+  return <div className="eval-optimization-report">
+    <section className="eval-report-overview">
+      <header>
+        <div>
+          <div className="eval-report-kicker"><Sparkles size={14} /><span>优化报告</span><Pill tone="violet">AI 生成</Pill></div>
+          <h3>报告摘要</h3>
+          <p>{report.generatedAt ? `生成于 ${report.generatedAt} · ` : ''}基于已选 Badcase 的评估结果生成，报告结论固定在生成时。</p>
+        </div>
+        <button type="button" className="eval-report-scope-toggle" aria-expanded={showScope} onClick={() => setShowScope((current) => !current)}><ListChecks size={14} />查看分析对象（{selectedResults.length || experiment.selectedCaseCount}）<ChevronDown size={14} /></button>
+      </header>
+      <ul className="eval-report-summary-list">{report.summary.map((item) => <li key={item}>{item}</li>)}</ul>
+      <div className="eval-report-metrics">
+        <div><span>分析对象</span><strong>{selectedResults.length || experiment.selectedCaseCount}</strong><small>条 Badcase</small></div>
+        <div><span>失败发现</span><strong>{failedFindings}</strong><small>{evaluatorRows.length} 个评估器</small></div>
+        <div><span>优化动作</span><strong>{report.actions.length}</strong><small>覆盖 {coveredCaseCount} 条 Badcase</small></div>
+      </div>
+      {showScope && <div className="eval-report-scope">
+        {selectedResults.length ? selectedResults.map((item) => <div key={item.caseId}><strong>{item.caseId}</strong><span>{item.input}</span><small>{item.evaluatorResults.filter((result) => result.evaluationStatus !== '通过').length} 个失败项</small></div>) : <span>未找到可展示的 Badcase。</span>}
+      </div>}
+    </section>
+    <p className="eval-report-frozen-note">明细回查自原始评测任务，不在报告中重复存储；报告按评估器分别统计，不计算跨评估器总分。</p>
+
+    <section className="eval-report-section">
+      <div className="eval-report-section__head">
+        <div><h3>评估器结果概况</h3><p>按受影响 Badcase 数排序，各评估器保持独立口径。</p></div>
+        <span>{evaluatorRows.length} 个评估器</span>
+      </div>
+      <div className="eval-report-evaluator-list">{evaluatorRows.map((row) => {
+        const scoreRange = row.scores.length ? `${Math.min(...row.scores).toFixed(2)}–${Math.max(...row.scores).toFixed(2)}` : '';
+        return <div className="eval-report-evaluator-row" key={row.id}>
+          <div className="eval-report-evaluator-name"><span><Target size={14} /></span><div><strong>{row.name}</strong><small>{row.scoreType === 'numeric' ? '0–1 数值评分' : '通过 / 不通过'}</small></div></div>
+          <div className="eval-report-score-track"><i style={{ width: `${row.total ? Math.max(4, row.affected / row.total * 100) : 0}%` }} /></div>
+          <div className="eval-report-evaluator-meta"><strong>影响 {row.affected}/{row.total}</strong><span>{row.scoreType === 'numeric' ? scoreRange || '暂无分数' : `${row.passed}/${row.total} 通过`}</span></div>
+        </div>;
+      })}</div>
+    </section>
+
+    <section className="eval-report-section">
+      <div className="eval-report-section__head">
+        <div><h3>归因标签</h3><p>共命中 {report.attributionTags.reduce((sum, tag) => sum + tag.count, 0)} 次，覆盖 {report.attributionTags.length} 类标签{dominantLayer ? `，主要集中在 ${dominantLayer}` : ''}。</p></div>
+        <span><Tag size={14} />问题定位</span>
+      </div>
+      <div className="eval-report-attribution-grid">{report.attributionTags.map((tag) => <div className={`eval-report-attribution-row is-${attributionCategoryClass(tag.category)}`} key={tag.id}>
+        <i />
+        <span><b>{tag.category}</b> / {tag.label}</span>
+        <strong>{tag.count}</strong>
+      </div>)}</div>
+    </section>
+
+    <section className="eval-report-section">
+      <div className="eval-report-section__head">
+        <div><h3>优化动作</h3><p>{report.actions.length} 条动作，覆盖 {coveredCaseCount}/{selectedResults.length || experiment.selectedCaseCount} 条 Badcase，按优先级和影响范围排序。</p></div>
+        <span><Wand2 size={14} />可执行建议</span>
+      </div>
+      <div className="eval-report-action-list">{report.actions.map((action) => {
+        const tags = action.tagIds.map((tagId) => tagById.get(tagId)).filter((tag): tag is OptimizationAttributionTag => Boolean(tag));
+        const actionExpanded = expandedAction === action.id;
+        return <article className="eval-report-action" key={action.id}>
+          <header>
+            <div>
+              <span className={`eval-report-priority is-${action.priority === '优先处理' ? 'primary' : 'secondary'}`}>{action.priority}</span>
+              <span className="eval-report-target">{optimizationTargetLabels[action.target]}</span>
+              <span className="eval-report-change-type">{action.changeType}</span>
+              <strong>{action.title}</strong>
+            </div>
+            <span>关联 {action.caseIds.length} 条 Badcase</span>
+          </header>
+          <p className="eval-report-action-summary">{action.summary}</p>
+          <div className="eval-report-action-reason"><span>问题与原因</span><p>{action.reason}</p></div>
+          {tags.length > 0 && <div className="eval-report-action-tags">{tags.map((tag) => <span className={`is-${attributionCategoryClass(tag.category)}`} key={tag.id}>{tag.category} / {tag.label}</span>)}</div>}
+          <div className="eval-report-validation"><Target size={14} /><div><span>验证方式</span><p>{action.validation}</p></div></div>
+          <button type="button" className="eval-report-evidence-toggle" aria-expanded={actionExpanded} onClick={() => setExpandedAction((current) => current === action.id ? null : action.id)}><ListChecks size={14} />查看关联 Badcase（{action.caseIds.length}）<ChevronDown size={14} /></button>
+          {actionExpanded && <OptimizationReportEvidence action={action} selectedResults={selectedResults} />}
+        </article>;
+      })}</div>
+      {report.unresolved?.length ? <div className="eval-report-unresolved"><CircleAlert size={15} /><div><strong>未纳入自动优化</strong>{report.unresolved.map((item) => <p key={item.id}><b>{item.title}</b>{item.reason}</p>)}</div></div> : null}
+    </section>
+  </div>;
 }
 
 const optimizationCasePassed = (output?: ComparisonOutputCell) => Boolean(output?.evaluatorResults.length && output.evaluatorResults.every((item) => item.evaluationStatus === '通过'));
@@ -2188,9 +2337,8 @@ function OptimizationDetailTable({ comparison, experiment }: { comparison: Compa
   </div>;
 }
 
-function OptimizationDetail({ experiment, comparison, onBack, onNotify, onViewComparison }: { experiment: OptimizeExperiment; comparison?: ComparisonRecord; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void; onViewComparison: (comparison: ComparisonRecord) => void }) {
-  const result = experiment.result;
-  const [tab, setTab] = useState<OptimizationDetailTab>('config');
+function OptimizationDetail({ experiment, task, comparison, onBack, onNotify, onViewComparison }: { experiment: OptimizeExperiment; task?: EvaluationTask; comparison?: ComparisonRecord; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void; onViewComparison: (comparison: ComparisonRecord) => void }) {
+  const [tab, setTab] = useState<OptimizationDetailTab>('report');
   const [evaluationState, setEvaluationState] = useState<'idle' | 'running' | 'ready'>(experiment.followUpMode === '直接实验对比' ? 'ready' : 'idle');
   const continueExperiment = () => {
     setEvaluationState('running');
@@ -2201,16 +2349,13 @@ function OptimizationDetail({ experiment, comparison, onBack, onNotify, onViewCo
     }, 1200);
   };
   const showComparison = evaluationState === 'ready' && Boolean(comparison);
-  const tabs: Array<{ id: OptimizationDetailTab; label: string }> = [{ id: 'config', label: '配置对比' }, { id: 'metrics', label: '指标统计' }, { id: 'details', label: '实验明细' }];
+  const tabs: Array<{ id: OptimizationDetailTab; label: string }> = [{ id: 'report', label: '优化报告' }, { id: 'metrics', label: '指标统计' }, { id: 'details', label: '实验明细' }];
   return <div className="eval-detail-page eval-optimization-detail">
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回优化记录</button><Pill tone={experiment.status === '已完成' ? 'green' : 'amber'}>{experiment.status}</Pill></div>
     <header className="eval-detail-hero eval-optimization-hero"><div><h2>{experiment.name}</h2></div></header>
     <nav className="eval-optimization-tabs" aria-label="优化详情内容">{tabs.map((item) => <button type="button" key={item.id} className={tab === item.id ? 'is-active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}</nav>
     {evaluationState === 'running' && <section className="eval-optimization-progress"><RefreshCw size={17} /><div><strong>优化后复测任务正在运行</strong><p>同时运行验证集和回归集，完成后生成指标与明细。</p></div><Status label="复测评测中" /></section>}
-    {tab === 'config' && <div className="eval-optimization-stack">
-      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>Agent 配置</h3><p>左侧为优化前，右侧为优化后；点击 Diff 展开可追踪优化原因。</p></div></div><ConfigCompare experiment={experiment} /></section>
-      <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>优化建议</h3><p>按问题、证据、根因、修改建议和预期影响展示。</p></div></div><OptimizationSuggestions suggestions={result.suggestions} /></section>
-    </div>}
+    {tab === 'report' && <OptimizationReportView experiment={experiment} task={task} />}
     {tab === 'metrics' && (showComparison && comparison ? <div className="eval-optimization-stack">
       <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>验证与回归</h3><p>通过阈值决定评估器是否通过，指标按验证集和回归集分别汇总。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => onViewComparison(comparison)}>查看完整对比实验</button></div><OptimizationMetricSummary comparison={comparison} experiment={experiment} /><OptimizationMetricBreakdown comparison={comparison} experiment={experiment} /></section>
       <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>运行指标</h3><p>展示候选配置的运行效率变化。</p></div></div><MetricCompareMatrix rows={comparison.runtimeRows} tasks={comparison.taskRefs} /></section>
@@ -2411,15 +2556,23 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
   const agentReady = config.agentTargets.length > 0 && config.agentTargets.every((target) => Boolean(target.agentId && target.agentVersion));
   const evaluatorsReady = evaluatorCards.length > 0 && evaluatorCards.every(Boolean);
   const runnableEvaluatorCount = bindings.filter((item) => item.evaluator && item.missing.length === 0).length;
-  const blocked = !datasetReady || !agentReady || !evaluatorsReady || requiredMissing.length > 0 || !config.name.trim() || runnableEvaluatorCount === 0;
+  const taskInfoReady = Boolean(config.name.trim());
+  const blocked = !datasetReady || !agentReady || !evaluatorsReady || requiredMissing.length > 0 || !taskInfoReady || runnableEvaluatorCount === 0;
   const steps: { id: TaskCreateStep; label: string }[] = [
-    { id: 1, label: '评测对象' },
-    { id: 2, label: '评测集' },
-    { id: 3, label: '评估器' },
-    { id: 4, label: '确认实验配置' },
+    { id: 1, label: '任务信息' },
+    { id: 2, label: '评测对象' },
+    { id: 3, label: '评测集' },
+    { id: 4, label: '评估器' },
   ];
-  const canOpenStep = (target: TaskCreateStep) => target === 1 || (target === 2 && agentReady) || (target === 3 && agentReady && datasetReady) || (target === 4 && agentReady && datasetReady && evaluatorsReady);
-  const currentStepReady = step === 1 ? agentReady : step === 2 ? datasetReady : step === 3 ? evaluatorsReady : !blocked;
+  const stepDescriptions: Record<TaskCreateStep, string> = {
+    1: '设置任务名称，后续配置会关联到当前评测任务。',
+    2: '选择本次评测的 Agent 和运行版本。',
+    3: '选择已提交的评测集和冻结版本。',
+    4: '配置评估器并确认输入字段绑定。',
+  };
+  const currentStep = steps.find((item) => item.id === step) ?? steps[0];
+  const canOpenStep = (target: TaskCreateStep) => target === 1 || (target === 2 && taskInfoReady) || (target === 3 && taskInfoReady && agentReady) || (target === 4 && taskInfoReady && agentReady && datasetReady);
+  const currentStepReady = step === 1 ? taskInfoReady : step === 2 ? agentReady : step === 3 ? datasetReady : !blocked;
   const changeAgentTarget = (index: number, id: string) => {
     const next = state.agents.find((item) => item.id === id);
     setConfig((current) => ({ ...current, agentTargets: current.agentTargets.map((target, targetIndex) => targetIndex === index ? { agentId: id, agentVersion: next?.versions[0] ?? '' } : target) }));
@@ -2463,43 +2616,58 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
   const changeEvaluatorCard = (index: number, id: string) => syncEvaluatorCards(evaluatorCards.map((current, cardIndex) => cardIndex === index ? id : current));
   const nextStep = () => { if (step < 4 && currentStepReady) setStep((step + 1) as TaskCreateStep); };
 
-  return <div className="eval-task-create-page eval-task-wizard">
-    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回任务列表</button><Pill tone="violet">未创建任务</Pill></div>
+  return <div className="eval-task-create-page eval-task-wizard eval-task-wizard--create">
+    <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回任务列表</button><Pill tone="violet">草稿</Pill></div>
+    <header className="eval-task-wizard-header">
+      <div><span>评测任务</span><h2>{config.name.trim() || '新建评测任务'}</h2></div>
+      <div className="eval-task-wizard-step-meta"><span>{step} / 4</span><strong>{currentStep.label}</strong></div>
+    </header>
     <nav className="eval-task-stepper" aria-label="新建评测任务步骤">
       {steps.map((item) => <button type="button" key={item.id} className={`${step === item.id ? 'is-active' : ''}${step > item.id ? ' is-complete' : ''}`} disabled={!canOpenStep(item.id)} onClick={() => setStep(item.id)}><span>{step > item.id ? <Check size={15} /> : item.id}</span><strong>{item.label}</strong></button>)}
     </nav>
 
     <section className="eval-task-step-panel">
-      {step === 2 && <div className="eval-task-step-content">
-        <div className="eval-task-form-row eval-task-form-row--action">
-          <label className="eval-field"><span>评测集 <b>*</b></span><SelectField value={config.datasetId} onChange={(event) => changeDataset(event.target.value)}>{submitted.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>
-          <label className="eval-field"><span>版本 <b>*</b></span><SelectField value={config.datasetVersion} disabled={!dataset} onChange={(event) => setConfig((current) => ({ ...current, datasetVersion: event.target.value }))}>{dataset?.versions.filter((version) => version.status === '已提交').map((version) => <option key={version.id} value={version.id}>{version.label}</option>)}</SelectField></label>
-          <CreateMenu onCreate={onCreateDataset} />
+      <header className="eval-task-step-heading">
+        <div>
+          <span>{String(step).padStart(2, '0')}</span>
+          <div><h3>{currentStep.label}</h3><p>{stepDescriptions[step]}</p></div>
         </div>
-        {!submitted.length && <div className="eval-inline-warning"><CircleAlert size={15} />当前没有可运行的已提交评测集，请先新建评测集。</div>}
-        {dataset && <div className="eval-task-selection-detail"><div><span>描述</span><p>{dataset.description || '暂无描述'}</p></div><div><span>字段</span><div className="eval-task-field-tags">{dataset.fields.map((field) => <FieldBadge key={field.id} semantic={field.semantic} required={field.required} />)}</div></div><div><span>数据总量</span><strong>{dataset.cases.length}</strong></div></div>}
+        {step === 4 && <div className="eval-task-step-heading__actions">{selected.length > 0 && <span>{selected.length} 个已选</span>}<button type="button" className="eval-button eval-button--ghost" onClick={addEvaluatorCard}><Plus size={15} />添加评估器</button></div>}
+      </header>
+
+      {step === 1 && <div className="eval-task-step-content eval-task-step-content--task-info">
+        <label className="eval-field eval-task-name-field"><span>评测名称 <b>*</b></span><input autoFocus maxLength={50} value={config.name} placeholder="例如：退款客服助手 V3 回流问题评测" onChange={(event) => setConfig((current) => ({ ...current, name: event.target.value }))} /><small>{config.name.length}/50</small></label>
       </div>}
 
-      {step === 1 && <div className="eval-task-step-content">
+      {step === 2 && <div className="eval-task-step-content">
         <div className="eval-agent-target-list">
           {selectedAgents.map(({ target, agent }, index) => <div className="eval-agent-target-row" key={`${target.agentId}-${index}`}>
             <label className="eval-field"><span>Agent <b>*</b></span><SelectField value={target.agentId} onChange={(event) => changeAgentTarget(index, event.target.value)}>{state.agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>
             <label className="eval-field"><span>版本 <b>*</b></span><SelectField value={target.agentVersion} disabled={!agent} onChange={(event) => changeAgentVersion(index, event.target.value)}>{(agent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</SelectField></label>
             {config.agentTargets.length > 1 && <IconButton label={`移除 ${agent?.name ?? 'Agent'}`} onClick={() => removeAgentTarget(index)}><Trash2 size={15} /></IconButton>}
-            {agent && <div className="eval-agent-target-description">
-              <span>描述</span><p>{agent.description}</p>
-              {(agent.architecture || agent.skills?.length || agent.mcpConnections?.length) && <div className="eval-agent-target-capabilities">
-                {agent.architecture && <span><strong>架构</strong>{agent.architecture}</span>}
-                {agent.skills?.length ? <span><strong>Skills</strong>{agent.skills.join('、')}</span> : null}
-                {agent.mcpConnections?.length ? <span><strong>MCP</strong>{agent.mcpConnections.join('、')}</span> : null}
-              </div>}
-            </div>}
+            {agent && <div className="eval-agent-target-description"><span>描述</span><p>{agent.description}</p></div>}
           </div>)}
         </div>
         <button type="button" className="eval-evaluator-add-trigger" onClick={addAgentTarget}><Plus size={16} />添加 Agent</button>
       </div>}
 
       {step === 3 && <div className="eval-task-step-content">
+        <div className="eval-task-form-row eval-task-form-row--action">
+          <label className="eval-field"><span>评测集 <b>*</b></span><SelectField value={config.datasetId} onChange={(event) => changeDataset(event.target.value)}>{submitted.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>
+          <label className="eval-field"><span>版本 <b>*</b></span><SelectField value={config.datasetVersion} disabled={!dataset} onChange={(event) => setConfig((current) => ({ ...current, datasetVersion: event.target.value }))}>{dataset?.versions.filter((version) => version.status === '已提交').map((version) => <option key={version.id} value={version.id}>{version.label}</option>)}</SelectField></label>
+          <CreateMenu onCreate={onCreateDataset} />
+        </div>
+        {!submitted.length && <div className="eval-inline-warning"><CircleAlert size={15} />当前没有可运行的已提交评测集，请先新建评测集。</div>}
+        {dataset && <div className="eval-task-selection-detail">
+          <div className="eval-task-selection-summary">
+            <div className="eval-task-selection-copy"><span>评测集说明</span><p>{dataset.description || '暂无描述'}</p></div>
+            <div className="eval-task-selection-stats"><div><span>版本</span><strong>{selectedVersion?.label ?? '未选择'}</strong></div><div><span>数据总量</span><strong>{dataset.cases.length}</strong><small>条 Case</small></div></div>
+          </div>
+          <div className="eval-task-selection-fields"><span>字段</span><div className="eval-task-field-tags">{dataset.fields.map((field) => <FieldBadge key={field.id} semantic={field.semantic} required={field.required} />)}</div></div>
+        </div>}
+      </div>}
+
+      {step === 4 && <div className="eval-task-step-content">
         {isQueryDataset && <div className="eval-query-core-panel">
           <div><strong>核心硬门禁</strong><p>三个核心检查必须保留；证据不足会单独展示，不折算为失败。</p></div>
           <div className="eval-query-core-list">{requiredEvaluators.map((evaluator) => (
@@ -2507,8 +2675,11 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
           ))}</div>
           {requiredMissing.length > 0 && <div className="eval-inline-warning"><CircleAlert size={15} />缺少 {requiredMissing.length} 个核心硬门禁。</div>}
         </div>}
-        <div className="eval-selected-evaluators">
-          {isQueryDataset && requiredMissing.length > 0 && <div className="eval-inline-warning">请先补齐核心硬门禁评估器。</div>}
+        {isQueryDataset && requiredMissing.length > 0 && <div className="eval-inline-warning">请先补齐核心硬门禁评估器。</div>}
+        {bindings.length === 0 ? <div className="eval-task-evaluator-empty">
+          <span><ClipboardCheck size={22} /></span>
+          <div><strong>尚未添加评估器</strong><p>开始评测前至少需要一个可执行评估器。</p></div>
+        </div> : <div className="eval-selected-evaluators">
           {bindings.map(({ evaluator, variables, missing, options }, index) => <article className="eval-selected-evaluator" key={`evaluator-card-${index}`}>
             <header>
               <div>
@@ -2526,16 +2697,7 @@ function TaskCreateWorkspace({ state, config, setConfig, onBack, onCreate, onCre
             </> : <p>请选择一个评估器。</p>}
           </article>)}
         </div>
-        <button type="button" className="eval-evaluator-add-trigger" onClick={addEvaluatorCard}><Plus size={16} />添加评估器</button>
-      </div>}
-
-      {step === 4 && <div className="eval-task-confirm-grid">
-        <div className="eval-task-confirm-form">
-          <label className="eval-field"><span>任务名称 <b>*</b></span><input maxLength={50} value={config.name} placeholder="例如：退款客服助手 V3 回流问题评测" onChange={(event) => setConfig((current) => ({ ...current, name: event.target.value }))} /><small>{config.name.length}/50</small></label>
-          <label className="eval-field"><span>任务描述</span><textarea maxLength={200} rows={3} value={config.description} placeholder="记录本次验证目的" onChange={(event) => setConfig((current) => ({ ...current, description: event.target.value }))} /></label>
-          <div className="eval-runtime-grid"><label className="eval-field"><span>并发数</span><input type="number" min={1} max={10} value={config.concurrency} onChange={(event) => setConfig((current) => ({ ...current, concurrency: Number(event.target.value) || 1 }))} /></label><label className="eval-field"><span>单条超时（秒）</span><input type="number" min={10} max={600} value={config.timeout} onChange={(event) => setConfig((current) => ({ ...current, timeout: Number(event.target.value) || 60 }))} /></label><label className="eval-check-card"><input type="checkbox" checked={config.continueOnError} onChange={(event) => setConfig((current) => ({ ...current, continueOnError: event.target.checked }))} /><span><strong>单条失败继续</strong><small>保留其他 Case 的运行结果</small></span></label></div>
-        </div>
-        <aside className="eval-task-confirm-summary"><h3>实验配置</h3><div className="eval-confirm-item"><Database size={16} /><span><small>评测集</small><strong>{dataset?.name ?? '未选择'}</strong><em>{selectedVersion?.label ?? '未选择版本'}，{dataset?.cases.length ?? 0} 条 Case</em></span></div><div className="eval-confirm-item"><Bot size={16} /><span><small>评测对象</small><strong>{selectedAgents.length ? `${selectedAgents.length} 个 Agent` : '未选择'}</strong><em>{selectedAgents.map(({ target, agent }) => `${agent?.name ?? 'Agent'} ${target.agentVersion}`).join('、') || '未选择版本'}</em></span></div><div className="eval-confirm-item"><ClipboardCheck size={16} /><span><small>评估器</small><strong>{selected.length} 个</strong><em>{isQueryDataset ? '3 个硬门禁必选' : `${runnableEvaluatorCount} 个可执行`}</em></span></div><div className={`eval-summary-alert${blocked ? ' is-warning' : ' is-ok'}`}>{blocked ? <><CircleAlert size={15} /><span>{isQueryDataset && requiredMissing.length ? '请补齐 3 个核心硬门禁。' : '填写任务名称，并确保至少有一个评估器可执行。'}</span></> : <><CheckCircle2 size={15} /><span>配置检查通过，可以开始评测。</span></>}</div></aside>
+        }
       </div>}
     </section>
 

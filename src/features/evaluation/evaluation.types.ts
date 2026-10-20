@@ -365,6 +365,41 @@ export type OptimizationSuggestion = {
   unfixableReason?: string;
 };
 
+export type OptimizationAttributionTag = {
+  id: string;
+  category: '模型' | 'Prompt' | '工具' | 'Skill';
+  label: string;
+  count: number;
+};
+
+export type OptimizationReportAction = {
+  id: string;
+  priority: '优先处理' | '随后处理';
+  target: 'system_prompt' | 'tools' | 'skills';
+  changeType: '新增' | '修改';
+  title: string;
+  summary: string;
+  reason: string;
+  caseIds: string[];
+  evaluatorIds: string[];
+  tagIds: string[];
+  validation: string;
+};
+
+export type OptimizationReportUnresolved = {
+  id: string;
+  title: string;
+  reason: string;
+};
+
+export type OptimizationReport = {
+  generatedAt: string;
+  summary: string[];
+  attributionTags: OptimizationAttributionTag[];
+  actions: OptimizationReportAction[];
+  unresolved?: OptimizationReportUnresolved[];
+};
+
 export type ScoreComparisonRow = {
   caseId: string;
   evaluatorName: string;
@@ -382,6 +417,7 @@ export type OptimizationResult = {
   afterConfig: AgentConfigSnapshot;
   changes: ConfigChange[];
   suggestions: OptimizationSuggestion[];
+  report?: OptimizationReport;
   scoreRows: ScoreComparisonRow[];
   summary: { improved: number; declined: number; unchanged: number; incomparable: number };
   comparisonId?: string;
