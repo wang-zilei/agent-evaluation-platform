@@ -1508,6 +1508,23 @@ function EvaluatorCard({ evaluator, onOpen, onCopy }: { evaluator: Evaluator; on
   </article>;
 }
 
+function EvaluatorPromptDetail({ prompt, variables }: { prompt: string; variables: Evaluator['variables'] }) {
+  const [expanded, setExpanded] = useState(false);
+  return <section className={`eval-detail-prompt${expanded ? ' is-expanded' : ''}`}>
+    <div className="eval-detail-block-head">
+      <h3>Prompt</h3>
+      <div className="eval-prompt-actions">
+        <IconButton label={expanded ? '收起 Prompt' : '放大 Prompt'} onClick={() => setExpanded((current) => !current)}><Maximize2 size={15} /></IconButton>
+        <IconButton label="复制 Prompt" onClick={() => { void navigator.clipboard?.writeText(prompt); }}><Copy size={15} /></IconButton>
+      </div>
+    </div>
+    <div className="eval-detail-prompt__surface">
+      <pre className="eval-evaluator-prompt">{prompt}</pre>
+      {variables.length > 0 && <div className="eval-evaluator-variables-bar"><span>变量</span>{variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div>}
+    </div>
+  </section>;
+}
+
 function EvaluatorDetail({ evaluator, optimizations, onOpenOptimization, onBack, onCopy, onEdit }: {
   evaluator: Evaluator;
   optimizations: EvaluatorOptimizationExperiment[];
@@ -1516,7 +1533,6 @@ function EvaluatorDetail({ evaluator, optimizations, onOpenOptimization, onBack,
   onCopy: () => void;
   onEdit: () => void;
 }) {
-  const [expandedPrompt, setExpandedPrompt] = useState(false);
   const [detailTab, setDetailTab] = useState<'config' | 'optimizations'>('config');
   const isHuman = evaluator.kind === '人工评估';
   if (evaluator.kind === '代码评估') return <CodeEvaluatorDetail evaluator={evaluator} onBack={onBack} onCopy={onCopy} onEdit={onEdit} />;
@@ -1527,17 +1543,12 @@ function EvaluatorDetail({ evaluator, optimizations, onOpenOptimization, onBack,
       <div><h2>{evaluator.name}</h2></div>
       <div className="eval-detail-hero__actions"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />复制为自建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div>
     </div>
-    <div className="eval-evaluator-detail-meta">
-      <div><span>{isHuman ? '评分类型' : '结果类型'}</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</strong></div>
-      <div><span>通过阈值</span><strong>{evaluator.scoreType === 'numeric' ? (evaluator.passThreshold?.toFixed(2) ?? '未设置') : '直接判断'}</strong></div>
-      {isHuman ? <><div><span>评估方式</span><strong>人工标注</strong></div><div><span>累计标注</span><strong>{evaluator.runCount}</strong></div><div><span>版本</span><strong>{evaluator.version}</strong></div></> : <><div><span>评估模型</span><strong>{evaluator.model}</strong></div><div><span>累计运行</span><strong>{evaluator.runCount}</strong></div><div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div></>}
+    <div className="eval-evaluator-detail-meta eval-evaluator-detail-meta--compact">
+      <div><span>{isHuman ? '评分类型' : '结果类型'}</span><strong>{evaluator.scoreType === 'numeric' ? `0-1 数值 · 阈值 ${evaluator.passThreshold?.toFixed(2) ?? '未设置'}` : '通过 / 不通过'}</strong></div>
+      {isHuman ? <><div><span>评估方式</span><strong>人工标注</strong></div><div><span>累计标注</span><strong>{evaluator.runCount}</strong></div><div><span>版本</span><strong>{evaluator.version}</strong></div></> : <><div><span>评估模型</span><strong>{evaluator.model}</strong></div><div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div><div><span>版本</span><strong>{evaluator.version}</strong></div></>}
     </div>
     {!isHuman && <nav className="eval-task-detail-tabs eval-evaluator-detail-tabs" aria-label="评估器详情内容"><button type="button" className={detailTab === 'config' ? 'is-active' : ''} onClick={() => setDetailTab('config')}>配置</button><button type="button" className={detailTab === 'optimizations' ? 'is-active' : ''} onClick={() => setDetailTab('optimizations')}>优化记录（{optimizations.length}）</button></nav>}
-    {!isHuman && detailTab === 'config' && <section className={`eval-evaluator-prompt-card${expandedPrompt ? ' is-expanded' : ''}`}>
-      <div className="eval-evaluator-prompt-head"><h3>评估规则</h3><div className="eval-prompt-actions"><IconButton label={expandedPrompt ? '收起 Prompt' : '放大 Prompt'} onClick={() => setExpandedPrompt((current) => !current)}><Maximize2 size={15} /></IconButton><IconButton label="复制 Prompt" onClick={() => { void navigator.clipboard?.writeText(evaluator.prompt); }}><Copy size={15} /></IconButton></div></div>
-      <pre className="eval-evaluator-prompt">{evaluator.prompt}</pre>
-      <div className="eval-evaluator-variables-bar"><span>变量</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div>
-    </section>}
+    {!isHuman && detailTab === 'config' && <EvaluatorPromptDetail prompt={evaluator.prompt} variables={evaluator.variables} />}
     {!isHuman && detailTab === 'optimizations' && <EvaluatorOptimizationList experiments={optimizations} onOpen={onOpenOptimization} />}
     {isHuman && <div className="eval-human-detail-note"><ClipboardCheck size={17} /><span><strong>人工评估标签</strong><small>在评测任务数据明细中填写分数或通过状态。</small></span></div>}
   </div>;
@@ -1583,26 +1594,21 @@ function AgentEvaluatorDetail({ evaluator, optimizations, onOpenOptimization, on
   return <div className="eval-detail-page eval-evaluator-detail-page eval-agent-detail-page">
     <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回 Agent 评估器</button></div>
     <div className="eval-evaluator-detail-intro">
-      <div><div className="eval-agent-detail-kicker"><Bot size={16} />Agent evaluator</div><h2>{evaluator.name}</h2><p>{evaluator.purpose}</p></div>
+      <div><h2>{evaluator.name}</h2></div>
       <div className="eval-detail-hero__actions"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />基于此创建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑并生成新版本</button>}</div>
     </div>
-    <div className="eval-evaluator-detail-meta">
-      <div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值评分' : '通过 / 不通过'}</strong></div>
+    <div className="eval-evaluator-detail-meta eval-evaluator-detail-meta--compact">
+      <div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? `0-1 数值 · 阈值 ${evaluator.passThreshold?.toFixed(2) ?? '未设置'}` : '通过 / 不通过'}</strong></div>
       <div><span>评估模型</span><strong>{evaluator.model}</strong></div>
-      <div><span>已启用 Skills</span><strong>{skillCount} 个</strong></div>
-      <div><span>已连接 MCP</span><strong>{mcpCount} 个</strong></div>
+      <div><span>能力</span><strong>{skillCount} Skills · {mcpCount} MCP</strong></div>
       <div><span>版本</span><strong>{evaluator.version}</strong></div>
     </div>
     <nav className="eval-task-detail-tabs eval-evaluator-detail-tabs" aria-label="Agent 评估器详情内容"><button type="button" className={detailTab === 'config' ? 'is-active' : ''} onClick={() => setDetailTab('config')}>配置</button><button type="button" className={detailTab === 'optimizations' ? 'is-active' : ''} onClick={() => setDetailTab('optimizations')}>优化记录（{optimizations.length}）</button></nav>
     {detailTab === 'config' && <>
-      <section className="eval-detail-card eval-agent-detail-capabilities">
-        <div className="eval-detail-card__heading"><div><h3>能力挂载</h3></div><span className="eval-detail-card__hint">Skills 与 MCP 随评估器版本冻结</span></div>
+      <EvaluatorPromptDetail prompt={evaluator.prompt} variables={evaluator.variables} />
+      <section className="eval-detail-block eval-agent-detail-capabilities">
+        <div className="eval-detail-block-head"><h3>能力挂载</h3></div>
         <AgentCapabilityList skills={evaluator.skills} mcpConnections={evaluator.mcpConnections} />
-      </section>
-      <section className="eval-evaluator-prompt-card">
-        <div className="eval-evaluator-prompt-head"><div><span className="eval-eyebrow">AGENT WORKFLOW</span><h3>评测工作流</h3></div><IconButton label="复制评测工作流" onClick={() => { void navigator.clipboard?.writeText(evaluator.prompt); }}><Copy size={15} /></IconButton></div>
-        <pre className="eval-evaluator-prompt">{evaluator.prompt}</pre>
-        <div className="eval-evaluator-variables-bar"><span>变量</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div>
       </section>
     </>}
     {detailTab === 'optimizations' && <EvaluatorOptimizationList experiments={optimizations} onOpen={onOpenOptimization} />}
@@ -1610,30 +1616,36 @@ function AgentEvaluatorDetail({ evaluator, optimizations, onOpenOptimization, on
 }
 
 
+function CodeReadonlyView({ value, implementation }: { value: string; implementation: Evaluator['implementation'] }) {
+  const language = implementation === 'JavaScript' ? 'JavaScript' : implementation === '内置规则' ? '内置规则' : 'Python';
+  const fileName = implementation === 'JavaScript' ? 'code.js' : implementation === '内置规则' ? 'rule.txt' : 'code.py';
+  const displayValue = value.includes('\n') ? value : value.replace(/\\n/g, '\n');
+  return <div className="eval-code-readonly">
+    <div className="eval-code-readonly__bar"><span><Braces size={14} />{fileName}</span><Pill>{language}</Pill></div>
+    <div className="eval-code-readonly__body">
+      <div aria-hidden="true">{Array.from({ length: displayValue.split('\n').length }, (_, index) => <span key={index}>{index + 1}</span>)}</div>
+      <pre aria-label="评估代码">{displayValue}</pre>
+    </div>
+  </div>;
+}
+
 function CodeEvaluatorDetail({ evaluator, onBack, onCopy, onEdit }: { evaluator: Evaluator; onBack: () => void; onCopy: () => void; onEdit: () => void }) {
   return (
     <div className="eval-detail-page eval-evaluator-detail-page eval-code-only-detail">
       <div className="eval-page-topline"><button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />返回代码评估器</button></div>
       <div className="eval-evaluator-detail-intro">
-        <div><h2>{evaluator.name}</h2></div>
-        <div className="eval-detail-hero__actions"><Pill>Code</Pill><Pill>{evaluator.category}</Pill><Pill>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />基于此创建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑</button>}</div>
+        <div><h2>{evaluator.name}</h2><p>{evaluator.description}</p></div>
+        <div className="eval-detail-hero__actions"><Pill tone={evaluator.mode === 'preset' ? 'violet' : 'neutral'}>{evaluator.mode === 'preset' ? '预置' : '自建'}</Pill>{evaluator.mode === 'preset' ? <button type="button" className="eval-button eval-button--primary" onClick={onCopy}><Copy size={14} />基于此创建</button> : <button type="button" className="eval-button eval-button--primary" onClick={onEdit}><Settings2 size={14} />编辑</button>}</div>
       </div>
-      <div className="eval-evaluator-detail-meta">
-        <div><span>评估目的</span><strong>{evaluator.purpose}</strong></div>
-        <div><span>输入变量</span><strong>{evaluator.variables.length} 个</strong></div>
+      <div className="eval-evaluator-detail-meta eval-evaluator-detail-meta--compact">
+        <div><span>分类</span><strong>{evaluator.category}</strong></div>
+        <div><span>实现方式</span><strong>{evaluator.implementation ?? 'Python'}</strong></div>
         <div><span>结果类型</span><strong>{evaluator.scoreType === 'numeric' ? '0-1 数值' : '通过 / 不通过'}</strong></div>
-        <div><span>适用范围</span><strong>{evaluator.scope ?? '确定性 Mock 检查'}</strong></div>
-        <div><span>边界</span><strong>{evaluator.notFor ?? '不执行外部请求'}</strong></div>
+        <div><span>版本</span><strong>{evaluator.version}</strong></div>
       </div>
-      <section className="eval-detail-card">
-        <div className="eval-detail-card__heading"><div><h3>判定规则</h3></div><Pill>{evaluator.category}</Pill></div>
-        {evaluator.variables.length > 0 && <div className="eval-evaluator-variables-bar"><span>变量</span>{evaluator.variables.map((variable) => <strong key={variable.name}>{variable.name}</strong>)}</div>}
-        {evaluator.rules?.length ? <div className="eval-code-rules">{evaluator.rules.map((rule) => <div key={rule.condition}><strong>{rule.condition}</strong><small>{rule.output}</small></div>)}</div> : <p>{evaluator.description}</p>}
-        <div className="eval-code-output"><span>输出示例</span><pre>{evaluator.outputExample ?? '未采集'}</pre></div>
-      </section>
-      <section className="eval-detail-card">
-        <div className="eval-detail-card__heading"><div><h3>Mock 实现边界</h3></div><Pill tone="violet">不调用外部服务</Pill></div>
-        <CodeEditor value={evaluator.code ?? ''} language={evaluator.implementation === 'JavaScript' ? 'JavaScript' : 'Python'} onChange={() => undefined} />
+      <section className="eval-detail-block eval-code-detail-block">
+        <div className="eval-detail-block-head"><h3>评估代码</h3><IconButton label="复制评估代码" onClick={() => { void navigator.clipboard?.writeText(evaluator.code ?? ''); }}><Copy size={15} /></IconButton></div>
+        <CodeReadonlyView value={evaluator.code ?? ''} implementation={evaluator.implementation} />
       </section>
     </div>
   );
