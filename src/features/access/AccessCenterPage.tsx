@@ -15,7 +15,7 @@ import {
 import './access-center.css';
 
 type AccessGroup = 'frameworks' | 'custom';
-type Protocol = 'auto' | 'trace' | 'sdk' | 'manual';
+type Protocol = 'otel' | 'manual' | 'probe';
 
 type AccessItem = {
   id: string;
@@ -41,7 +41,7 @@ const FRAMEWORKS: AccessItem[] = [
     group: 'frameworks',
     summary: '面向多 Agent 编排与工具调用的开发框架，重点识别 Agent、ReAct 步骤、工具和上下文。',
     languages: ['Python', 'Java'],
-    recommendedProtocol: '框架自动接入',
+    recommendedProtocol: 'OpenTelemetry',
     coverage: ['Agent 入口', '模型调用', 'Tool Call', '上下文传递', '最终输出'],
     thought: [
       '平台通过框架适配器识别 Agent、Agent 协作关系和单次运行边界。',
@@ -59,7 +59,7 @@ const FRAMEWORKS: AccessItem[] = [
     group: 'frameworks',
     summary: '以 Agent Loop、工具使用和多轮任务执行为核心，重点保留一次任务的完整决策与执行链。',
     languages: ['Python', 'TypeScript'],
-    recommendedProtocol: '框架自动接入',
+    recommendedProtocol: 'OpenTelemetry',
     coverage: ['Agent Loop', 'Model Call', 'Tool Call', '中间步骤', '最终输出'],
     thought: [
       '从 Agent 会话入口建立根节点，再按每轮模型调用和工具执行展开。',
@@ -77,7 +77,7 @@ const FRAMEWORKS: AccessItem[] = [
     group: 'frameworks',
     summary: '面向工作流、插件和知识库的 Agent 构建方式，重点映射工作流节点、插件调用与知识检索。',
     languages: ['平台配置', 'API'],
-    recommendedProtocol: '框架自动接入',
+    recommendedProtocol: 'OpenTelemetry',
     coverage: ['工作流运行', '插件调用', '知识检索', '会话输入', '最终输出'],
     thought: [
       '优先复用平台事件或运行记录，不要求业务重新编写 Agent。',
@@ -95,7 +95,7 @@ const FRAMEWORKS: AccessItem[] = [
     group: 'frameworks',
     summary: '以角色、任务和协作流程为核心的多 Agent 框架，重点表达任务分派与 Agent 间调用关系。',
     languages: ['Python'],
-    recommendedProtocol: '框架自动接入',
+    recommendedProtocol: 'OpenTelemetry',
     coverage: ['Crew 运行', 'Task 分派', 'Agent 调用', 'Tool Call', '最终交付'],
     thought: [
       '把 Crew 运行作为根 Trace，把 Task 和 Agent 执行保留为可关联子节点。',
@@ -113,7 +113,7 @@ const FRAMEWORKS: AccessItem[] = [
     group: 'frameworks',
     summary: '覆盖 Agent、工具与运行器的开发套件，接入重点是 Runner、Session 和工具执行边界。',
     languages: ['Python', 'Java'],
-    recommendedProtocol: '框架自动接入',
+    recommendedProtocol: 'OpenTelemetry',
     coverage: ['Runner 运行', 'Session', 'Model Call', 'Tool Call', 'Output'],
     thought: [
       '以 Runner 执行作为 Trace 根节点，Session 识别为调用方上下文关联。',
@@ -131,7 +131,7 @@ const FRAMEWORKS: AccessItem[] = [
     group: 'frameworks',
     summary: '覆盖链式调用、工具执行和状态图编排，接入重点是节点、边、模型调用和状态变更。',
     languages: ['Python', 'JavaScript'],
-    recommendedProtocol: '框架自动接入',
+    recommendedProtocol: 'OpenTelemetry',
     coverage: ['Chain / Graph', 'Node 执行', 'Model Call', 'Tool Call', 'State 更新'],
     thought: [
       '把一次 Graph 或 Chain 运行映射为 Agent Trace，把节点映射为语义步骤。',
@@ -149,7 +149,7 @@ const FRAMEWORKS: AccessItem[] = [
     group: 'frameworks',
     summary: '围绕 Agent、Handoff 和 Tool 执行的运行时，接入重点是任务边界、委派关系和工具结果。',
     languages: ['Python', 'TypeScript'],
-    recommendedProtocol: '框架自动接入',
+    recommendedProtocol: 'OpenTelemetry',
     coverage: ['Agent Run', 'Handoff', 'Model Call', 'Tool Call', 'Final Output'],
     thought: [
       '将一次 Agent Run 映射为 Trace，把 Handoff 作为 Agent 间调用关系保存。',
@@ -163,33 +163,14 @@ const FRAMEWORKS: AccessItem[] = [
 
 const CUSTOM_METHODS: AccessItem[] = [
   {
-    id: 'skills-onboarding',
-    name: 'Skills 引导接入',
-    shortName: 'SK',
-    accent: '#5271e9',
-    group: 'custom',
-    summary: '由 AI 编程助手加载接入 Skill，理解自研 Agent 的代码与部署方式，并生成可审查的接入方案。',
-    languages: ['Python', 'Java', 'Node.js', 'Go'],
-    recommendedProtocol: 'Skills 引导 + 标准 Trace 协议',
-    coverage: ['Agent Run', 'Turn', 'LLM Call', 'Tool / Retrieval', 'Output'],
-    thought: [
-      'Skill 承载的不是运行数据，而是接入方法、代码规范、验证规则和回滚要求。',
-      'AI 编程助手先识别 Agent 入口、模型调用、工具、检索和部署环境，再生成接入计划。',
-      '计划经研发确认后才修改代码或配置，最后通过真实请求验证语义链、字段和状态。',
-      '复杂自研框架仍可回退到自定义埋点；Skills 只降低接入操作成本，不承诺全自动识别。',
-    ],
-    boundaries: ['读取代码、修改代码和变更生产环境需要分别授权。', 'Skill 不能替代观测协议，也不能凭代码推断缺失的运行数据。'],
-    icon: 'spark',
-  },
-  {
-    id: 'custom-instrumentation',
-    name: '自定义埋点',
-    shortName: 'OT',
+    id: 'manual-instrumentation',
+    name: '手动埋点',
+    shortName: 'MI',
     accent: '#657080',
     group: 'custom',
     summary: '研发在 Agent 的关键语义边界主动创建 Span，适用于完全自研或无法被框架适配器覆盖的 Agent。',
     languages: ['Python', 'Java', 'Node.js', 'Go'],
-    recommendedProtocol: '标准 Trace 协议 / 观测 SDK',
+    recommendedProtocol: '手动埋点',
     coverage: ['Agent Run', 'Turn', 'Prompt', 'LLM Call', 'Tool', 'Retrieval', 'Output'],
     thought: [
       '在 Agent 请求进入、轮次开始、模型调用、工具调用、检索和最终输出处建立 Span。',
@@ -197,8 +178,27 @@ const CUSTOM_METHODS: AccessItem[] = [
       '统一记录状态、错误、模型、Token、首字时延、工具参数和结果。',
       '业务字段通过自定义属性补充，平台不解析业务代码，也不推断执行结果。',
     ],
-    boundaries: ['接入工作量高于框架适配，需要研发参与。', '字段不完整会降低轨迹完整度和可用评估器范围。'],
+    boundaries: ['需要研发参与并修改 Agent 代码。', '字段不完整会降低轨迹完整度和可用评估器范围。'],
     icon: 'code',
+  },
+  {
+    id: 'probe-extension',
+    name: '探针扩展',
+    shortName: 'PE',
+    accent: '#5271e9',
+    group: 'custom',
+    summary: '通过语言探针或 Agent 运行时扩展采集模型、工具和运行环境数据，尽量减少业务代码改造。',
+    languages: ['Python', 'Java', 'Node.js', 'Go'],
+    recommendedProtocol: '探针扩展',
+    coverage: ['Agent Run', '模型调用', 'Tool Call', '运行时上下文', '最终输出'],
+    thought: [
+      '在 Agent 运行进程中挂载轻量探针或扩展模块，自动识别模型、工具和异常事件。',
+      '通过运行时上下文关联 Agent 请求、模型调用和工具调用。',
+      '业务名称、版本和关键业务结果通过扩展属性补充。',
+      '平台保留探针版本和适配范围，无法识别的步骤明确标记为未采集。',
+    ],
+    boundaries: ['需要核验 Agent 运行时、语言版本和探针兼容性。', '生产启用前需要在测试环境验证性能、稳定性和回滚方案。'],
+    icon: 'layers',
   },
 ];
 
@@ -208,15 +208,12 @@ const GROUPS: Array<{ id: AccessGroup; label: string; count: number }> = [
 ];
 
 const FRAMEWORK_PROTOCOLS: Array<{ id: Protocol; label: string; note: string }> = [
-  { id: 'auto', label: '框架自动接入', note: '优先复用框架适配能力' },
-  { id: 'trace', label: '标准 Trace 协议', note: '按统一语义上报' },
-  { id: 'manual', label: '自定义埋点', note: '控制更细，改造更高' },
+  { id: 'otel', label: 'OpenTelemetry', note: '统一通过 OpenTelemetry 上报' },
 ];
 
 const CUSTOM_PROTOCOLS: Array<{ id: Protocol; label: string; note: string }> = [
-  { id: 'trace', label: '标准 Trace 协议', note: '按统一语义上报' },
-  { id: 'sdk', label: '平台观测 SDK', note: '使用平台 SDK 创建 Span' },
-  { id: 'manual', label: '自定义 Span', note: '完全控制节点与字段' },
+  { id: 'manual', label: '手动埋点', note: '研发在关键语义边界创建 Span' },
+  { id: 'probe', label: '探针扩展', note: '通过探针或扩展自动采集关键节点' },
 ];
 
 function ItemIcon({ item }: { item: AccessItem }) {
@@ -241,7 +238,7 @@ export default function AccessCenterPage() {
   const [selectedId, setSelectedId] = useState('agentscope');
   const [query, setQuery] = useState('');
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
-  const [protocol, setProtocol] = useState<Protocol>('auto');
+  const [protocol, setProtocol] = useState<Protocol>('otel');
   const [language, setLanguage] = useState('Python');
 
   const availableItems = group === 'frameworks' ? FRAMEWORKS : CUSTOM_METHODS;
@@ -257,7 +254,7 @@ export default function AccessCenterPage() {
   const selectGroup = (next: AccessGroup) => {
     setGroup(next);
     setSelectedId(next === 'frameworks' ? FRAMEWORKS[0].id : CUSTOM_METHODS[0].id);
-    setProtocol(next === 'frameworks' ? 'auto' : 'trace');
+    setProtocol(next === 'frameworks' ? 'otel' : 'manual');
     setLanguage(next === 'frameworks' ? FRAMEWORKS[0].languages[0] : CUSTOM_METHODS[0].languages[0]);
     setQuery('');
     setGroupMenuOpen(false);
@@ -266,7 +263,7 @@ export default function AccessCenterPage() {
   const selectItem = (item: AccessItem) => {
     setSelectedId(item.id);
     setLanguage(item.languages[0]);
-    setProtocol(item.group === 'frameworks' ? 'auto' : 'trace');
+    setProtocol(item.group === 'frameworks' ? 'otel' : item.id === 'probe-extension' ? 'probe' : 'manual');
   };
 
   return <div className="access-center-page">
@@ -316,19 +313,18 @@ export default function AccessCenterPage() {
         <header className="ac-detail-head">
           <div className="ac-detail-title">
             <ItemIcon item={selected} />
-            <div><span className="ac-eyebrow">{group === 'frameworks' ? 'FRAMEWORK ONBOARDING' : 'CUSTOM AGENT ONBOARDING'}</span><h2>{selected.name} 接入思想</h2><p>{selected.summary}</p></div>
+            <div><span className="ac-eyebrow">{group === 'frameworks' ? 'FRAMEWORK ONBOARDING' : 'CUSTOM AGENT ONBOARDING'}</span><h2>{selected.name}</h2></div>
           </div>
-          <span className="ac-poc-badge">POC 验证</span>
         </header>
 
         <div className="ac-choice-summary">
-          <div><span>当前方式</span><strong>{protocol === 'auto' ? selected.recommendedProtocol : selectedProtocol.label}</strong></div>
+          <div><span>当前方式</span><strong>{selectedProtocol.label}</strong></div>
           <div><span>开发语言</span><strong>{language}</strong></div>
           <div><span>轨迹覆盖</span><strong>{selected.coverage.length} 类语义节点</strong></div>
         </div>
 
         <section className="ac-thought-section">
-          <div className="ac-section-heading"><span>01</span><div><h3>我们如何接入</h3><p>这里展示接入思想，不展示尚未实现的控制台操作。</p></div></div>
+          <div className="ac-section-heading"><span>01</span><div><h3>我们如何接入</h3></div></div>
           <div className="ac-thought-block">{selected.thought.map((item) => <div key={item}><GitBranch size={14} /><span>{item}</span></div>)}</div>
         </section>
 
