@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Check, ChevronRight, Eye, Pause, Play, Plus, Search, Trash2, Zap } from 'lucide-react';
-import { IconButton, Status } from './eval-ui';
+import { ArrowLeft, Check, ChevronRight, Eye, Pause, Play, Plus, Trash2, Zap } from 'lucide-react';
+import { IconButton, SearchField, SelectField, Status } from './eval-ui';
 import type {
   AgentOption,
   AutomationFilter,
@@ -189,8 +189,8 @@ function AutomationCreate({ agents, evaluators, taskCount, onBack, onCreate }: {
     <section className="eval-task-step-panel">
       {step === 1 && <div className="eval-task-step-content eval-auto-object-step">
         <div className="eval-task-form-row">
-          <label className="eval-field"><span>Agent <b>*</b></span><select value={draft.agentId} onChange={(event) => { const next = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, agentId: event.target.value, agentVersion: next?.versions[0] ?? '' })); }}>{agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="eval-field"><span>版本 <b>*</b></span><select value={draft.agentVersion} onChange={(event) => setDraft((current) => ({ ...current, agentVersion: event.target.value }))}>{(agent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</select></label>
+          <label className="eval-field"><span>Agent <b>*</b></span><SelectField value={draft.agentId} onChange={(event) => { const next = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, agentId: event.target.value, agentVersion: next?.versions[0] ?? '' })); }}>{agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>
+          <label className="eval-field"><span>版本 <b>*</b></span><SelectField value={draft.agentVersion} onChange={(event) => setDraft((current) => ({ ...current, agentVersion: event.target.value }))}>{(agent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</SelectField></label>
         </div>
         <div className="eval-auto-control"><span>评测对象 <b>*</b></span><Segmented value={draft.objectType} options={['对话', 'Trace']} label="评测对象" onChange={(objectType) => setDraft((current) => ({ ...current, objectType }))} /></div>
       </div>}
@@ -204,8 +204,8 @@ function AutomationCreate({ agents, evaluators, taskCount, onBack, onCreate }: {
 
         <section className="eval-auto-section"><div className="eval-auto-section-head"><h3>筛选条件</h3><Segmented value={draft.filterMode} options={['全部满足', '任一满足']} label="筛选逻辑" onChange={(filterMode) => setDraft((current) => ({ ...current, filterMode }))} /></div>
           <div className="eval-auto-filter-list">{draft.filters.map((filter) => <div className="eval-auto-filter-row" key={filter.id}>
-            <select aria-label="筛选字段" value={filter.field} onChange={(event) => { const field = event.target.value as AutomationFilterField; patchFilter(filter.id, { field, operator: operatorsFor(field)[0], value: '' }); }}>{[...TEXT_FIELDS, ...NUMBER_FIELDS].map((field) => <option key={field} value={field}>{FIELD_LABELS[field]}</option>)}</select>
-            <select aria-label="运算符" value={filter.operator} title={['属于', '不属于'].includes(filter.operator) ? '按字段完整值精确匹配，多个目标值用逗号分隔' : ['包含', '不包含'].includes(filter.operator) ? '按关键词进行子串匹配' : undefined} onChange={(event) => patchFilter(filter.id, { operator: event.target.value as AutomationFilterOperator, value: '' })}>{operatorsFor(filter.field).map((operator) => <option key={operator} value={operator}>{OPERATOR_LABELS[operator]}</option>)}</select>
+            <SelectField aria-label="筛选字段" value={filter.field} onChange={(event) => { const field = event.target.value as AutomationFilterField; patchFilter(filter.id, { field, operator: operatorsFor(field)[0], value: '' }); }}>{[...TEXT_FIELDS, ...NUMBER_FIELDS].map((field) => <option key={field} value={field}>{FIELD_LABELS[field]}</option>)}</SelectField>
+            <SelectField aria-label="运算符" value={filter.operator} title={['属于', '不属于'].includes(filter.operator) ? '按字段完整值精确匹配，多个目标值用逗号分隔' : ['包含', '不包含'].includes(filter.operator) ? '按关键词进行子串匹配' : undefined} onChange={(event) => patchFilter(filter.id, { operator: event.target.value as AutomationFilterOperator, value: '' })}>{operatorsFor(filter.field).map((operator) => <option key={operator} value={operator}>{OPERATOR_LABELS[operator]}</option>)}</SelectField>
             <div className="eval-auto-filter-value"><input aria-label="目标值" type={NUMBER_FIELDS.includes(filter.field) ? 'number' : 'text'} min={NUMBER_FIELDS.includes(filter.field) ? 0 : undefined} value={filter.value} disabled={!needsValue(filter.operator)} placeholder={placeholderFor(filter)} onChange={(event) => patchFilter(filter.id, { value: event.target.value })} />{needsValue(filter.operator) && unitFor(filter.field) && <span>{unitFor(filter.field)}</span>}</div>
             <IconButton label="删除条件" disabled={draft.filters.length === 1} onClick={() => setDraft((current) => ({ ...current, filters: current.filters.filter((item) => item.id !== filter.id) }))}><Trash2 size={15} /></IconButton>
           </div>)}</div>
@@ -215,7 +215,7 @@ function AutomationCreate({ agents, evaluators, taskCount, onBack, onCreate }: {
         <section className="eval-auto-section"><h3>采样</h3><div className="eval-auto-sampling">
           <label className="eval-field eval-auto-ratio"><span>评测比例 <b>*</b></span><div className="eval-auto-range-row"><span>1%</span><input type="range" min={1} max={100} value={draft.sampleRatio} aria-label="评测比例" onChange={(event) => setDraft((current) => ({ ...current, sampleRatio: Number(event.target.value) }))} /><output>{draft.sampleRatio}%</output></div></label>
           <div className="eval-auto-grid eval-auto-grid--sampling"><label className="eval-field"><span>总数据上限 <b>*</b></span><input type="number" min={1} value={draft.totalDataLimit} onChange={(event) => setDraft((current) => ({ ...current, totalDataLimit: Number(event.target.value) || 1 }))} /></label>
-          <label className="eval-field"><span>重复周期</span><select value={draft.repeat} onChange={(event) => setDraft((current) => ({ ...current, repeat: event.target.value as AutomationDraft['repeat'] }))}><option>一次性</option><option>每天</option></select></label></div>
+          <label className="eval-field"><span>重复周期</span><SelectField value={draft.repeat} onChange={(event) => setDraft((current) => ({ ...current, repeat: event.target.value as AutomationDraft['repeat'] }))}><option>一次性</option><option>每天</option></SelectField></label></div>
         </div></section>
       </div>}
 
@@ -262,7 +262,7 @@ export function AutoEvaluationPanel({ tasks, agents, evaluators, onCreate, onUpd
   if (screen === 'create') return <AutomationCreate agents={agents} evaluators={evaluators} taskCount={automationTasks.length} onBack={() => setScreen('list')} onCreate={(task) => { onCreate(task); setScreen('list'); onNotify('自动化任务已创建'); }} />;
 
   return <div className="eval-list-page eval-automation-page">
-    <div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 ID" /></label><select aria-label="状态" value={status} onChange={(event) => setStatus(event.target.value)}><option>全部状态</option><option>待启动</option><option>运行中</option><option>已暂停</option><option>已完成</option><option>失败</option></select><button type="button" className="eval-button eval-button--primary" onClick={() => setScreen('create')}><Plus size={16} />新建自动化</button></div>
+    <div className="eval-toolbar"><SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务名称或 ID" /><SelectField aria-label="状态" value={status} onChange={(event) => setStatus(event.target.value)}><option>全部状态</option><option>待启动</option><option>运行中</option><option>已暂停</option><option>已完成</option><option>失败</option></SelectField><button type="button" className="eval-button eval-button--primary" onClick={() => setScreen('create')}><Plus size={16} />新建自动化</button></div>
     <section className="eval-surface table-surface"><table className="eval-data-table eval-automation-table"><thead><tr><th>ID</th><th>名称</th><th>任务类型</th><th>任务进度</th><th>状态</th><th>描述</th><th>创建时间</th><th>数据区间</th><th>操作</th></tr></thead><tbody>{filtered.map((task) => {
       const controllable = task.status === '运行中' || task.status === '已暂停';
       const pausing = task.status === '运行中';

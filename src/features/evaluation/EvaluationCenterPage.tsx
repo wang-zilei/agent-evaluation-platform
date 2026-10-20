@@ -880,10 +880,10 @@ export default function EvaluationCenterPage() {
       {module === 'evaluators' && evaluatorScreen === 'create' && (evaluatorKind === '人工评估' ? <HumanEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : evaluatorKind === '代码评估' ? <CodeEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : evaluatorKind === 'Agent 评估器' ? <AgentEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />)}
       {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} search={taskSearch} setSearch={setTaskSearch} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
-      {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} task={state.tasks.find((item) => item.id === experiment.sourceTaskId)} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
+      {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} task={state.tasks.find((item) => item.id === experiment.sourceTaskId)} humanLabels={state.humanLabels} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
+      {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'experiments' && experimentScreen === 'list' && <ExperimentList comparisons={state.comparisons} search={experimentSearch} setSearch={setExperimentSearch} onCreate={() => openComparisonPicker()} onOpen={openComparison} />}
       {module === 'experiments' && experimentScreen === 'detail' && comparison && <ComparisonDetail comparison={comparison} onBack={showList} />}
-      {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'automation' && taskScreen === 'list' && <AutoEvaluationPanel tasks={state.tasks} agents={state.agents} evaluators={state.evaluators} onCreate={(item) => setState((current) => ({ ...current, tasks: [item, ...current.tasks] }))} onUpdate={(item) => setState((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === item.id ? item : task) }))} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onNotify={notify} />}
       {module === 'automation' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} backLabel="返回自动化" onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} sessions={observedSessions} view={observationView} onViewChange={setObservationView} search={traceSearch} setSearch={setTraceSearch} onOpenTrace={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} onOpenSession={(item) => { setSelectedSessionId(item.id); setTraceScreen('detail'); }} onBackflow={openObservationBackflow} />}
@@ -2175,25 +2175,62 @@ const buildFallbackOptimizationReport = (result: OptimizationResult, selectedRes
   };
 };
 
-function OptimizationReportEvidence({ action, selectedResults }: { action: OptimizationReportAction; selectedResults: CaseResult[] }) {
+type ReportHumanAnnotation = {
+  id: string;
+  labelName: string;
+  displayValue: string;
+  reason: string;
+  passed?: boolean;
+};
+
+const reportHumanAnnotations = (caseResult: CaseResult, humanLabels: HumanLabelDefinition[]): ReportHumanAnnotation[] => {
+  const definitions = new Map(humanLabels.map((label) => [label.id, label]));
+  const annotations = Object.values(caseResult.humanAnnotations ?? {}).map((annotation) => {
+    const definition = definitions.get(annotation.labelId);
+    const passed = annotation.passed ?? (typeof annotation.score === 'number' && definition?.passThreshold !== undefined ? annotation.score >= definition.passThreshold : undefined);
+    return {
+      id: annotation.labelId,
+      labelName: definition?.name || annotation.labelId,
+      displayValue: typeof annotation.score === 'number' ? annotation.score.toFixed(2) : annotation.passed === true ? '通过' : annotation.passed === false ? '不通过' : '已标注',
+      reason: annotation.reason || '',
+      passed,
+    };
+  });
+  if (annotations.length) return annotations;
+  const legacy = caseResult.humanEvaluation;
+  if (!legacy) return [];
+  const definition = humanLabels.find((label) => label.name === legacy.humanLabel);
+  const threshold = definition?.passThreshold ?? 0.7;
+  const passed = typeof legacy.humanScore === 'number' ? legacy.humanScore >= threshold : undefined;
+  return [{
+    id: `legacy-${legacy.humanLabel}`,
+    labelName: legacy.humanLabel,
+    displayValue: typeof legacy.humanScore === 'number' ? legacy.humanScore.toFixed(2) : '已标注',
+    reason: legacy.humanReason || '',
+    passed,
+  }];
+};
+
+function OptimizationReportEvidence({ action, selectedResults, humanLabels }: { action: OptimizationReportAction; selectedResults: CaseResult[]; humanLabels: HumanLabelDefinition[] }) {
   const rows = action.caseIds.map((caseId) => {
     const caseResult = selectedResults.find((item) => item.caseId === caseId);
     if (!caseResult) return null;
     const failures = caseResult.evaluatorResults.filter((item) => item.evaluationStatus !== '通过' && (!action.evaluatorIds.length || action.evaluatorIds.includes(item.evaluatorId)));
-    return { caseResult, failures };
-  }).filter((item): item is { caseResult: CaseResult; failures: EvaluatorResult[] } => Boolean(item));
+    return { caseResult, failures, annotations: reportHumanAnnotations(caseResult, humanLabels) };
+  }).filter((item): item is { caseResult: CaseResult; failures: EvaluatorResult[]; annotations: ReportHumanAnnotation[] } => Boolean(item));
 
   if (!rows.length) return <EmptyState title="暂无关联明细" description="当前报告没有可回查的 Badcase 执行结果。" />;
   return <div className="eval-report-evidence">
     <div className="eval-report-evidence__head"><strong>关联 Badcase</strong><span>{rows.length} 条</span></div>
     <div className="eval-report-evidence__table-wrap">
       <table className="eval-report-evidence__table">
-        <thead><tr><th>Case</th><th>失败评估器</th><th>Input</th><th>Agent Output</th><th>定位依据</th></tr></thead>
-        <tbody>{rows.map(({ caseResult, failures }) => <tr key={caseResult.caseId}>
+        <thead><tr><th>Case</th><th>失败评估器</th><th>Input</th><th>Agent Output</th><th>人工标注</th><th>定位依据</th></tr></thead>
+        <tbody>{rows.map(({ caseResult, failures, annotations }) => <tr key={caseResult.caseId}>
           <td><strong>{caseResult.caseId}</strong><small>{failures.length} 个失败项</small></td>
           <td><div className="eval-report-finding-chips">{failures.map((failure) => <span key={failure.evaluatorId}>{failure.evaluatorName}<b>{failure.scoreType === 'numeric' && typeof failure.evaluationResult === 'number' ? failure.evaluationResult.toFixed(2) : failure.evaluationStatus}</b></span>)}</div></td>
           <td><p>{caseResult.input || '未采集'}</p></td>
           <td><p>{caseResult.agentOutput || '未采集'}</p></td>
+          <td>{annotations.length ? <div className="eval-report-human-cell"><strong>{annotations[0].labelName} · {annotations[0].displayValue}</strong><small>{annotations[0].reason || '未填写标注原因。'}{annotations.length > 1 ? ` · 另有 ${annotations.length - 1} 项标注` : ''}</small></div> : <span className="eval-report-human-empty">未标注</span>}</td>
           <td><p>{failures.length ? failures.map((failure) => failure.evaluationReason).join('；') : '未找到匹配的评估器证据。'}</p></td>
         </tr>)}</tbody>
       </table>
@@ -2201,13 +2238,22 @@ function OptimizationReportEvidence({ action, selectedResults }: { action: Optim
   </div>;
 }
 
-function OptimizationReportView({ experiment, task }: { experiment: OptimizeExperiment; task?: EvaluationTask }) {
+function OptimizationReportView({ experiment, task, humanLabels }: { experiment: OptimizeExperiment; task?: EvaluationTask; humanLabels: HumanLabelDefinition[] }) {
   const [showScope, setShowScope] = useState(false);
   const [expandedAction, setExpandedAction] = useState<string | null>(null);
   const selectedResults = experiment.selectedCaseIds
     .map((caseId) => task?.results.find((item) => item.caseId === caseId))
     .filter((item): item is CaseResult => Boolean(item));
   const report = experiment.result.report ?? buildFallbackOptimizationReport(experiment.result, selectedResults);
+  const annotationsByCase = new Map(selectedResults.map((caseResult) => [caseResult.caseId, reportHumanAnnotations(caseResult, humanLabels)]));
+  const annotatedCaseCount = selectedResults.filter((caseResult) => (annotationsByCase.get(caseResult.caseId)?.length ?? 0) > 0).length;
+  const comparableAnnotations = selectedResults.flatMap((caseResult) => {
+    const annotation = annotationsByCase.get(caseResult.caseId)?.find((item) => item.passed !== undefined);
+    return annotation ? [{ annotation, autoPassed: caseResult.status === '通过' }] : [];
+  });
+  const agreementCount = comparableAnnotations.filter((item) => item.annotation.passed === item.autoPassed).length;
+  const conflictCount = comparableAnnotations.length - agreementCount;
+  const unannotatedCaseCount = selectedResults.length - annotatedCaseCount;
   const tagById = new Map(report.attributionTags.map((tag) => [tag.id, tag]));
   const evaluatorMap = new Map<string, { id: string; name: string; scoreType: EvaluatorResult['scoreType']; total: number; passed: number; affected: number; scores: number[] }>();
 
@@ -2239,13 +2285,22 @@ function OptimizationReportView({ experiment, task }: { experiment: OptimizeExpe
         <button type="button" className="eval-report-scope-toggle" aria-expanded={showScope} onClick={() => setShowScope((current) => !current)}><ListChecks size={14} />查看分析对象（{selectedResults.length || experiment.selectedCaseCount}）<ChevronDown size={14} /></button>
       </header>
       <ul className="eval-report-summary-list">{report.summary.map((item) => <li key={item}>{item}</li>)}</ul>
+      <div className="eval-report-human-summary">
+        <span><ClipboardCheck size={14} />人工标注</span>
+        <strong>{annotatedCaseCount}/{selectedResults.length}</strong>
+        <small>{comparableAnnotations.length ? `${agreementCount} 条与自动结论一致${conflictCount ? `，${conflictCount} 条存在冲突` : ''}` : '暂无可比较的人工标注'}</small>
+        {unannotatedCaseCount > 0 && <em>{unannotatedCaseCount} 条未标注</em>}
+      </div>
       <div className="eval-report-metrics">
         <div><span>分析对象</span><strong>{selectedResults.length || experiment.selectedCaseCount}</strong><small>条 Badcase</small></div>
         <div><span>失败发现</span><strong>{failedFindings}</strong><small>{evaluatorRows.length} 个评估器</small></div>
         <div><span>优化动作</span><strong>{report.actions.length}</strong><small>覆盖 {coveredCaseCount} 条 Badcase</small></div>
       </div>
       {showScope && <div className="eval-report-scope">
-        {selectedResults.length ? selectedResults.map((item) => <div key={item.caseId}><strong>{item.caseId}</strong><span>{item.input}</span><small>{item.evaluatorResults.filter((result) => result.evaluationStatus !== '通过').length} 个失败项</small></div>) : <span>未找到可展示的 Badcase。</span>}
+        {selectedResults.length ? selectedResults.map((item) => {
+          const annotation = annotationsByCase.get(item.caseId)?.[0];
+          return <div key={item.caseId}><strong>{item.caseId}</strong><span>{item.input}</span><small>{item.evaluatorResults.filter((result) => result.evaluationStatus !== '通过').length} 个失败项 · {annotation ? `人工 ${annotation.displayValue}` : '未标注'}</small></div>;
+        }) : <span>未找到可展示的 Badcase。</span>}
       </div>}
     </section>
     <p className="eval-report-frozen-note">明细回查自原始评测任务，不在报告中重复存储；报告按评估器分别统计，不计算跨评估器总分。</p>
@@ -2285,6 +2340,7 @@ function OptimizationReportView({ experiment, task }: { experiment: OptimizeExpe
       <div className="eval-report-action-list">{report.actions.map((action) => {
         const tags = action.tagIds.map((tagId) => tagById.get(tagId)).filter((tag): tag is OptimizationAttributionTag => Boolean(tag));
         const actionExpanded = expandedAction === action.id;
+        const actionHumanCount = action.caseIds.filter((caseId) => (annotationsByCase.get(caseId)?.length ?? 0) > 0).length;
         return <article className="eval-report-action" key={action.id}>
           <header>
             <div>
@@ -2293,14 +2349,14 @@ function OptimizationReportView({ experiment, task }: { experiment: OptimizeExpe
               <span className="eval-report-change-type">{action.changeType}</span>
               <strong>{action.title}</strong>
             </div>
-            <span>关联 {action.caseIds.length} 条 Badcase</span>
+            <span>关联 {action.caseIds.length} 条 Badcase · 人工标注 {actionHumanCount}</span>
           </header>
           <p className="eval-report-action-summary">{action.summary}</p>
           <div className="eval-report-action-reason"><span>问题与原因</span><p>{action.reason}</p></div>
           {tags.length > 0 && <div className="eval-report-action-tags">{tags.map((tag) => <span className={`is-${attributionCategoryClass(tag.category)}`} key={tag.id}>{tag.category} / {tag.label}</span>)}</div>}
           <div className="eval-report-validation"><Target size={14} /><div><span>验证方式</span><p>{action.validation}</p></div></div>
           <button type="button" className="eval-report-evidence-toggle" aria-expanded={actionExpanded} onClick={() => setExpandedAction((current) => current === action.id ? null : action.id)}><ListChecks size={14} />查看关联 Badcase（{action.caseIds.length}）<ChevronDown size={14} /></button>
-          {actionExpanded && <OptimizationReportEvidence action={action} selectedResults={selectedResults} />}
+          {actionExpanded && <OptimizationReportEvidence action={action} selectedResults={selectedResults} humanLabels={humanLabels} />}
         </article>;
       })}</div>
       {report.unresolved?.length ? <div className="eval-report-unresolved"><CircleAlert size={15} /><div><strong>未纳入自动优化</strong>{report.unresolved.map((item) => <p key={item.id}><b>{item.title}</b>{item.reason}</p>)}</div></div> : null}
@@ -2396,7 +2452,7 @@ function OptimizationDetailTable({ comparison, experiment }: { comparison: Compa
   </div>;
 }
 
-function OptimizationDetail({ experiment, task, comparison, onBack, onNotify, onViewComparison }: { experiment: OptimizeExperiment; task?: EvaluationTask; comparison?: ComparisonRecord; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void; onViewComparison: (comparison: ComparisonRecord) => void }) {
+function OptimizationDetail({ experiment, task, humanLabels, comparison, onBack, onNotify, onViewComparison }: { experiment: OptimizeExperiment; task?: EvaluationTask; humanLabels: HumanLabelDefinition[]; comparison?: ComparisonRecord; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void; onViewComparison: (comparison: ComparisonRecord) => void }) {
   const [tab, setTab] = useState<OptimizationDetailTab>('report');
   const [evaluationState, setEvaluationState] = useState<'idle' | 'running' | 'ready'>(experiment.followUpMode === '直接实验对比' ? 'ready' : 'idle');
   const continueExperiment = () => {
@@ -2414,7 +2470,7 @@ function OptimizationDetail({ experiment, task, comparison, onBack, onNotify, on
     <header className="eval-detail-hero eval-optimization-hero"><div><h2>{experiment.name}</h2></div></header>
     <nav className="eval-optimization-tabs" aria-label="优化详情内容">{tabs.map((item) => <button type="button" key={item.id} className={tab === item.id ? 'is-active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}</nav>
     {evaluationState === 'running' && <section className="eval-optimization-progress"><RefreshCw size={17} /><div><strong>优化后复测任务正在运行</strong><p>同时运行验证集和回归集，完成后生成指标与明细。</p></div><Status label="复测评测中" /></section>}
-    {tab === 'report' && <OptimizationReportView experiment={experiment} task={task} />}
+    {tab === 'report' && <OptimizationReportView experiment={experiment} task={task} humanLabels={humanLabels} />}
     {tab === 'metrics' && (showComparison && comparison ? <div className="eval-optimization-stack">
       <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>验证与回归</h3><p>通过阈值决定评估器是否通过，指标按验证集和回归集分别汇总。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => onViewComparison(comparison)}>查看完整对比实验</button></div><OptimizationMetricSummary comparison={comparison} experiment={experiment} /><OptimizationMetricBreakdown comparison={comparison} experiment={experiment} /></section>
       <section className="eval-optimization-panel"><div className="eval-task-section-heading"><div><h3>运行指标</h3><p>展示候选配置的运行效率变化。</p></div></div><MetricCompareMatrix rows={comparison.runtimeRows} tasks={comparison.taskRefs} /></section>

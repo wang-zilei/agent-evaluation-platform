@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   Bot,
   Check,
@@ -7,7 +7,6 @@ import {
   Code2,
   GitBranch,
   Layers3,
-  Search,
   ShieldCheck,
   Sparkles,
   Workflow,
@@ -229,25 +228,16 @@ function ItemIcon({ item }: { item: AccessItem }) {
   return <span className="ac-item-icon" style={{ color: item.accent, background: `${item.accent}12` }}>{icon}</span>;
 }
 
-function EmptyState({ query }: { query: string }) {
-  return <div className="ac-empty"><CircleAlert size={18} /><strong>没有匹配的接入项</strong><span>调整关键词“{query}”后重试。</span></div>;
-}
-
 export default function AccessCenterPage() {
   const [group, setGroup] = useState<AccessGroup>('frameworks');
   const [selectedId, setSelectedId] = useState('agentscope');
-  const [query, setQuery] = useState('');
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [protocol, setProtocol] = useState<Protocol>('otel');
   const [language, setLanguage] = useState('Python');
 
   const availableItems = group === 'frameworks' ? FRAMEWORKS : CUSTOM_METHODS;
   const availableProtocols = group === 'frameworks' ? FRAMEWORK_PROTOCOLS : CUSTOM_PROTOCOLS;
-  const filteredItems = useMemo(() => availableItems.filter((item) => {
-    const haystack = `${item.name} ${item.summary} ${item.languages.join(' ')}`.toLowerCase();
-    return !query || haystack.includes(query.toLowerCase());
-  }), [availableItems, query]);
-  const selected = filteredItems.find((item) => item.id === selectedId) ?? filteredItems[0] ?? availableItems[0];
+  const selected = availableItems.find((item) => item.id === selectedId) ?? availableItems[0];
   const activeGroup = GROUPS.find((item) => item.id === group) ?? GROUPS[0];
   const selectedProtocol = availableProtocols.find((item) => item.id === protocol) ?? availableProtocols[0];
 
@@ -256,7 +246,6 @@ export default function AccessCenterPage() {
     setSelectedId(next === 'frameworks' ? FRAMEWORKS[0].id : CUSTOM_METHODS[0].id);
     setProtocol(next === 'frameworks' ? 'otel' : 'manual');
     setLanguage(next === 'frameworks' ? FRAMEWORKS[0].languages[0] : CUSTOM_METHODS[0].languages[0]);
-    setQuery('');
     setGroupMenuOpen(false);
   };
 
@@ -267,11 +256,6 @@ export default function AccessCenterPage() {
   };
 
   return <div className="access-center-page">
-    <label className="ac-global-search">
-      <Search size={18} />
-      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Agent 框架 / 编程语言 / 接入方法" aria-label="搜索接入项" />
-    </label>
-
     <div className="ac-catalog-row">
       <div className="ac-group-select-wrap">
         <button type="button" className="ac-group-select" aria-expanded={groupMenuOpen} onClick={() => setGroupMenuOpen((current) => !current)}>
@@ -282,14 +266,14 @@ export default function AccessCenterPage() {
         </div>}
       </div>
       <div className="ac-item-strip" role="tablist" aria-label={activeGroup.label}>
-        {filteredItems.map((item) => <button type="button" role="tab" key={item.id} aria-selected={selected.id === item.id} className={selected.id === item.id ? 'is-active' : ''} onClick={() => selectItem(item)}>
+        {availableItems.map((item) => <button type="button" role="tab" key={item.id} aria-selected={selected.id === item.id} className={selected.id === item.id ? 'is-active' : ''} onClick={() => selectItem(item)}>
           <ItemIcon item={item} />
           <span>{item.name}</span>
         </button>)}
       </div>
     </div>
 
-    {filteredItems.length === 0 ? <EmptyState query={query} /> : <section className="ac-config-shell">
+    <section className="ac-config-shell">
       <aside className="ac-filter-rail">
         <section>
           <h3>接入协议</h3>
@@ -297,7 +281,7 @@ export default function AccessCenterPage() {
         </section>
         <section>
           <h3>开发语言</h3>
-          <div className="ac-language-row">{selected.languages.map((item) => <button type="button" key={item} className={language === item ? 'is-active' : ''} onClick={() => setLanguage(item)}>{item}</button>)}</div>
+          <div className="ac-language-row" role="radiogroup" aria-label="开发语言">{selected.languages.map((item) => <button type="button" role="radio" key={item} aria-checked={language === item} className={language === item ? 'is-active' : ''} onClick={() => setLanguage(item)}>{item}</button>)}</div>
         </section>
         <section>
           <h3>接入范围</h3>
@@ -347,6 +331,6 @@ export default function AccessCenterPage() {
           <div><strong>当前边界</strong>{selected.boundaries.map((item) => <p key={item}>{item}</p>)}</div>
         </section>
       </article>
-    </section>}
+    </section>
   </div>;
 }
