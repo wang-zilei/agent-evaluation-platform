@@ -1464,19 +1464,17 @@ function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUp
 function EvaluatorList({ evaluators, kind, setKind, mode, setMode, search, setSearch, scoreFilter, setScoreFilter, onCreate, onOpen, onCopy }: { evaluators: Evaluator[]; kind: EvaluatorKind; setKind: (kind: EvaluatorKind) => void; mode: EvaluatorMode; setMode: (mode: EvaluatorMode) => void; search: string; setSearch: (value: string) => void; scoreFilter: string; setScoreFilter: (value: string) => void; onCreate: () => void; onOpen: (evaluator: Evaluator) => void; onCopy: (evaluator: Evaluator) => void }) {
   const isHuman = kind === '人工评估';
   const evaluatorLabel = kind === 'Agent 评估器' ? 'Agent 评估器' : kind === '代码评估' ? '代码评估器' : isHuman ? '人工评估' : '模型评估器';
-  const modeLabel = kind === '代码评估' ? (mode === 'preset' ? '内置' : '自建') : (mode === 'preset' ? '预置' : '自建');
   return <div className="eval-list-page eval-evaluator-page">
     <div className="eval-evaluator-list-head">
       <div className="eval-evaluator-tabs" role="tablist" aria-label="评估器类型">
         {EVALUATOR_KINDS.map((item) => <button type="button" role="tab" aria-selected={kind === item} key={item} className={kind === item ? 'is-active' : ''} onClick={() => setKind(item)}>{item === '代码评估' ? '代码评估器' : item}</button>)}
       </div>
-      <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建评估器</button>
     </div>
     <div className="eval-toolbar eval-evaluator-toolbar">
       <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isHuman ? '搜索标签名' : '搜索评估器名称'} />
       <SelectField aria-label={`${evaluatorLabel}来源`} value={mode} onChange={(event) => setMode(event.target.value as EvaluatorMode)}><option value="preset">{kind === '代码评估' ? '内置评估器' : `预置${isHuman ? '标签' : '评估器'}`}</option><option value="custom">自建{isHuman ? '标签' : '评估器'}</option></SelectField>
       <SelectField aria-label="结果类型" value={scoreFilter} onChange={(event) => setScoreFilter(event.target.value)}><option>全部结果类型</option><option>通过 / 不通过</option><option>0-1 数值</option></SelectField>
-      <span className="eval-toolbar-count">{evaluators.length} 个{modeLabel}评估器</span>
+      <button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={16} />新建评估器</button>
     </div>
     <div className="eval-evaluator-grid">{evaluators.map((evaluator) => <EvaluatorCard key={evaluator.id} evaluator={evaluator} onOpen={onOpen} onCopy={onCopy} />)}</div>
     {evaluators.length === 0 && <EmptyState title={`没有匹配的${evaluatorLabel}`} description={`调整筛选条件，或新建一个${evaluatorLabel}。`} action={<button type="button" className="eval-button eval-button--primary" onClick={onCreate}><Plus size={15} />新建评估器</button>} />}

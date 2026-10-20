@@ -6168,11 +6168,6 @@
   border-radius: 8px;
 }
 
-.eval-evaluator-list-head > .eval-button {
-  min-height: 36px;
-  flex: 0 0 auto;
-}
-
 .eval-evaluator-toolbar {
   min-height: 34px;
   margin-bottom: 14px;
@@ -6192,8 +6187,10 @@
   height: 34px;
 }
 
-.eval-evaluator-toolbar .eval-toolbar-count {
+.eval-evaluator-toolbar > .eval-button {
   margin-left: auto;
+  min-height: 34px;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
@@ -6827,7 +6824,6 @@
     flex-direction: column;
   }
 
-  .eval-evaluator-list-head > .eval-button,
   .eval-skill-mount__actions {
     align-self: flex-start;
   }
@@ -6854,6 +6850,11 @@
     margin-left: 0;
   }
 
+  .eval-evaluator-toolbar > .eval-button {
+    width: 100%;
+    margin-left: 0;
+  }
+
   .eval-evaluator-grid {
     grid-template-columns: 1fr;
   }
@@ -6872,8 +6873,7 @@
 }
 
 @media (max-width: 520px) {
-  .eval-evaluator-list-head .eval-evaluator-tabs,
-  .eval-evaluator-list-head > .eval-button {
+  .eval-evaluator-list-head .eval-evaluator-tabs {
     width: 100%;
   }
 
