@@ -750,7 +750,7 @@ function DatasetList({ datasets, search, setSearch, onCreate, onOpen, onDelete }
         <thead><tr><th>名称</th><th>描述</th><th>标签</th><th>状态</th><th>数据量</th><th>最新版本</th><th>创建时间</th><th>更新时间</th><th className="eval-dataset-list__actions-head">操作</th></tr></thead>
         <tbody>
           {filtered.map((dataset) => <tr key={dataset.id} tabIndex={0} onClick={() => onOpen(dataset)} onKeyDown={(event) => { if (event.key === 'Enter') onOpen(dataset); }}>
-            <td className="eval-dataset-list__name"><div className="eval-cell-title"><strong>{dataset.name}</strong><small>{dataset.id}</small></div></td>
+            <td className="eval-dataset-list__name"><div className="eval-cell-title"><strong>{dataset.name}</strong></div></td>
             <td className="eval-dataset-list__description"><p title={dataset.description || '暂无描述'}>{dataset.description || '暂无描述'}</p></td>
             <td><div className="eval-dataset-tags">{dataset.tags.map((tag) => <button type="button" key={tag} className={tagFilter === tag ? 'is-active' : ''} onClick={(event) => { event.stopPropagation(); setTagFilter((current) => current === tag ? '全部标签' : tag); }}>{tag}</button>)}</div></td>
             <td><Status label={dataset.status} /></td>
