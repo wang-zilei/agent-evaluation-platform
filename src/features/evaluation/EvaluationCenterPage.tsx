@@ -4,8 +4,8 @@ import * as XLSX from 'xlsx';
 import {
   Activity, ArrowLeft, BarChart3, Bot, Braces, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, CircleCheck, ClipboardCheck, Copy, Database, Download, Eye, FileSpreadsheet, Gauge, GitCompare, History,
-  Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Package, Pencil, PlugZap, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, TimerReset, Trash2, Upload,
-  Wand2, X, Zap,
+  Layers3, ListChecks, Maximize2, Minus, MoreHorizontal, Pencil, PlugZap, Plus, RefreshCw, Search, Settings2, Sparkles, Table2, TimerReset, Trash2, Upload,
+  Tag, Wand2, X, Zap,
 } from 'lucide-react';
 import OverviewPage from '../overview/OverviewPage';
 import AccessCenterPage from '../access/AccessCenterPage';
@@ -30,6 +30,7 @@ type DatasetScreen = 'list' | 'workspace' | 'upload' | 'generate' | 'history';
 type EvaluatorScreen = 'list' | 'detail' | 'create' | 'optimization';
 type TaskScreen = 'list' | 'create' | 'detail' | 'experiment' | 'comparison';
 type DatasetCreateMode = '用户上传' | '智能生成' | '历史对话回流';
+type AddDataMode = 'choose' | 'manual' | 'file' | 'trace';
 type HistoryDatePreset = '3' | '5' | '7' | '30' | 'custom';
 type TaskCreateStep = 1 | 2 | 3 | 4;
 type TraceScreen = 'list' | 'detail';
@@ -40,7 +41,7 @@ type TaskMetricRow = { name: string; display: string; passRate?: string; valid: 
 type ParsedFile = { name: string; format: string; columns: string[]; rows: Record<string, string>[] };
 type UploadField = { id: string; sourceColumn: string; name: string; semantic: FieldSemantic };
 type DatasetDraft = {
-  mode: DatasetCreateMode; name: string; description: string; file: ParsedFile | null;
+  mode: DatasetCreateMode; name: string; description: string; tags: string; file: ParsedFile | null;
   fields: UploadField[]; parsing: boolean; error: string;
   generateAgentId: string; generateVersion: string; generatePrompt: string; generateCount: number;
   historyAgentId: string; historyVersion: string; historyPreset: HistoryDatePreset; historyStart: string; historyEnd: string;
@@ -70,6 +71,7 @@ type TaskDraft = {
 };
 
 const TODAY = '2026-08-28';
+const currentTimestamp = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', hour12: false }).slice(0, 16);
 const HISTORY_PAGE_SIZE = 8;
 const INITIAL_EVALUATION_STATE = cloneEvaluationState();
 const FIELD_SEMANTICS: FieldSemantic[] = ['Input', 'File', 'Expected Output', 'Agent Output', 'Trace', 'Agent Configuration', 'User Feedback', 'Custom'];
@@ -165,7 +167,7 @@ const endOfDay = (value: string) => new Date(`${value}T23:59:59`).getTime();
 const makeDatasetDraft = (state: EvaluationState, mode: DatasetCreateMode = '用户上传'): DatasetDraft => {
   const agent = state.agents[0];
   return {
-    mode, name: '', description: '', file: null, fields: [], parsing: false, error: '',
+    mode, name: '', description: '', tags: '', file: null, fields: [], parsing: false, error: '',
     generateAgentId: agent?.id ?? '', generateVersion: agent?.versions[0] ?? '', generatePrompt: '', generateCount: 5,
     historyAgentId: agent?.id ?? '', historyVersion: agent?.versions[0] ?? '', historyPreset: '7', historyStart: shiftDate(TODAY, -6), historyEnd: TODAY,
     historyFeedback: '全部', historySelected: {}, historyExpanded: null, historyPage: 1,
@@ -397,27 +399,31 @@ export default function EvaluationCenterPage() {
 
   const createDataset = (draft: DatasetDraft) => {
     if (!draft.name.trim()) { notify('请填写评测集名称', 'warning'); return; }
+    const createdAt = currentTimestamp();
+    const createdDate = createdAt.slice(0, 10);
+    const tags = [...new Set(draft.tags.split(/[,，\n]/).map((tag) => tag.trim()).filter(Boolean))].slice(0, 6);
+    const fallbackTag = draft.mode === '历史对话回流' ? '轨迹' : draft.mode === '智能生成' ? '合成数据' : '文件导入';
     let fields: FieldDefinition[] = []; let cases: DatasetCase[] = []; let note = '';
     if (draft.mode === '用户上传') {
       if (!draft.file?.rows.length || !draft.fields.length) { notify('请上传包含数据的文件并确认字段', 'warning'); return; }
       fields = draft.fields.map((field, index) => ({ id: `field-${index + 1}`, name: field.name.trim() || field.sourceColumn, semantic: field.semantic, description: FIELD_DESCRIPTIONS[field.semantic], required: field.semantic === 'Input' }));
-      cases = draft.file.rows.map((row, index) => ({ id: `CASE-IMPORT-${String(index + 1).padStart(3, '0')}`, values: Object.fromEntries(draft.fields.map((field, fieldIndex) => [`field-${fieldIndex + 1}`, row[field.sourceColumn] ?? ''])), source: '用户上传', createdAt: TODAY, hasFile: false }));
+      cases = draft.file.rows.map((row, index) => ({ id: `CASE-IMPORT-${String(index + 1).padStart(3, '0')}`, values: Object.fromEntries(draft.fields.map((field, fieldIndex) => [`field-${fieldIndex + 1}`, row[field.sourceColumn] ?? ''])), source: '用户上传', createdAt: createdDate, hasFile: false }));
       note = `从 ${draft.file.name} 导入 ${cases.length} 条数据。`;
     } else if (draft.mode === '智能生成') {
       if (!draft.generateAgentId || !draft.generateVersion || !draft.generatePrompt.trim()) { notify('请完成 Agent、版本和生成场景配置', 'warning'); return; }
       fields = [{ id: 'input', name: '用户输入', semantic: 'Input', description: FIELD_DESCRIPTIONS.Input, required: true }, { id: 'expected', name: '验收要点', semantic: 'Expected Output', description: FIELD_DESCRIPTIONS['Expected Output'], required: false }];
-      cases = Array.from({ length: draft.generateCount }, (_, index) => ({ id: `CASE-GENERATED-${String(index + 1).padStart(3, '0')}`, values: { input: `${draft.generatePrompt.trim()} · 示例 ${index + 1}`, expected: '覆盖问题中的关键条件和下一步操作。' }, source: '智能生成', createdAt: TODAY, hasFile: false }));
+      cases = Array.from({ length: draft.generateCount }, (_, index) => ({ id: `CASE-GENERATED-${String(index + 1).padStart(3, '0')}`, values: { input: `${draft.generatePrompt.trim()} · 示例 ${index + 1}`, expected: '覆盖问题中的关键条件和下一步操作。' }, source: '智能生成', createdAt: createdDate, hasFile: false }));
       note = `基于 ${draft.generateVersion} 生成 ${cases.length} 条可编辑草稿，不执行 Agent。`;
     } else {
       const filtered = historyForDraft(draft); const selected = filtered.map((conversation) => ({ ...conversation, traces: conversation.traces.filter((trace) => (draft.historySelected[conversation.id] ?? []).includes(trace.id)) })).filter((conversation) => conversation.traces.length);
       if (!selected.length) { notify('请至少勾选 1 个对话或 Trace', 'warning'); return; }
       fields = [{ id: 'input', name: '用户输入', semantic: 'Input', description: FIELD_DESCRIPTIONS.Input, required: true }, { id: 'actual', name: '原始回答', semantic: 'Agent Output', description: FIELD_DESCRIPTIONS['Agent Output'], required: false }, { id: 'trace', name: '原始 Trace', semantic: 'Trace', description: FIELD_DESCRIPTIONS.Trace, required: false }, { id: 'feedback', name: '用户反馈', semantic: 'User Feedback', description: FIELD_DESCRIPTIONS['User Feedback'], required: false }];
-      cases = selected.map((conversation, index) => ({ id: `CASE-HISTORY-${String(index + 1).padStart(3, '0')}`, values: { input: conversation.traces[0]?.input ?? conversation.title, actual: conversation.traces.at(-1)?.agentOutput ?? '', trace: conversation.traces.map((trace) => `trace://${trace.id}`).join(' / '), feedback: conversation.traces.map((trace) => trace.userFeedback).filter(Boolean).join('；') }, source: '历史对话回流', createdAt: TODAY, hasFile: false }));
+      cases = selected.map((conversation, index) => ({ id: `CASE-HISTORY-${String(index + 1).padStart(3, '0')}`, values: { input: conversation.traces[0]?.input ?? conversation.title, actual: conversation.traces.at(-1)?.agentOutput ?? '', trace: conversation.traces.map((trace) => `trace://${trace.id}`).join(' / '), feedback: conversation.traces.map((trace) => trace.userFeedback).filter(Boolean).join('；') }, source: '历史对话回流', createdAt: createdDate, hasFile: false }));
       note = `从 ${draft.historyVersion} 回流 ${cases.length} 条对话，沿用原始回复和 Trace。`;
     }
     const id = `DS-${String(state.datasets.length + 1).padStart(5, '0')}`; const versionId = `${id}-draft`;
     const normalizedFields = fields.map((field) => ({ ...field, id: `${id}-${field.id}` }));
-    const dataset: Dataset = { id, name: draft.name.trim(), description: draft.description.trim(), status: '草稿', source: draft.mode, createdAt: `${TODAY} 20:18`, updatedAt: `${TODAY} 20:18`, createdBy: '演示账户', fields: normalizedFields, cases: cases.map((item) => ({ ...item, values: Object.fromEntries(Object.entries(item.values).map(([key, value]) => [`${id}-${key}`, value])) })), draftVersionId: versionId, versions: [{ id: versionId, label: '草稿', status: '草稿', caseCount: cases.length, createdAt: `${TODAY} 20:18`, createdBy: '演示账户', note }] };
+    const dataset: Dataset = { id, name: draft.name.trim(), description: draft.description.trim(), tags: tags.length ? tags : [fallbackTag], status: '草稿', source: draft.mode, createdAt, updatedAt: createdAt, createdBy: '演示账户', fields: normalizedFields, cases: cases.map((item) => ({ ...item, values: Object.fromEntries(Object.entries(item.values).map(([key, value]) => [`${id}-${key}`, value])) })), draftVersionId: versionId, versions: [{ id: versionId, label: '草稿', status: '草稿', caseCount: cases.length, createdAt, createdBy: '演示账户', note }] };
     setState((current) => ({ ...current, datasets: [dataset, ...current.datasets] })); setSelectedDatasetId(id);
     if (taskReturn) {
       setDatasetScreen('workspace');
@@ -431,14 +437,22 @@ export default function EvaluationCenterPage() {
     setState((current) => ({ ...current, datasets: current.datasets.map((item) => item.id === id ? updater(item) : item) }));
   };
 
+  const deleteDataset = (id: string) => {
+    const target = state.datasets.find((item) => item.id === id);
+    if (!target) return;
+    setState((current) => ({ ...current, datasets: current.datasets.filter((item) => item.id !== id) }));
+    notify(`评测集「${target.name}」已删除`);
+  };
+
   const submitDatasetVersion = (id: string, source: 'dataset' | 'task') => {
     const target = getDatasetById(state, id);
     if (!target?.draftVersionId) { notify('当前没有可提交的草稿', 'warning'); return; }
+    const createdAt = currentTimestamp();
     const submittedCount = target.versions.filter((version) => version.status === '已提交').length + 1;
     const versionId = `${id}-v${submittedCount}`;
     const version: Dataset['versions'][number] = {
       id: versionId, label: `V${submittedCount}`, status: '已提交', caseCount: target.cases.length,
-      createdAt: `${TODAY} 20:36`, createdBy: target.createdBy, note: `提交当前草稿，包含 ${target.cases.length} 条 Case 和 ${target.fields.length} 个字段。`,
+      createdAt, createdBy: target.createdBy, note: `提交当前草稿，包含 ${target.cases.length} 条 Case 和 ${target.fields.length} 个字段。`,
       data: { fields: structuredClone(target.fields), cases: structuredClone(target.cases) },
     };
     setState((current) => ({ ...current, datasets: current.datasets.map((item) => item.id === id ? { ...item, status: '已提交', updatedAt: version.createdAt, draftVersionId: '', versions: [version, ...item.versions] } : item) }));
@@ -454,16 +468,6 @@ export default function EvaluationCenterPage() {
     }
     setDatasetEntryFromTask(false);
     notify('版本已提交，草稿已冻结为历史版本');
-  };
-
-  const copyDatasetAsDraft = (id: string) => {
-    const target = getDatasetById(state, id);
-    if (!target || target.draftVersionId) return;
-    const draftId = `${id}-draft-${target.versions.length + 1}`;
-    const latest = target.versions[0];
-    const sourceData = latest?.data;
-    setState((current) => ({ ...current, datasets: current.datasets.map((item) => item.id === id ? { ...item, status: '草稿', fields: sourceData?.fields ? structuredClone(sourceData.fields) : item.fields, cases: sourceData?.cases ? structuredClone(sourceData.cases) : item.cases, updatedAt: `${TODAY} 20:38`, draftVersionId: draftId, versions: [{ id: draftId, label: '草稿', status: '草稿' as const, caseCount: sourceData?.cases.length ?? item.cases.length, createdAt: `${TODAY} 20:38`, createdBy: '演示账户', note: `从 ${latest?.label ?? '历史版本'} 复制的草稿。` }, ...item.versions] } : item) }));
-    notify('已复制为可编辑草稿');
   };
 
   const createEvaluator = (draft: EvaluatorDraft) => {
@@ -684,11 +688,11 @@ export default function EvaluationCenterPage() {
       <main className="eval-content">
       {module === 'overview' && <OverviewPage onOpenAccess={() => selectModule('access')} onOpenTrace={() => selectModule('traces')} onOpenTasks={() => selectModule('tasks')} />}
       {module === 'access' && <AccessCenterPage />}
-      {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} />}
+      {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} onDelete={(item) => deleteDataset(item.id)} />}
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'history' && <DatasetHistoryPage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
-      {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} onCopyDraft={copyDatasetAsDraft} />}
+      {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} />}
       {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(item, `${item.name}（自建）`)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} optimizations={state.evaluatorOptimizations.filter((item) => item.evaluatorId === evaluator.id)} onOpenOptimization={openOptimization} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(evaluator, `${evaluator.name}（自建）`)); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft(evaluatorDraftFrom(evaluator)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'optimization' && selectedOptimization && <EvaluatorOptimizationWorkbench experiment={selectedOptimization} onExperiments={(updater) => setState((current) => ({ ...current, evaluatorOptimizations: updater(current.evaluatorOptimizations) }))} onVersionCreated={(evaluatorId, version, prompt) => setState((current) => ({ ...current, evaluators: current.evaluators.map((item) => item.id === evaluatorId ? { ...item, version, versions: item.versions.includes(version) ? item.versions : [...item.versions, version], prompt, updatedAt: '2026-10-08 15:30' } : item) }))} onBack={() => setEvaluatorScreen('detail')} onNotify={notify} />}
@@ -726,27 +730,43 @@ function CreateMenu({ onCreate }: { onCreate: (mode: DatasetCreateMode) => void 
   </div>;
 }
 
-function DatasetList({ datasets, search, setSearch, onCreate, onOpen }: { datasets: Dataset[]; search: string; setSearch: (value: string) => void; onCreate: (mode: DatasetCreateMode) => void; onOpen: (dataset: Dataset) => void }) {
-  const filtered = datasets.filter((dataset) => !search || `${dataset.id} ${dataset.name} ${dataset.description}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="eval-list-page">
-    <div className="eval-toolbar"><label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索评测集名称、ID 或描述" /></label><CreateMenu onCreate={onCreate} /></div>
-    <section className="eval-surface table-surface">
-      <table className="eval-data-table">
-        <thead><tr><th>评测集</th><th>状态</th><th>来源</th><th>数据量</th><th>最新版本</th><th>更新时间</th><th /></tr></thead>
+function DatasetList({ datasets, search, setSearch, onCreate, onOpen, onDelete }: { datasets: Dataset[]; search: string; setSearch: (value: string) => void; onCreate: (mode: DatasetCreateMode) => void; onOpen: (dataset: Dataset) => void; onDelete: (dataset: Dataset) => void }) {
+  const [tagFilter, setTagFilter] = useState('全部标签');
+  const tags = [...new Set(datasets.flatMap((dataset) => dataset.tags))].sort((left, right) => left.localeCompare(right, 'zh-CN'));
+  const filtered = datasets.filter((dataset) => {
+    const searchMatched = !search || `${dataset.id} ${dataset.name} ${dataset.description} ${dataset.tags.join(' ')}`.toLowerCase().includes(search.toLowerCase());
+    const tagMatched = tagFilter === '全部标签' || dataset.tags.includes(tagFilter);
+    return searchMatched && tagMatched;
+  });
+  return <div className="eval-list-page eval-dataset-list-page">
+    <div className="eval-toolbar eval-dataset-list-toolbar">
+      <label className="eval-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、ID、描述或标签" /></label>
+      <label className="eval-dataset-tag-filter"><Tag size={14} /><select aria-label="按标签筛选评测集" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option>全部标签</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</select></label>
+      <span className="eval-toolbar-count">{filtered.length} 个评测集</span>
+      <CreateMenu onCreate={onCreate} />
+    </div>
+    <section className="eval-surface table-surface eval-dataset-list-surface">
+      <table className="eval-data-table eval-dataset-list-table">
+        <thead><tr><th>名称</th><th>描述</th><th>标签</th><th>状态</th><th>数据量</th><th>最新版本</th><th>创建时间</th><th>更新时间</th><th className="eval-dataset-list__actions-head">操作</th></tr></thead>
         <tbody>
-          {filtered.map((dataset) => <tr key={dataset.id} onClick={() => onOpen(dataset)}>
-            <td><div className="eval-cell-title"><strong>{dataset.name}</strong><small>{dataset.id} · {dataset.description || '暂无描述'}</small></div></td>
+          {filtered.map((dataset) => <tr key={dataset.id} tabIndex={0} onClick={() => onOpen(dataset)} onKeyDown={(event) => { if (event.key === 'Enter') onOpen(dataset); }}>
+            <td className="eval-dataset-list__name"><div className="eval-cell-title"><strong>{dataset.name}</strong><small>{dataset.id}</small></div></td>
+            <td className="eval-dataset-list__description"><p title={dataset.description || '暂无描述'}>{dataset.description || '暂无描述'}</p></td>
+            <td><div className="eval-dataset-tags">{dataset.tags.map((tag) => <button type="button" key={tag} className={tagFilter === tag ? 'is-active' : ''} onClick={(event) => { event.stopPropagation(); setTagFilter((current) => current === tag ? '全部标签' : tag); }}>{tag}</button>)}</div></td>
             <td><Status label={dataset.status} /></td>
-            <td><Pill>{dataset.source === '历史对话回流' ? '轨迹回流' : dataset.source}</Pill></td>
-            <td>{dataset.cases.length}</td>
-            <td>{dataset.versions[0]?.label ?? '未采集'}</td>
-            <td>{dataset.updatedAt.slice(0, 10)}</td>
-            <td><IconButton label="打开评测集" onClick={() => onOpen(dataset)}><Eye size={15} /></IconButton></td>
+            <td className="eval-dataset-list__number">{dataset.cases.length}</td>
+            <td className="eval-dataset-list__version"><span title={dataset.versions[0]?.label ?? '未采集'}>{dataset.versions[0]?.label ?? '未采集'}</span></td>
+            <td><time dateTime={dataset.createdAt}>{dataset.createdAt.slice(0, 10)}</time></td>
+            <td><time dateTime={dataset.updatedAt}>{dataset.updatedAt.slice(0, 10)}</time></td>
+            <td className="eval-dataset-list__actions">
+              <button type="button" className="eval-icon-button" aria-label={`查看 ${dataset.name}`} title="查看" onClick={(event) => { event.stopPropagation(); onOpen(dataset); }}><Eye size={15} /></button>
+              <button type="button" className="eval-icon-button eval-icon-button--danger" aria-label={`删除 ${dataset.name}`} title="删除" onClick={(event) => { event.stopPropagation(); onDelete(dataset); }}><Trash2 size={15} /></button>
+            </td>
           </tr>)}
         </tbody>
       </table>
     </section>
-    {filtered.length === 0 && <EmptyState title="没有匹配的评测集" description="调整搜索条件，或新建一个评测集。" />}
+    {filtered.length === 0 && <EmptyState title="没有匹配的评测集" description="调整搜索或标签筛选，或新建一个评测集。" />}
   </div>;
 }
 
@@ -770,6 +790,7 @@ function DatasetUploadPage({ draft, setDraft, onBack, onCreate, onNotify }: { dr
       <div className="eval-form-grid eval-dataset-basic-fields">
         <label className="eval-field"><span>评测集名称 <b>*</b></span><input maxLength={50} value={draft.name} placeholder="例如：退款客服回归问题集" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
         <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明这份数据用于验证什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
+        <label className="eval-field"><span>标签</span><input maxLength={80} value={draft.tags} placeholder="例如：售后, 回归, Badcase" onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} /><small>多个标签用逗号分隔，用于评测集列表筛选。</small></label>
       </div>
       <div className="eval-create-section">
         <div className="eval-create-section__head"><div><span className="eval-eyebrow">IMPORT DATA</span><h4>文件上传</h4><p>支持 CSV、XLS、XLSX、JSONL；字段名称与语义可在下方编辑。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => onNotify('模板下载在本地 Mock 中仅展示入口')}><Download size={14} />下载模板</button></div>
@@ -793,6 +814,7 @@ function DatasetGeneratePage({ draft, setDraft, agents, onBack, onCreate }: { dr
       <div className="eval-form-grid eval-dataset-basic-fields">
         <label className="eval-field"><span>评测集名称 <b>*</b></span><input maxLength={50} value={draft.name} placeholder="例如：退款场景生成问题集" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
         <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明这份数据用于验证什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
+        <label className="eval-field"><span>标签</span><input maxLength={80} value={draft.tags} placeholder="例如：售后, 回归, Badcase" onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} /><small>多个标签用逗号分隔，用于评测集列表筛选。</small></label>
       </div>
       <div className="eval-create-section">
         <div className="eval-form-grid"><label className="eval-field"><span>Agent <b>*</b></span><select value={draft.generateAgentId} onChange={(event) => { const agent = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, generateAgentId: event.target.value, generateVersion: agent?.versions[0] ?? '' })); }}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label><label className="eval-field"><span>版本 <b>*</b></span><select value={draft.generateVersion} disabled={!draft.generateAgentId} onChange={(event) => setDraft((current) => ({ ...current, generateVersion: event.target.value }))}>{(selectedAgent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</select></label></div>
@@ -841,6 +863,7 @@ function DatasetHistoryPage({ draft, setDraft, agents, onBack, onCreate }: { dra
       <div className="eval-form-grid eval-dataset-basic-fields">
         <label className="eval-field"><span>评测集名称 <b>*</b></span><input maxLength={50} value={draft.name} placeholder="例如：历史会话回流集" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
         <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明这份数据用于验证什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
+        <label className="eval-field"><span>标签</span><input maxLength={80} value={draft.tags} placeholder="例如：售后, 回归, Badcase" onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} /><small>多个标签用逗号分隔，用于评测集列表筛选。</small></label>
       </div>
       <div className="eval-create-section">
         <div className="eval-create-section__head"><div><span className="eval-eyebrow">TRACE REPLAY</span><h4>选择对话和 Trace</h4><p>勾选整段对话等于勾选全部 Trace，也可以只选部分 Trace。</p></div><Pill tone="green">{selectedHistoryCount} 个对话已选</Pill></div>
@@ -858,14 +881,12 @@ type CaseEditDraft = { id?: string; values: Record<string, string>; hasFile: boo
 type ImportPreview = { file: ParsedFile; mode: '追加数据' | '全量覆盖'; mappings: { sourceColumn: string; target: string; name: string }[] };
 type TraceImportDraft = { agentId: string; version: string; feedback: '全部' | '有反馈' | '无反馈'; search: string; mode: '追加数据' | '全量覆盖'; selected: string[] };
 
-function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateDataset, onSubmitDataset, onCopyDraft }: {
+function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateDataset, onSubmitDataset }: {
   dataset: Dataset; entrySource: 'dataset' | 'task'; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void;
   onUpdateDataset: (id: string, updater: (dataset: Dataset) => Dataset) => void;
   onSubmitDataset: (id: string, source: 'dataset' | 'task') => void;
-  onCopyDraft: (id: string) => void;
 }) {
   const [query, setQuery] = useState('');
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [versionDrawerOpen, setVersionDrawerOpen] = useState(false);
   const [fieldMenuId, setFieldMenuId] = useState<string | null>(null);
@@ -873,38 +894,47 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
   const [caseEditor, setCaseEditor] = useState<CaseEditDraft | null>(null);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [traceEditor, setTraceEditor] = useState<TraceImportDraft | null>(null);
+  const [addDataMode, setAddDataMode] = useState<AddDataMode | null>(null);
+  const [manualFieldQuery, setManualFieldQuery] = useState('');
+  const [activeManualFieldId, setActiveManualFieldId] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (!addMenuOpen && !exportMenuOpen && !versionDrawerOpen && !fieldMenuId) return;
+    if (!exportMenuOpen && !versionDrawerOpen && !fieldMenuId) return;
     const closeMenus = (event: PointerEvent) => {
       if (event.target instanceof Element && event.target.closest('.eval-menu-anchor, .eval-column-menu-anchor')) return;
-      setAddMenuOpen(false);
       setExportMenuOpen(false);
       setVersionDrawerOpen(false);
       setFieldMenuId(null);
     };
     document.addEventListener('pointerdown', closeMenus);
     return () => document.removeEventListener('pointerdown', closeMenus);
-  }, [addMenuOpen, exportMenuOpen, versionDrawerOpen, fieldMenuId]);
-  const editable = Boolean(dataset.draftVersionId);
-  const currentStatus = editable ? '草稿' : '已提交';
+  }, [exportMenuOpen, versionDrawerOpen, fieldMenuId]);
+  const hasWorkingDraft = Boolean(dataset.draftVersionId);
   const latestSubmitted = dataset.versions.find((version) => version.status === '已提交');
   const filteredCases = dataset.cases.filter((item) => {
     const matched = !query || `${item.id} ${dataset.fields.map((field) => item.values[field.id] ?? '').join(' ')}`.toLowerCase().includes(query.toLowerCase());
     return matched;
   });
   const fieldBySemantic = (semantic: FieldSemantic) => dataset.fields.find((field) => field.semantic === semantic);
+  const manualFields = dataset.fields.filter((field) => !manualFieldQuery || `${field.name} ${field.semantic}`.toLowerCase().includes(manualFieldQuery.toLowerCase()));
 
   const patchDraft = (fields: FieldDefinition[], cases: DatasetCase[], note = '草稿已更新。') => {
-    if (!dataset.draftVersionId) return;
-    const updatedAt = `${TODAY} 20:40`;
-    onUpdateDataset(dataset.id, (current) => ({
-      ...current,
-      fields,
-      cases,
-      updatedAt,
-      versions: current.versions.map((version) => version.id === current.draftVersionId ? { ...version, caseCount: cases.length, note } : version),
-    }));
+    const updatedAt = currentTimestamp();
+    onUpdateDataset(dataset.id, (current) => {
+      const draftId = current.draftVersionId || `${current.id}-draft-${current.versions.length + 1}`;
+      const draftVersion = { id: draftId, label: '草稿', status: '草稿' as const, caseCount: cases.length, createdAt: updatedAt, createdBy: current.createdBy, note };
+      return {
+        ...current,
+        fields,
+        cases,
+        status: '草稿' as const,
+        updatedAt,
+        draftVersionId: draftId,
+        versions: current.draftVersionId
+          ? current.versions.map((version) => version.id === current.draftVersionId ? { ...version, caseCount: cases.length, note } : version)
+          : [draftVersion, ...current.versions],
+      };
+    });
   };
 
   const openFieldEditor = (field?: FieldDefinition) => setFieldEditor(field ? { id: field.id, name: field.name, description: field.description, semantic: field.semantic, required: field.required, existing: true } : { id: `${dataset.id}-new-${dataset.fields.length + 1}`, name: '', description: '', semantic: 'Custom', required: false, existing: false });
@@ -928,6 +958,47 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
     onNotify(`字段「${field.name}」已删除`);
   };
 
+  const openManualCaseEditor = (item?: DatasetCase) => {
+    setCaseEditor(item ? { id: item.id, values: { ...item.values }, hasFile: Boolean(item.hasFile) } : { values: Object.fromEntries(dataset.fields.map((field) => [field.id, ''])), hasFile: false });
+    setManualFieldQuery('');
+    setActiveManualFieldId(dataset.fields[0]?.id ?? null);
+    setImportPreview(null);
+    setTraceEditor(null);
+    setAddDataMode('manual');
+  };
+  const openFileImportDrawer = () => {
+    setCaseEditor(null);
+    setTraceEditor(null);
+    setImportPreview(null);
+    setAddDataMode('file');
+  };
+  const openTraceImportDrawer = () => {
+    setCaseEditor(null);
+    setImportPreview(null);
+    setTraceEditor({ agentId: 'agent-refund', version: 'V3', feedback: '全部', search: '', mode: '追加数据', selected: [] });
+    setAddDataMode('trace');
+  };
+  const closeAddDataDrawer = () => {
+    setAddDataMode(null);
+    setCaseEditor(null);
+    setImportPreview(null);
+    setTraceEditor(null);
+    setManualFieldQuery('');
+    setActiveManualFieldId(null);
+  };
+  const returnToAddDataChooser = () => {
+    setCaseEditor(null);
+    setImportPreview(null);
+    setTraceEditor(null);
+    setManualFieldQuery('');
+    setActiveManualFieldId(null);
+    setAddDataMode('choose');
+  };
+  const scrollToManualField = (id: string) => {
+    setActiveManualFieldId(id);
+    document.getElementById(`eval-manual-field-${id}`)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  };
+
   const saveCase = () => {
     if (!caseEditor) return;
     const missingRequired = dataset.fields.find((field) => field.required && !caseEditor.values[field.id]?.trim());
@@ -936,9 +1007,9 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
       patchDraft(dataset.fields, dataset.cases.map((item) => item.id === caseEditor.id ? { ...item, values: { ...caseEditor.values }, hasFile: caseEditor.hasFile } : item), `更新 Case ${caseEditor.id}。`);
     } else {
       const id = `CASE-NEW-${String(dataset.cases.length + 1).padStart(3, '0')}`;
-      patchDraft(dataset.fields, [...dataset.cases, { id, values: { ...caseEditor.values }, source: '手动添加', createdAt: TODAY, hasFile: caseEditor.hasFile }], `手动添加 ${id}。`);
+      patchDraft(dataset.fields, [...dataset.cases, { id, values: { ...caseEditor.values }, source: '手动添加', createdAt: currentTimestamp().slice(0, 10), hasFile: caseEditor.hasFile }], `手动添加 ${id}。`);
     }
-    setCaseEditor(null);
+    closeAddDataDrawer();
     onNotify('Case 已保存到当前草稿');
   };
 
@@ -986,12 +1057,12 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
         return [target?.id ?? '', row[mapping.sourceColumn] ?? ''];
       }).filter(([id]) => Boolean(id))),
       source: '用户上传' as const,
-      createdAt: TODAY,
+      createdAt: currentTimestamp().slice(0, 10),
       hasFile: false,
     }));
     const cases = importPreview.mode === '全量覆盖' ? rows : [...dataset.cases, ...rows];
     patchDraft(allFields, cases, `${importPreview.mode} ${rows.length} 条本地数据。`);
-    setImportPreview(null);
+    closeAddDataDrawer();
     onNotify(`${importPreview.mode}成功，共 ${rows.length} 条 Case`);
   };
 
@@ -1019,14 +1090,23 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
         feedbackField && [feedbackField.id, conversation.traces.map((trace) => trace.userFeedback).filter(Boolean).join('；')],
       ].filter(Boolean) as [string, string][]),
       source: '历史对话回流' as const,
-      createdAt: TODAY,
+      createdAt: currentTimestamp().slice(0, 10),
       hasFile: false,
     }));
     const nextCases = traceEditor.mode === '全量覆盖' ? cases : [...dataset.cases, ...cases];
     patchDraft(dataset.fields, nextCases, `${traceEditor.mode} ${cases.length} 条轨迹数据。`);
-    setTraceEditor(null);
+    closeAddDataDrawer();
     onNotify(`${traceEditor.mode}成功，共 ${cases.length} 条 Case`);
   };
+
+  const addDataTitle = addDataMode === 'manual' ? (caseEditor?.id ? `编辑 ${caseEditor.id}` : '手动添加数据') : addDataMode === 'file' ? '本地文件导入' : addDataMode === 'trace' ? '轨迹回流' : '添加数据';
+  const addDataDescription = addDataMode === 'manual'
+    ? '按字段填写一条 Case；保存后才生成待提交变更。'
+    : addDataMode === 'file'
+      ? '上传本地文件，确认字段映射后写入待提交版本。'
+      : addDataMode === 'trace'
+        ? '筛选真实对话和 Trace，保留原始回复作为评测数据。'
+        : '选择一种数据录入方式，已提交版本不会被直接修改。';
 
   const downloadVersion = (label: string, fields: FieldDefinition[], cases: DatasetCase[]) => {
     const escapeCell = (value: string) => `"${value.replaceAll('"', '""').replaceAll(/\r?\n/g, ' ')}"`;
@@ -1040,7 +1120,6 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
   return <div className="eval-dataset-detail">
     <div className="eval-page-topline">
       <button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />{entrySource === 'task' ? '返回任务创建' : '返回评测集'}</button>
-      <div className="eval-dataset-detail__context"><Status label={currentStatus} /><span>{entrySource === 'task' ? '来自评测任务创建' : `${dataset.source} · ${dataset.id}`}</span></div>
     </div>
     <header className="eval-dataset-detail__hero">
       <div>
@@ -1058,25 +1137,14 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
           <div className="eval-menu-anchor">
             <button type="button" className="eval-button eval-button--ghost" onClick={() => setExportMenuOpen((current) => !current)}><Download size={14} />导出数据<ChevronDown size={13} /></button>
             {exportMenuOpen && <div className="eval-inline-menu">
-              {editable && <button type="button" onClick={() => { setExportMenuOpen(false); downloadVersion('草稿', dataset.fields, dataset.cases); }}><Download size={14} />导出当前草稿</button>}
+              {hasWorkingDraft && <button type="button" onClick={() => { setExportMenuOpen(false); downloadVersion('草稿', dataset.fields, dataset.cases); }}><Download size={14} />导出当前草稿</button>}
               {latestSubmitted && <button type="button" onClick={() => { setExportMenuOpen(false); downloadVersion(latestSubmitted.label, latestSubmitted.data?.fields ?? dataset.fields, latestSubmitted.data?.cases ?? dataset.cases); }}><Download size={14} />导出 {latestSubmitted.label}</button>}
             </div>}
           </div>
-          <div className="eval-menu-anchor">
-            <button type="button" className="eval-button eval-button--ghost" disabled={!editable} onClick={() => setAddMenuOpen((current) => !current)}><Plus size={14} />添加数据<ChevronDown size={13} /></button>
-            {addMenuOpen && editable && <div className="eval-inline-menu">
-              <button type="button" onClick={() => { setAddMenuOpen(false); setCaseEditor({ values: Object.fromEntries(dataset.fields.map((field) => [field.id, ''])), hasFile: false }); }}><Plus size={14} />手动添加</button>
-              <button type="button" onClick={() => { setAddMenuOpen(false); importInputRef.current?.click(); }}><Upload size={14} />本地文件导入</button>
-              <button type="button" onClick={() => { setAddMenuOpen(false); setTraceEditor({ agentId: dataset.source === '历史对话回流' ? 'agent-refund' : 'agent-refund', version: 'V3', feedback: '全部', search: '', mode: '追加数据', selected: [] }); }}><History size={14} />轨迹回流</button>
-            </div>}
-          </div>
-          {editable ? (
-            <button type="button" className="eval-button eval-button--primary" onClick={() => onSubmitDataset(dataset.id, entrySource)}>
-              <Check size={14} />{entrySource === 'task' ? '提交并用于评测' : '提交新版本'}
-            </button>
-          ) : (
-            <button type="button" className="eval-button eval-button--primary" onClick={() => onCopyDraft(dataset.id)}><Copy size={14} />复制为草稿</button>
-          )}
+          <button type="button" className="eval-button eval-button--ghost" onClick={() => setAddDataMode('choose')}><Plus size={14} />添加数据</button>
+          <button type="button" className="eval-button eval-button--primary" disabled={!hasWorkingDraft} onClick={() => onSubmitDataset(dataset.id, entrySource)}>
+            <Check size={14} />{entrySource === 'task' ? '提交并用于评测' : '提交新版本'}
+          </button>
           <div className="eval-menu-anchor">
             <IconButton label="版本管理" onClick={() => setVersionDrawerOpen((current) => !current)}><MoreHorizontal size={17} /></IconButton>
             {versionDrawerOpen && <section className="eval-version-popover">
@@ -1098,7 +1166,7 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
         <table className="eval-dataset-detail__table">
           <thead><tr>
             <th className="is-id">ID</th>
-            {dataset.fields.map((field) => <th key={field.id}><div className="eval-dataset-detail__column-head"><span title={`${field.name} · ${field.description}`}>{field.name}</span>{field.semantic === 'Trace' && <i className="eval-dataset-detail__trace">轨迹</i>}{editable && <div className="eval-column-menu-anchor"><button type="button" className="eval-column-menu-trigger" aria-label={`管理字段 ${field.name}`} onClick={() => setFieldMenuId((current) => current === field.id ? null : field.id)}><ChevronDown size={14} /></button>{fieldMenuId === field.id && <div className="eval-column-menu"><button type="button" onClick={() => { setFieldMenuId(null); openFieldEditor(field); }}><Settings2 size={14} />编辑</button><button type="button" onClick={() => deleteField(field.id)}><Trash2 size={14} />删除列</button></div>}</div>}</div></th>)}
+            {dataset.fields.map((field) => <th key={field.id}><div className="eval-dataset-detail__column-head"><span title={`${field.name} · ${field.description}`}>{field.name}</span>{field.semantic === 'Trace' && <i className="eval-dataset-detail__trace">轨迹</i>}<div className="eval-column-menu-anchor"><button type="button" className="eval-column-menu-trigger" aria-label={`管理字段 ${field.name}`} onClick={() => setFieldMenuId((current) => current === field.id ? null : field.id)}><ChevronDown size={14} /></button>{fieldMenuId === field.id && <div className="eval-column-menu"><button type="button" onClick={() => { setFieldMenuId(null); openFieldEditor(field); }}><Settings2 size={14} />编辑</button><button type="button" onClick={() => deleteField(field.id)}><Trash2 size={14} />删除列</button></div>}</div></div></th>)}
             <th className="is-actions">操作</th>
           </tr></thead>
           <tbody>
@@ -1106,11 +1174,9 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
               <td className="is-id"><span className="eval-case-chip">#{item.id}</span></td>
               {dataset.fields.map((field) => <td key={field.id} title={item.values[field.id] || ''}>{item.values[field.id] || <em>未采集</em>}</td>)}
               <td className="is-actions">
-                {editable ? <>
-                  <button type="button" className="eval-text-button" onClick={() => setCaseEditor({ id: item.id, values: { ...item.values }, hasFile: Boolean(item.hasFile) })}>编辑</button>
-                  <button type="button" className="eval-text-button" onClick={() => onNotify(`${item.id} 详情已打开`)}>查看</button>
-                  <IconButton label={`删除 ${item.id}`} onClick={() => deleteCase(item.id)}><Trash2 size={14} /></IconButton>
-                </> : <button type="button" className="eval-text-button" onClick={() => onNotify(`${item.id} 详情已打开`)}>查看</button>}
+                <button type="button" className="eval-text-button" onClick={() => openManualCaseEditor(item)}>编辑</button>
+                <button type="button" className="eval-text-button" onClick={() => onNotify(`${item.id} 详情已打开`)}>查看</button>
+                <IconButton label={`删除 ${item.id}`} onClick={() => deleteCase(item.id)}><Trash2 size={14} /></IconButton>
               </td>
             </tr>)}
           </tbody>
@@ -1133,51 +1199,88 @@ function DatasetWorkspace({ dataset, entrySource, onBack, onNotify, onUpdateData
       </section>
     </div>}
 
-    {caseEditor && <div className="eval-overlay" onClick={() => setCaseEditor(null)}>
-      <section className="eval-modal" onClick={(event) => event.stopPropagation()}>
-        <header className="eval-modal__header"><div><h2>{caseEditor.id ? `编辑 ${caseEditor.id}` : '手动添加 Case'}</h2><p>保存后写入当前草稿，不影响已提交版本。</p></div><IconButton label="关闭 Case 编辑" onClick={() => setCaseEditor(null)}><X size={16} /></IconButton></header>
-        <div className="eval-modal__body eval-dataset-edit-list">
-          {dataset.fields.map((field) => <label className="eval-field" key={field.id}>
-            <span>{field.name}{field.required && <b>*</b>}</span>
-            {field.semantic === 'File' ? <span className="eval-file-field"><input value={caseEditor.values[field.id] ?? ''} placeholder="填写文件 URL，或上传本地文件" onChange={(event) => setCaseEditor({ ...caseEditor, values: { ...caseEditor.values, [field.id]: event.target.value } })} /><span><input type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCaseEditor({ ...caseEditor, values: { ...caseEditor.values, [field.id]: file.name }, hasFile: true }); }} /></span></span> : <textarea rows={field.semantic === 'Trace' ? 2 : 2} value={caseEditor.values[field.id] ?? ''} onChange={(event) => setCaseEditor({ ...caseEditor, values: { ...caseEditor.values, [field.id]: event.target.value } })} />}
-          </label>)}
-        </div>
-        <footer className="eval-modal__footer"><button type="button" className="eval-button eval-button--ghost" onClick={() => setCaseEditor(null)}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={saveCase}>保存 Case</button></footer>
-      </section>
-    </div>}
-
-    {importPreview && <div className="eval-overlay" onClick={() => setImportPreview(null)}>
-      <section className="eval-modal eval-modal--wide" onClick={(event) => event.stopPropagation()}>
-        <header className="eval-modal__header"><div><h2>本地文件导入</h2><p>{importPreview.file.name} · {importPreview.file.rows.length} 条待写入数据</p></div><IconButton label="关闭导入预览" onClick={() => setImportPreview(null)}><X size={16} /></IconButton></header>
-        <div className="eval-modal__body">
-          <div className="eval-import-mode"><label><input type="radio" checked={importPreview.mode === '追加数据'} onChange={() => setImportPreview({ ...importPreview, mode: '追加数据' })} /><span><strong>追加数据</strong><small>保留已有 Case，新增本次数据。</small></span></label><label><input type="radio" checked={importPreview.mode === '全量覆盖'} onChange={() => setImportPreview({ ...importPreview, mode: '全量覆盖' })} /><span><strong>全量覆盖</strong><small>清空当前草稿 Case 后写入。</small></span></label></div>
-          <div className="eval-import-mapping">
-            <div><span>导入列</span><span>写入字段</span><span>新字段名称</span></div>
-            {importPreview.mappings.map((mapping, index) => <div key={mapping.sourceColumn}>
-              <strong>{mapping.sourceColumn}</strong>
-              <select value={mapping.target} onChange={(event) => setImportPreview({ ...importPreview, mappings: importPreview.mappings.map((item, itemIndex) => itemIndex === index ? { ...item, target: event.target.value } : item) })}>{dataset.fields.map((field) => <option key={field.id} value={field.id}>映射到 {field.name}</option>)}<option value="new">添加为新字段</option></select>
-              {mapping.target === 'new' ? <input value={mapping.name} onChange={(event) => setImportPreview({ ...importPreview, mappings: importPreview.mappings.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} /> : <span>沿用字段定义</span>}
-            </div>)}
+    {addDataMode && <div className="eval-overlay eval-overlay--drawer" onClick={closeAddDataDrawer}>
+      <section className={`eval-drawer eval-dataset-add-drawer eval-dataset-add-drawer--${addDataMode}`} onClick={(event) => event.stopPropagation()}>
+        <header className="eval-drawer__header eval-dataset-add-drawer__header">
+          <div className="eval-dataset-add-drawer__heading">
+            {addDataMode !== 'choose' && <button type="button" className="eval-add-drawer-back" onClick={returnToAddDataChooser}><ChevronLeft size={14} />更换方式</button>}
+            <h2>{addDataTitle}</h2>
+            <p>{addDataDescription}</p>
           </div>
-        </div>
-        <footer className="eval-modal__footer"><button type="button" className="eval-button eval-button--ghost" onClick={() => setImportPreview(null)}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={confirmImport}>确认写入草稿</button></footer>
-      </section>
-    </div>}
+          <IconButton label="关闭添加数据" onClick={closeAddDataDrawer}><X size={16} /></IconButton>
+        </header>
 
-    {traceEditor && <div className="eval-overlay" onClick={() => setTraceEditor(null)}>
-      <section className="eval-modal" onClick={(event) => event.stopPropagation()}>
-        <header className="eval-modal__header"><div><h2>轨迹回流</h2><p>选择对话记录后写入当前草稿。</p></div><IconButton label="关闭轨迹回流" onClick={() => setTraceEditor(null)}><X size={16} /></IconButton></header>
-        <div className="eval-modal__body">
-          <div className="eval-trace-import-filters">
-            <select value={traceEditor.agentId} onChange={(event) => setTraceEditor({ ...traceEditor, agentId: event.target.value, selected: [] })}>{['agent-refund', 'agent-tender', 'agent-research'].map((id) => <option key={id} value={id}>{id === 'agent-refund' ? '退款客服助手' : id === 'agent-tender' ? '招标文件评估助手' : '网页研究助手'}</option>)}</select>
-            <select value={traceEditor.version} onChange={(event) => setTraceEditor({ ...traceEditor, version: event.target.value, selected: [] })}>{['V3', 'V2', 'V1'].map((version) => <option key={version}>{version}</option>)}</select>
-            <select value={traceEditor.feedback} onChange={(event) => setTraceEditor({ ...traceEditor, feedback: event.target.value as TraceImportDraft['feedback'] })}>{['全部', '有反馈', '无反馈'].map((item) => <option key={item}>{item}</option>)}</select>
-            <input value={traceEditor.search} placeholder="搜索对话" onChange={(event) => setTraceEditor({ ...traceEditor, search: event.target.value })} />
+        {addDataMode === 'choose' && <div className="eval-drawer__body eval-add-choice-body">
+          <div className="eval-add-choice-intro"><span>{hasWorkingDraft ? '当前已有待提交版本' : '当前为已提交版本'}</span><strong>{hasWorkingDraft ? '继续编辑会写入现有草稿' : '完成一次写入后自动生成草稿'}</strong></div>
+          <button type="button" className="eval-add-choice-card" onClick={() => openManualCaseEditor()}>
+            <span className="eval-add-choice-card__icon"><Plus size={18} /></span>
+            <span><strong>手动添加</strong><small>按字段填写 1 条 Case，适合补充单个 Badcase 或样本。</small></span>
+            <ChevronRight size={16} />
+          </button>
+          <button type="button" className="eval-add-choice-card" onClick={openFileImportDrawer}>
+            <span className="eval-add-choice-card__icon"><FileSpreadsheet size={18} /></span>
+            <span><strong>本地文件导入</strong><small>上传 CSV、XLS、XLSX 或 JSONL，确认字段映射后批量写入。</small></span>
+            <ChevronRight size={16} />
+          </button>
+          <button type="button" className="eval-add-choice-card" onClick={openTraceImportDrawer}>
+            <span className="eval-add-choice-card__icon"><History size={18} /></span>
+            <span><strong>轨迹回流</strong><small>筛选真实对话和 Trace，保留原始回复作为评测数据。</small></span>
+            <ChevronRight size={16} />
+          </button>
+        </div>}
+
+        {addDataMode === 'manual' && caseEditor && <>
+          <div className="eval-add-manual-layout">
+            <aside className="eval-add-field-nav">
+              <header><span>全部字段</span><b>{dataset.fields.length}</b></header>
+              <label className="eval-search eval-search--small"><Search size={14} /><input value={manualFieldQuery} onChange={(event) => setManualFieldQuery(event.target.value)} placeholder="搜索字段名" /></label>
+              <nav aria-label="Case 字段导航">{manualFields.map((field) => <button type="button" key={field.id} className={activeManualFieldId === field.id ? 'is-active' : ''} onClick={() => scrollToManualField(field.id)}><span>{field.name}</span>{field.required && <b>必填</b>}</button>)}</nav>
+              {manualFields.length === 0 && <p className="eval-add-field-nav__empty">没有匹配字段</p>}
+            </aside>
+            <div className="eval-add-manual-form">
+              <div className="eval-add-record-meta"><span>{caseEditor.id ? '编辑记录' : '新建记录'}</span><code>{caseEditor.id ?? '保存后生成 Case ID'}</code></div>
+              {dataset.fields.map((field) => <section id={`eval-manual-field-${field.id}`} className={`eval-add-field-card${activeManualFieldId === field.id ? ' is-active' : ''}`} key={field.id} onFocus={() => setActiveManualFieldId(field.id)}>
+                <header><div><strong>{field.name}{field.required && <b>*</b>}</strong><p>{field.description || '暂无字段说明'}</p></div><FieldBadge semantic={field.semantic} required={field.required} /></header>
+                {field.semantic === 'File' ? <div className="eval-add-field-file"><input aria-label={field.name} value={caseEditor.values[field.id] ?? ''} placeholder="填写文件 URL，或选择本地文件" onChange={(event) => setCaseEditor({ ...caseEditor, values: { ...caseEditor.values, [field.id]: event.target.value } })} /><label><Upload size={14} />选择文件<input type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCaseEditor({ ...caseEditor, values: { ...caseEditor.values, [field.id]: file.name }, hasFile: true }); }} /></label></div> : <textarea aria-label={field.name} rows={field.semantic === 'Trace' ? 4 : 3} value={caseEditor.values[field.id] ?? ''} placeholder={`填写 ${field.name}`} onChange={(event) => setCaseEditor({ ...caseEditor, values: { ...caseEditor.values, [field.id]: event.target.value } })} />}
+              </section>)}
+            </div>
           </div>
-          <div className="eval-trace-import-list">{filteredHistory.map((conversation) => <label key={conversation.id}><input type="checkbox" checked={traceEditor.selected.includes(conversation.id)} onChange={() => setTraceEditor({ ...traceEditor, selected: traceEditor.selected.includes(conversation.id) ? traceEditor.selected.filter((id) => id !== conversation.id) : [...traceEditor.selected, conversation.id] })} /><span><strong>{conversation.title}</strong><small>{conversation.occurredAt} · {conversation.traces.length} 条 Trace</small></span></label>)}</div>
-          <div className="eval-import-mode"><label><input type="radio" checked={traceEditor.mode === '追加数据'} onChange={() => setTraceEditor({ ...traceEditor, mode: '追加数据' })} /><span><strong>追加数据</strong><small>保留已有 Case。</small></span></label><label><input type="radio" checked={traceEditor.mode === '全量覆盖'} onChange={() => setTraceEditor({ ...traceEditor, mode: '全量覆盖' })} /><span><strong>全量覆盖</strong><small>清空当前草稿 Case 后写入。</small></span></label></div>
-        </div>
-        <footer className="eval-modal__footer"><button type="button" className="eval-button eval-button--ghost" onClick={() => setTraceEditor(null)}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={confirmTraceImport}>确认写入草稿</button></footer>
+          <footer className="eval-drawer-footer eval-dataset-add-drawer__footer"><span>{hasWorkingDraft ? '保存到现有草稿' : '保存后自动建立待提交版本'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={closeAddDataDrawer}>取消</button><button type="button" className="eval-button eval-button--primary" onClick={saveCase}>{caseEditor.id ? '保存修改' : '保存并生成草稿'}</button></div></footer>
+        </>}
+
+        {addDataMode === 'file' && <>
+          <div className="eval-drawer__body eval-add-file-body">
+            {!importPreview ? <button type="button" className="eval-add-file-dropzone" onClick={() => importInputRef.current?.click()}><span><Upload size={22} /></span><strong>选择本地数据文件</strong><small>支持 CSV、XLS、XLSX 和 JSONL。上传后先确认字段映射，再写入数据。</small></button> : <>
+              <div className="eval-add-file-summary"><div><FileSpreadsheet size={18} /><span><strong>{importPreview.file.name}</strong><small>{importPreview.file.format} · {importPreview.file.columns.length} 个字段 · {importPreview.file.rows.length} 条数据</small></span></div><button type="button" className="eval-button eval-button--ghost" onClick={() => importInputRef.current?.click()}>更换文件</button></div>
+              <div className="eval-import-mode"><label><input type="radio" checked={importPreview.mode === '追加数据'} onChange={() => setImportPreview({ ...importPreview, mode: '追加数据' })} /><span><strong>追加数据</strong><small>保留已有 Case，新增本次数据。</small></span></label><label><input type="radio" checked={importPreview.mode === '全量覆盖'} onChange={() => setImportPreview({ ...importPreview, mode: '全量覆盖' })} /><span><strong>全量覆盖</strong><small>清空当前草稿 Case 后写入。</small></span></label></div>
+              <div className="eval-import-mapping">
+                <div><span>导入列</span><span>写入字段</span><span>新字段名称</span></div>
+                {importPreview.mappings.map((mapping, index) => <div key={mapping.sourceColumn}>
+                  <strong>{mapping.sourceColumn}</strong>
+                  <select value={mapping.target} onChange={(event) => setImportPreview({ ...importPreview, mappings: importPreview.mappings.map((item, itemIndex) => itemIndex === index ? { ...item, target: event.target.value } : item) })}>{dataset.fields.map((field) => <option key={field.id} value={field.id}>映射到 {field.name}</option>)}<option value="new">添加为新字段</option></select>
+                  {mapping.target === 'new' ? <input value={mapping.name} onChange={(event) => setImportPreview({ ...importPreview, mappings: importPreview.mappings.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} /> : <span>沿用字段定义</span>}
+                </div>)}
+              </div>
+            </>}
+          </div>
+          <footer className="eval-drawer-footer eval-dataset-add-drawer__footer"><span>{hasWorkingDraft ? '导入到现有草稿' : '导入后自动建立待提交版本'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={closeAddDataDrawer}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!importPreview} onClick={confirmImport}>导入并写入</button></div></footer>
+        </>}
+
+        {addDataMode === 'trace' && traceEditor && <>
+          <div className="eval-drawer__body eval-add-trace-body">
+            <div className="eval-add-trace-summary"><div><strong>{traceEditor.selected.length}</strong><span>条对话已选择</span></div><p>每条对话生成 1 条 Case，沿用原始回复和 Trace。</p></div>
+            <div className="eval-trace-import-filters">
+              <select aria-label="选择 Agent" value={traceEditor.agentId} onChange={(event) => setTraceEditor({ ...traceEditor, agentId: event.target.value, selected: [] })}>{['agent-refund', 'agent-tender', 'agent-research'].map((id) => <option key={id} value={id}>{id === 'agent-refund' ? '退款客服助手' : id === 'agent-tender' ? '招标文件评估助手' : '网页研究助手'}</option>)}</select>
+              <select aria-label="选择 Agent 版本" value={traceEditor.version} onChange={(event) => setTraceEditor({ ...traceEditor, version: event.target.value, selected: [] })}>{['V3', 'V2', 'V1'].map((version) => <option key={version}>{version}</option>)}</select>
+              <select aria-label="筛选反馈状态" value={traceEditor.feedback} onChange={(event) => setTraceEditor({ ...traceEditor, feedback: event.target.value as TraceImportDraft['feedback'] })}>{['全部', '有反馈', '无反馈'].map((item) => <option key={item}>{item}</option>)}</select>
+              <input aria-label="搜索对话" value={traceEditor.search} placeholder="搜索对话" onChange={(event) => setTraceEditor({ ...traceEditor, search: event.target.value })} />
+            </div>
+            <div className="eval-trace-import-list">{filteredHistory.map((conversation) => <label key={conversation.id}><input type="checkbox" checked={traceEditor.selected.includes(conversation.id)} onChange={() => setTraceEditor({ ...traceEditor, selected: traceEditor.selected.includes(conversation.id) ? traceEditor.selected.filter((id) => id !== conversation.id) : [...traceEditor.selected, conversation.id] })} /><span><strong>{conversation.title}</strong><small>{conversation.occurredAt} · {conversation.traces.length} 条 Trace</small></span></label>)}</div>
+            {filteredHistory.length === 0 && <EmptyState title="没有匹配的轨迹" description="调整 Agent、版本、反馈或搜索条件。" />}
+            <div className="eval-import-mode"><label><input type="radio" checked={traceEditor.mode === '追加数据'} onChange={() => setTraceEditor({ ...traceEditor, mode: '追加数据' })} /><span><strong>追加数据</strong><small>保留已有 Case。</small></span></label><label><input type="radio" checked={traceEditor.mode === '全量覆盖'} onChange={() => setTraceEditor({ ...traceEditor, mode: '全量覆盖' })} /><span><strong>全量覆盖</strong><small>清空当前草稿 Case 后写入。</small></span></label></div>
+          </div>
+          <footer className="eval-drawer-footer eval-dataset-add-drawer__footer"><span>{hasWorkingDraft ? '写入现有草稿' : '写入后自动建立待提交版本'}</span><div><button type="button" className="eval-button eval-button--ghost" onClick={closeAddDataDrawer}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!traceEditor.selected.length} onClick={confirmTraceImport}>写入 {traceEditor.selected.length} 条数据</button></div></footer>
+        </>}
       </section>
     </div>}
   </div>;

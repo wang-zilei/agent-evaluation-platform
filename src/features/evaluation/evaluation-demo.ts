@@ -214,6 +214,7 @@ export const demoDataset: Dataset = {
   id: 'DS-OPT-REFUND-10',
   name: '售后退款优化验证集',
   description: '覆盖退款条件、订单前置校验、跨境异常、运费责任、部分退货和售后复议，包含 6 条验证集 Badcase 与 4 条回归集 Case。',
+  tags: ['售后', 'Badcase'],
   status: '已提交',
   source: '历史对话回流',
   createdAt: '2026-09-24 09:18',

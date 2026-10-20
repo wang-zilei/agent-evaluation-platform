@@ -43,6 +43,7 @@ export type Dataset = {
   id: string;
   name: string;
   description: string;
+  tags: string[];
   status: DatasetStatus;
   source: SourceType;
   createdAt: string;
