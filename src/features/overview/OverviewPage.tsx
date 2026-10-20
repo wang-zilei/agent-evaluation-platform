@@ -4,15 +4,13 @@ import {
   Bot,
   Check,
   ChevronDown,
-  CircleAlert,
-  ClipboardCheck,
   Clock3,
 } from 'lucide-react';
 import { TIME_PRESETS, formatDateTime, formatDateTimeInput, getTimeRange, type TimePresetKey, type TimeRange } from './overview-time';
 import './overview.css';
 
 type MetricKey = 'sessions' | 'conversations' | 'users' | 'tokens' | 'duration' | 'ttft' | 'score';
-type Scope = '总计' | '按应用' | '按 Agent';
+type Scope = '总计' | '按 Agent';
 
 type Metric = {
   key: MetricKey;
@@ -41,32 +39,12 @@ const METRICS: Metric[] = [
 ];
 
 const AGENT_ROWS = [
-  { name: '退款客服助手', version: 'V4', coverage: 92, passRate: 91.8, insufficient: 2.1, completeness: 98, status: '正常' },
-  { name: '经营问数助手', version: 'V3', coverage: 68, passRate: 83.4, insufficient: 4.8, completeness: 95, status: '关注' },
-  { name: '招标评估助手', version: 'V1', coverage: 43, passRate: 78.2, insufficient: 7.3, completeness: 89, status: '关注' },
-  { name: '网页研究助手', version: 'V2', coverage: 81, passRate: 87.1, insufficient: 3.4, completeness: 96, status: '正常' },
-  { name: '合同审查助手', version: 'V2', coverage: 38, passRate: 74.9, insufficient: 12.6, completeness: 71, status: '高风险' },
-  { name: '工单分派助手', version: 'V5', coverage: 90, passRate: 89.2, insufficient: 1.8, completeness: 97, status: '正常' },
-];
-
-const RESULT_DISTRIBUTION = [
-  { label: '有效结果', value: 199300, percent: 93.3, color: '#49a591' },
-  { label: '证据不足', value: 7100, percent: 3.3, color: '#b48939' },
-  { label: '无法执行', value: 5800, percent: 2.7, color: '#7fa7ee' },
-  { label: '执行失败', value: 1400, percent: 0.7, color: '#c65b52' },
-];
-
-const EVALUATOR_RESULTS = [
-  { label: '任务完成度', kind: '通过率', value: 86.4, display: '86.4%', valid: '12.4K' },
-  { label: '回答忠实度', kind: '均分', value: 84, display: '0.84', valid: '10.8K' },
-  { label: '工具选择正确性', kind: '通过率', value: 81.7, display: '81.7%', valid: '8.6K' },
-  { label: 'Agent 轨迹质量', kind: '均分', value: 79, display: '0.79', valid: '9.4K' },
-];
-
-const TRACE_CHECKS = [
-  { label: '运行入口可识别', value: 99.2 },
-  { label: '父子节点可关联', value: 91.6 },
-  { label: '终态输出可定位', value: 97.4 },
+  { name: '退款客服助手', version: 'V4', coverage: 92, passRate: 91.8, averageScore: 0.86 },
+  { name: '经营问数助手', version: 'V3', coverage: 68, passRate: 83.4, averageScore: 0.78 },
+  { name: '招标评估助手', version: 'V1', coverage: 43, passRate: 78.2, averageScore: 0.72 },
+  { name: '网页研究助手', version: 'V2', coverage: 81, passRate: 87.1, averageScore: 0.84 },
+  { name: '合同审查助手', version: 'V2', coverage: 38, passRate: 74.9, averageScore: 0.68 },
+  { name: '工单分派助手', version: 'V5', coverage: 90, passRate: 89.2, averageScore: 0.88 },
 ];
 
 const TASK_STATS = [
@@ -133,8 +111,8 @@ function TimeSeriesPanel({
 }) {
   const scopedSeries = useMemo(() => {
     if (scope === '总计') return metric.series;
-    const factor = scope === '按应用' ? 0.71 : 0.83;
-    const phase = scope === '按应用' ? 1.8 : 3.3;
+    const factor = 0.83;
+    const phase = 3.3;
     return metric.series.map((value, index) => value * factor * (1 + Math.sin(index * 0.48 + phase) * 0.08));
   }, [metric, scope]);
   const min = Math.min(...scopedSeries) * 0.91;
@@ -149,7 +127,7 @@ function TimeSeriesPanel({
         <span className={`ov-time-delta is-${metric.trend}`}>{(metric.trend === 'up' ? '↑ ' : '↓ ') + metric.delta}</span>
       </div>
       <div className="ov-scope-switch" role="tablist" aria-label="统计范围">
-        {(['总计', '按应用', '按 Agent'] as Scope[]).map((item) => <button type="button" role="tab" aria-selected={scope === item} className={scope === item ? 'is-active' : ''} key={item} onClick={() => onScopeChange(item)}>{item}</button>)}
+        {(['总计', '按 Agent'] as Scope[]).map((item) => <button type="button" role="tab" aria-selected={scope === item} className={scope === item ? 'is-active' : ''} key={item} onClick={() => onScopeChange(item)}>{item}</button>)}
       </div>
     </header>
     <div className="ov-time-chart" aria-label={`${metric.label}近 24 小时时序柱状图`}>
@@ -172,44 +150,10 @@ function ModuleHeader({ title, note, action, onAction }: { title: string; note: 
   </header>;
 }
 
-function ResultBreakdown() {
-  return <div className="ov-result-breakdown">
-    <div className="ov-result-total"><strong>213.6K</strong><span>评估器结果</span></div>
-    <div className="ov-result-stack" aria-label="评估器结果状态分布">
-      {RESULT_DISTRIBUTION.map((item) => <i key={item.label} style={{ width: `${item.percent}%`, background: item.color }} />)}
-    </div>
-    <div className="ov-result-legend">{RESULT_DISTRIBUTION.map((item) => <div key={item.label}>
-      <span><i style={{ background: item.color }} />{item.label}</span>
-      <strong>{(item.value / 1000).toFixed(1)}K · {item.percent}%</strong>
-    </div>)}</div>
-  </div>;
-}
-
-function EvaluatorResults() {
-  return <div className="ov-evaluator-results">{EVALUATOR_RESULTS.map((item) => <div key={item.label}>
-    <div className="ov-evaluator-results__head"><span>{item.label}<em>{item.kind}</em></span><strong>{item.display}</strong></div>
-    <i><b style={{ width: `${item.value}%` }} /></i>
-    <small>有效样本 {item.valid}</small>
-  </div>)}</div>;
-}
-
-function TraceChecks() {
-  return <div className="ov-trace-checks">{TRACE_CHECKS.map((item) => <div key={item.label}>
-    <span>{item.label}</span><i><b style={{ width: `${item.value}%` }} /></i><strong>{item.value}%</strong>
-  </div>)}</div>;
-}
-
-function Status({ value }: { value: string }) {
-  const tone = value === '正常' ? 'success' : value === '关注' ? 'warning' : 'danger';
-  return <span className={`ov-status ov-status--${tone}`}><i />{value}</span>;
-}
-
 export default function OverviewPage({
-  onOpenAccess,
   onOpenTrace,
   onOpenTasks,
 }: {
-  onOpenAccess: () => void;
   onOpenTrace: () => void;
   onOpenTasks: () => void;
 }) {
@@ -290,31 +234,7 @@ export default function OverviewPage({
     </section>
 
     <TimeSeriesPanel metric={metric} scope={scope} onScopeChange={setScope} onMetricChange={setSelectedMetric} />
-    <p className="ov-chart-caption"><Clock3 size={13} />{selectedTimePreset.label}范围，按小时聚合，柱高表示所选指标的时序变化。</p>
-
-    <div className="ov-module-grid ov-module-grid--three">
-      <section className="ov-module" style={{ '--module-accent': '#55a6c8' } as CSSProperties}>
-        <ModuleHeader title="评测执行结果" note="按评估器执行状态统计，异常状态不进入有效分母。" action="查看任务" onAction={onOpenTasks} />
-        <ResultBreakdown />
-      </section>
-
-      <section className="ov-module" style={{ '--module-accent': '#49a591' } as CSSProperties}>
-        <ModuleHeader title="评估器质量结果" note="按评估器类型分别展示有效样本，不混合通过率和均分。" action="查看任务" onAction={onOpenTasks} />
-        <EvaluatorResults />
-        <div className="ov-module-foot"><span><ClipboardCheck size={14} />人工校准 38 条</span><span><CircleAlert size={14} />待人工评估 126 条</span></div>
-      </section>
-
-      <section className="ov-module" style={{ '--module-accent': '#849ce4' } as CSSProperties}>
-        <ModuleHeader title="Agent 运行与 Trace 质量" note="从运行状态和链路字段直接计算。" action="查看接入" onAction={onOpenAccess} />
-        <div className="ov-runtime-stats">
-          <div><span>运行成功率</span><strong>97.2%</strong></div>
-          <div><span>工具调用失败率</span><strong className="is-danger">3.7%</strong></div>
-          <div><span>终态输出缺失率</span><strong className="is-danger">1.8%</strong></div>
-        </div>
-        <TraceChecks />
-      </section>
-
-    </div>
+    <p className="ov-chart-caption"><Clock3 size={13} />{timePreset === '1d' ? '近 24 小时' : timePreset === '7d' ? '近 7 天' : timePreset === '30d' ? '近 30 天' : selectedTimePreset.label}，按小时聚合，柱高表示所选指标的时序变化。</p>
 
     <section className="ov-module ov-task-module" style={{ '--module-accent': '#a477c7' } as CSSProperties}>
       <ModuleHeader title="任务、实验与变更" note="对应现有评测任务、数据集和实验能力。" action="进入评测" onAction={onOpenTasks} />
@@ -322,18 +242,16 @@ export default function OverviewPage({
     </section>
 
     <section className="ov-agent-detail-module" style={{ '--module-accent': '#55a6c8' } as CSSProperties}>
-      <ModuleHeader title="Agent 质量明细" note="保留每个 Agent 的独立口径，不计算无法解释的总分。" action="查看观测" onAction={onOpenTrace} />
+      <ModuleHeader title="Agent 质量明细" note="按 Agent 汇总有效评测结果，平均分只使用可评分样本。" action="查看观测" onAction={onOpenTrace} />
       <div className="ov-agent-table-wrap">
         <table className="ov-agent-table">
-          <thead><tr><th>Agent</th><th>版本</th><th>评测覆盖</th><th>有效通过率</th><th>证据不足</th><th>链路可关联率</th><th>状态</th></tr></thead>
+          <thead><tr><th>Agent</th><th>版本</th><th>评测覆盖</th><th>有效通过率</th><th>平均分</th></tr></thead>
           <tbody>{AGENT_ROWS.map((item) => <tr key={`${item.name}-${item.version}`}>
             <td><button type="button" onClick={onOpenTrace}><span>{item.name.slice(0, 1)}</span><div><strong>{item.name}</strong><small>在线 Agent</small></div></button></td>
             <td>{item.version}</td>
             <td><div className="ov-table-progress"><i><b style={{ width: `${item.coverage}%` }} /></i><span>{item.coverage}%</span></div></td>
             <td><strong>{item.passRate}%</strong></td>
-            <td className={item.insufficient >= 7 ? 'is-danger' : ''}>{item.insufficient}%</td>
-            <td><div className="ov-table-progress"><i><b style={{ width: `${item.completeness}%` }} /></i><span>{item.completeness}%</span></div></td>
-            <td><Status value={item.status} /></td>
+            <td><strong>{item.averageScore.toFixed(2)}</strong></td>
           </tr>)}</tbody>
         </table>
       </div>

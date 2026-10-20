@@ -759,7 +759,7 @@ export default function EvaluationCenterPage() {
     <div className="evaluation-main">
       <header className="eval-app-header"><div className="eval-app-title"><h1>{(module === 'tasks' || module === 'automation') && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'tasks' && taskScreen === 'comparison' ? '对比实验' : { overview: '总览', access: '接入中心', traces: '观测', tasks: '评测任务', datasets: '评测集', evaluators: '评估器', automation: '自动化' }[module]}</h1></div>{module !== 'automation' && <div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div>}</header>
       <main className="eval-content">
-      {module === 'overview' && <OverviewPage onOpenAccess={() => selectModule('access')} onOpenTrace={() => selectModule('traces')} onOpenTasks={() => selectModule('tasks')} />}
+      {module === 'overview' && <OverviewPage onOpenTrace={() => selectModule('traces')} onOpenTasks={() => selectModule('tasks')} />}
       {module === 'access' && <AccessCenterPage />}
       {module === 'datasets' && datasetScreen === 'list' && <DatasetList datasets={state.datasets} search={datasetSearch} setSearch={setDatasetSearch} onCreate={openDatasetCreate} onOpen={(item) => { setSelectedDatasetId(item.id); setDatasetEntryFromTask(false); setDatasetScreen('workspace'); }} onDelete={(item) => deleteDataset(item.id)} />}
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
