@@ -61,6 +61,7 @@ type TaskRuntimeMetric = {
   min?: number;
   max?: number;
   validCount: number;
+  values: number[];
 };
 
 type ParsedFile = { name: string; format: string; columns: string[]; rows: Record<string, string>[] };
@@ -1837,11 +1838,11 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
           <td><input type="radio" name="comparison-control-task" checked={isControl} disabled={lockedControl && !isControl} onChange={() => onSetControl?.(task.id)} aria-label={`设为对照组 ${task.name}`} /></td>
           <td><input type="checkbox" checked={isExperiment} disabled={isControl} onChange={() => onToggleExperiment?.(task.id)} aria-label={`选择实验组 ${task.name}`} /></td>
         </>}
-        <td><div className="eval-cell-title"><strong>{task.name}</strong><small>{task.id}</small></div></td>
+        <td><strong className="eval-task-list-name">{task.name}</strong></td>
         <td>{task.taskType ?? '普通评测'}</td>
         <td><Status label={task.status} /></td>
-        <td><div className="eval-cell-title"><strong>{task.agent}</strong><small>{task.agentVersion}</small></div></td>
-        <td><div className="eval-cell-title"><strong>{datasetName(task)}</strong><small>{task.taskType === '自动化' ? task.automation?.objectType : task.datasetVersion}</small></div></td>
+        <td><div className="eval-task-entity"><span className="eval-task-entity__icon is-agent"><Braces size={14} /></span><div className="eval-task-entity__content"><div className="eval-task-entity__line"><strong>{task.agent}</strong><span className="eval-task-entity__version">{task.agentVersion}</span></div></div></div></td>
+        <td><div className="eval-task-entity"><span className="eval-task-entity__icon is-dataset"><Database size={14} /></span><div className="eval-task-entity__content"><div className="eval-task-entity__line"><strong>{datasetName(task)}</strong><span className="eval-task-entity__version">{task.taskType === '自动化' ? task.automation?.objectType : task.datasetVersion}</span></div></div></div></td>
         <td><div className="eval-cell-pills">{evaluatorNames(task).map((name) => <span key={name}>{name}</span>)}</div></td>
         <td>{task.createdAt.slice(0, 10)}</td>
         <td><IconButton label="打开任务" onClick={(event) => { event.stopPropagation(); onOpen?.(task); }}><Eye size={15} /></IconButton></td>
@@ -2373,6 +2374,37 @@ const formatTaskMetric = (value: number | undefined, name: string): string => {
   return name === '首字时延' ? `${Math.round(value * 1000)} ms` : `${value.toFixed(1)} s`;
 };
 
+function RuntimeSparkline({ metric, totalCases }: { metric: TaskRuntimeMetric; totalCases: number }) {
+  if (!metric.values.length) return <div className="eval-agent-runtime-line is-empty"><span>未采集运行数据</span></div>;
+  const width = 260;
+  const height = 68;
+  const top = 7;
+  const bottom = height - 7;
+  const values = metric.values.length ? metric.values : [0];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const points = values.map((value, index) => {
+    const x = values.length === 1 ? width / 2 : index / (values.length - 1) * width;
+    const y = max === min ? height / 2 : bottom - (value - min) / span * (bottom - top);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const areaPath = `M 0 ${height} L ${points.join(' L ')} L ${width} ${height} Z`;
+  return <div className={`eval-agent-runtime-line is-${metric.key}`}>
+    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${metric.name} ${metric.values.length} 条 Case 趋势`}>
+      <line className="eval-agent-runtime-line__guide" x1="0" y1={height / 2} x2={width} y2={height / 2} />
+      <path className="eval-agent-runtime-line__area" d={areaPath} />
+      <polyline className="eval-agent-runtime-line__stroke" points={points.join(' ')} />
+      {points.map((point, index) => {
+        const [x, y] = point.split(',');
+        return <circle key={`${metric.key}-${index}`} className="eval-agent-runtime-line__point" cx={x} cy={y} r="2.4" />;
+      })}
+    </svg>
+    <div className="eval-agent-runtime-line__axis"><span>{formatTaskMetric(metric.min, metric.name)}</span><span>Case 1-{metric.values.length}</span><span>{formatTaskMetric(metric.max, metric.name)}</span></div>
+    <div className="eval-agent-runtime-line__samples">{metric.validCount}/{totalCases} 个样本</div>
+  </div>;
+}
+
 function TaskSummaryReport({ task, evaluatorRows, runtimeRows }: { task: EvaluationTask; evaluatorRows: TaskEvaluatorMetric[]; runtimeRows: TaskRuntimeMetric[] }) {
   const completedCases = task.completedCases;
   const successfulCases = Math.max(completedCases - task.failedCases, 0);
@@ -2437,18 +2469,11 @@ function TaskSummaryReport({ task, evaluatorRows, runtimeRows }: { task: Evaluat
     </section>
     <section className="eval-task-summary-section eval-agent-runtime">
       <h3>Agent 运行数据</h3>
-      <div className="eval-agent-runtime__chart">
-        {runtimeRows.map((row) => {
-          const barWidth = row.average !== undefined && row.max ? Math.max(2, Math.min(100, row.average / row.max * 100)) : 0;
-          return <div className="eval-agent-runtime__row" key={row.key}>
-            <div className="eval-agent-runtime__metric"><span>{row.name}</span><strong>{formatTaskMetric(row.average, row.name)}</strong></div>
-            <div className="eval-agent-runtime__plot">
-              <div className={`eval-agent-runtime__track is-${row.key}`}><span style={{ width: `${barWidth}%` }} /></div>
-              <div className="eval-agent-runtime__range"><small>{formatTaskMetric(row.min, row.name)}</small><small>{formatTaskMetric(row.max, row.name)}</small></div>
-            </div>
-            <span className="eval-agent-runtime__samples">{row.validCount}/{task.totalCases} 个样本</span>
-          </div>;
-        })}
+      <div className="eval-agent-runtime__grid">
+        {runtimeRows.map((row) => <article className="eval-agent-runtime__card" key={row.key}>
+          <header><span>{row.name}</span><strong>{formatTaskMetric(row.average, row.name)}</strong></header>
+          <RuntimeSparkline metric={row} totalCases={task.totalCases} />
+        </article>)}
       </div>
     </section>
   </div>;
@@ -2585,6 +2610,7 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回
       min: values.length ? Math.min(...values) : undefined,
       max: values.length ? Math.max(...values) : undefined,
       validCount: values.length,
+      values,
     };
   });
   const normalizedCaseSearch = caseSearch.trim().toLowerCase();

@@ -150,7 +150,7 @@ const demoRuntime = (status: CaseResult['status'], index: number): NonNullable<C
   evaluatorDuration: `${(2.2 + index * 0.08).toFixed(1)} s`,
 });
 
-const makeDemoResult = (definition: DemoCaseDefinition, mode: 'before' | 'after'): CaseResult => {
+const makeDemoResult = (definition: DemoCaseDefinition, mode: 'before' | 'after', runtimeIndex: number): CaseResult => {
   const specs = mode === 'before' ? definition.before : definition.after;
   const evaluatorResults: EvaluatorResult[] = specs.map((item) => ({
     evaluatorId: item.id,
@@ -176,12 +176,12 @@ const makeDemoResult = (definition: DemoCaseDefinition, mode: 'before' | 'after'
     trace: demoTrace(`${definition.id}-${mode}`, mode === 'before' ? definition.failedNode : undefined),
     evaluatorResults,
     humanEvaluation: definition.feedback ? { humanLabel: definition.cohort === '验证集' ? '回答质量' : '服务体验', humanScore: mode === 'before' ? 0.62 : 0.9, humanReason: definition.feedback || '回归 Case 保持原有服务质量。', updatedAt: '2026-09-24 09:42', updatedBy: '客服质检员' } : undefined,
-    runtime: demoRuntime(passed ? '通过' : '不通过', mode === 'before' ? 1 : 2),
+    runtime: demoRuntime(passed ? '通过' : '不通过', runtimeIndex),
   };
 };
 
-export const demoBeforeResults: CaseResult[] = demoCaseDefinitions.map((item) => makeDemoResult(item, 'before'));
-export const demoAfterResults: CaseResult[] = demoCaseDefinitions.map((item) => makeDemoResult(item, 'after'));
+export const demoBeforeResults: CaseResult[] = demoCaseDefinitions.map((item, index) => makeDemoResult(item, 'before', index));
+export const demoAfterResults: CaseResult[] = demoCaseDefinitions.map((item, index) => makeDemoResult(item, 'after', index + 1));
 
 const evaluatorPrompts: Record<string, string> = {
   'EVAL-COMPLETE': `# 评估目标\n判断 Agent 是否完成用户提出的售后任务。\n# 判断标准\n1. 直接回答用户的核心问题。\n2. 给出可执行的下一步动作。\n3. 覆盖用户做决定所需的条件、例外和边界。\n# 输出\n返回 result（通过或不通过）和 reason。reason 必须指出遗漏的具体事实，并引用 Agent Output 中的位置或 Trace 节点名称。`,
