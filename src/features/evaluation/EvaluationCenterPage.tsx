@@ -27,6 +27,15 @@ import { SessionDetail, TraceDetail, TraceList, type ObservationBackflowSelectio
 import { AutoEvaluationPanel } from './AutoEvaluation';
 import { EvaluatorCalibrationModal, EvaluatorOptimizationList, EvaluatorOptimizationStartModal, EvaluatorOptimizationWorkbench } from './EvaluatorOptimization';
 import { SearchField, SelectField } from './eval-ui';
+import {
+  buildDatasetCasesFromCases,
+  buildDatasetCasesFromResults,
+  mapDatasetCaseToDatasetValues,
+  mapTaskCaseToDatasetValues,
+  taskBackflowFields,
+  type AddCasesToDatasetResult,
+  type AddToDatasetTarget,
+} from './dataset-backflow';
 import type { EvaluatorCalibration, EvaluatorOptimizationExperiment } from './evaluation.types';
 import type { ObservedSession, ObservedTrace, TraceEvent as ObservationTraceEvent } from './trace.types';
 import type {
@@ -584,6 +593,231 @@ export default function EvaluationCenterPage() {
     notify(`评测集「${target.name}」已删除`);
   };
 
+  const addTaskCasesToDataset = (
+    task: EvaluationTask,
+    caseIds: string[],
+    target: AddToDatasetTarget,
+  ): AddCasesToDatasetResult => {
+    const selectedIds = new Set(caseIds);
+    const results = task.results.filter((item) => selectedIds.has(item.caseId));
+    if (!results.length) {
+      notify('请至少选择 1 条 Case', 'warning');
+      return { ok: false };
+    }
+
+    const createdAt = currentTimestamp();
+    const sourceDataset = getDatasetById(state, task.datasetId);
+    const sourceFields = taskBackflowFields(task, state.datasets);
+
+    if (target.mode === 'existing') {
+      const dataset = getDatasetById(state, target.datasetId);
+      if (!dataset) {
+        notify('请选择目标评测集', 'warning');
+        return { ok: false };
+      }
+      const cases = buildDatasetCasesFromResults({
+        results,
+        targetFields: dataset.fields,
+        sourceFields,
+        sourceDataset,
+        existingCases: dataset.cases,
+        createdAt,
+      });
+      setState((current) => ({
+        ...current,
+        datasets: current.datasets.map((item) => {
+          if (item.id !== dataset.id) return item;
+          const draftId = item.draftVersionId || `${item.id}-draft-${item.versions.length + 1}`;
+          const draftVersion: Dataset['versions'][number] = {
+            id: draftId,
+            label: '草稿',
+            status: '草稿',
+            caseCount: item.cases.length + cases.length,
+            createdAt,
+            createdBy: item.createdBy,
+            note: `从评测任务「${task.name}」回流 ${cases.length} 条 Case。`,
+          };
+          const hasDraft = item.versions.some((version) => version.id === draftId);
+          return {
+            ...item,
+            cases: [...item.cases, ...cases],
+            status: '草稿',
+            updatedAt: createdAt,
+            draftVersionId: draftId,
+            versions: hasDraft
+              ? item.versions.map((version) => version.id === draftId ? draftVersion : version)
+              : [draftVersion, ...item.versions],
+          };
+        }),
+      }));
+      notify(`已将 ${cases.length} 条 Case 加入「${dataset.name}」草稿`);
+      return { ok: true, datasetId: dataset.id, datasetName: dataset.name, addedCount: cases.length, created: false };
+    }
+
+    const name = target.name.trim();
+    if (!name) {
+      notify('请填写评测集名称', 'warning');
+      return { ok: false };
+    }
+    let sequence = state.datasets.length + 1;
+    let id = `DS-${String(sequence).padStart(5, '0')}`;
+    while (state.datasets.some((dataset) => dataset.id === id)) {
+      sequence += 1;
+      id = `DS-${String(sequence).padStart(5, '0')}`;
+    }
+    const fields = taskBackflowFields(task, state.datasets).map((fieldDefinition, index) => ({
+      ...fieldDefinition,
+      id: `${id}-field-${index + 1}`,
+    }));
+    const cases = buildDatasetCasesFromResults({
+      results,
+      targetFields: fields,
+      sourceFields,
+      sourceDataset,
+      createdAt,
+    });
+    const versionId = `${id}-draft`;
+    const dataset: Dataset = {
+      id,
+      name,
+      description: target.description.trim() || `从评测任务「${task.name}」回流 ${cases.length} 条数据。`,
+      tags: ['任务回流'],
+      status: '草稿',
+      source: '评测任务回流',
+      createdAt,
+      updatedAt: createdAt,
+      createdBy: '演示账户',
+      fields,
+      cases,
+      draftVersionId: versionId,
+      versions: [{
+        id: versionId,
+        label: '草稿',
+        status: '草稿',
+        caseCount: cases.length,
+        createdAt,
+        createdBy: '演示账户',
+        note: `从评测任务「${task.name}」创建，包含 ${cases.length} 条 Case。`,
+      }],
+    };
+    setState((current) => ({ ...current, datasets: [dataset, ...current.datasets] }));
+    setSelectedDatasetId(id);
+    notify(`已创建评测集「${name}」并加入 ${cases.length} 条 Case`);
+    return { ok: true, datasetId: id, datasetName: name, addedCount: cases.length, created: true };
+  };
+
+  const addDatasetCasesToDataset = (
+    sourceDataset: Dataset,
+    caseIds: string[],
+    target: AddToDatasetTarget,
+  ): AddCasesToDatasetResult => {
+    const selectedIds = new Set(caseIds);
+    const casesToCopy = sourceDataset.cases.filter((item) => selectedIds.has(item.id));
+    if (!casesToCopy.length) {
+      notify('请至少选择 1 条 Case', 'warning');
+      return { ok: false };
+    }
+
+    const createdAt = currentTimestamp();
+    if (target.mode === 'existing') {
+      if (target.datasetId === sourceDataset.id) {
+        notify('请选择当前评测集以外的目标评测集', 'warning');
+        return { ok: false };
+      }
+      const dataset = getDatasetById(state, target.datasetId);
+      if (!dataset) {
+        notify('请选择目标评测集', 'warning');
+        return { ok: false };
+      }
+      const cases = buildDatasetCasesFromCases({
+        cases: casesToCopy,
+        targetFields: dataset.fields,
+        sourceFields: sourceDataset.fields,
+        existingCases: dataset.cases,
+        createdAt,
+      });
+      setState((current) => ({
+        ...current,
+        datasets: current.datasets.map((item) => {
+          if (item.id !== dataset.id) return item;
+          const draftId = item.draftVersionId || `${item.id}-draft-${item.versions.length + 1}`;
+          const draftVersion: Dataset['versions'][number] = {
+            id: draftId,
+            label: '草稿',
+            status: '草稿',
+            caseCount: item.cases.length + cases.length,
+            createdAt,
+            createdBy: item.createdBy,
+            note: `从评测集「${sourceDataset.name}」复制 ${cases.length} 条 Case。`,
+          };
+          const hasDraft = item.versions.some((version) => version.id === draftId);
+          return {
+            ...item,
+            cases: [...item.cases, ...cases],
+            status: '草稿',
+            updatedAt: createdAt,
+            draftVersionId: draftId,
+            versions: hasDraft
+              ? item.versions.map((version) => version.id === draftId ? draftVersion : version)
+              : [draftVersion, ...item.versions],
+          };
+        }),
+      }));
+      notify(`已将 ${cases.length} 条 Case 加入「${dataset.name}」草稿`);
+      return { ok: true, datasetId: dataset.id, datasetName: dataset.name, addedCount: cases.length, created: false };
+    }
+
+    const name = target.name.trim();
+    if (!name) {
+      notify('请填写评测集名称', 'warning');
+      return { ok: false };
+    }
+    let sequence = state.datasets.length + 1;
+    let id = `DS-${String(sequence).padStart(5, '0')}`;
+    while (state.datasets.some((dataset) => dataset.id === id)) {
+      sequence += 1;
+      id = `DS-${String(sequence).padStart(5, '0')}`;
+    }
+    const fields = sourceDataset.fields.map((fieldDefinition, index) => ({
+      ...fieldDefinition,
+      id: `${id}-field-${index + 1}`,
+    }));
+    const cases = buildDatasetCasesFromCases({
+      cases: casesToCopy,
+      targetFields: fields,
+      sourceFields: sourceDataset.fields,
+      createdAt,
+    });
+    const versionId = `${id}-draft`;
+    const dataset: Dataset = {
+      id,
+      name,
+      description: target.description.trim() || `从评测集「${sourceDataset.name}」复制 ${cases.length} 条数据。`,
+      tags: ['数据复制'],
+      status: '草稿',
+      source: '评测集复制',
+      createdAt,
+      updatedAt: createdAt,
+      createdBy: '演示账户',
+      fields,
+      cases,
+      draftVersionId: versionId,
+      versions: [{
+        id: versionId,
+        label: '草稿',
+        status: '草稿',
+        caseCount: cases.length,
+        createdAt,
+        createdBy: '演示账户',
+        note: `从评测集「${sourceDataset.name}」创建，包含 ${cases.length} 条 Case。`,
+      }],
+    };
+    setState((current) => ({ ...current, datasets: [dataset, ...current.datasets] }));
+    setSelectedDatasetId(id);
+    notify(`已创建评测集「${name}」并复制 ${cases.length} 条 Case`);
+    return { ok: true, datasetId: id, datasetName: name, addedCount: cases.length, created: true };
+  };
+
   const createDatasetTag = (datasetId: string, tag: string) => {
     const target = state.datasets.find((item) => item.id === datasetId);
     const normalized = tag.trim();
@@ -884,7 +1118,7 @@ export default function EvaluationCenterPage() {
       {module === 'datasets' && datasetScreen === 'upload' && <DatasetUploadPage draft={datasetDraft} setDraft={setDatasetDraft} onBack={showList} onCreate={createDataset} onNotify={notify} />}
       {module === 'datasets' && datasetScreen === 'generate' && <DatasetGeneratePage draft={datasetDraft} setDraft={setDatasetDraft} agents={state.agents} onBack={showList} onCreate={createDataset} />}
       {module === 'datasets' && datasetScreen === 'history' && <DatasetHistoryPage draft={datasetDraft} setDraft={setDatasetDraft} agents={observationHistorySource?.agents ?? state.agents} historySource={observationHistorySource?.conversations ?? historyConversations} historyAnchor={observationHistorySource?.anchor ?? TODAY} fromObservation={Boolean(observationHistorySource)} onBack={datasetReturnToObservation ? closeObservationBackflow : showList} onCreate={createDataset} />}
-      {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} agents={state.agents} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} />}
+      {module === 'datasets' && datasetScreen === 'workspace' && dataset && <DatasetWorkspace dataset={dataset} datasets={state.datasets} agents={state.agents} entrySource={datasetEntryFromTask ? 'task' : 'dataset'} onBack={() => { if (datasetEntryFromTask) { setDatasetEntryFromTask(false); setDatasetScreen('list'); setTaskScreen('create'); setModule('tasks'); notify('草稿已保存，未带回任务创建'); return; } setDatasetScreen('list'); }} onNotify={notify} onUpdateDataset={updateDataset} onSubmitDataset={submitDatasetVersion} onAddCasesToDataset={(caseIds, target) => addDatasetCasesToDataset(dataset, caseIds, target)} />}
       {module === 'evaluators' && evaluatorScreen === 'list' && <EvaluatorList evaluators={state.evaluators.filter((item) => item.kind === evaluatorKind && item.mode === evaluatorMode && (!search || `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) && (scoreFilter === '全部结果类型' || (scoreFilter === '0-1 数值' ? item.scoreType === 'numeric' : item.scoreType === 'pass_fail')))} kind={evaluatorKind} setKind={setEvaluatorKind} mode={evaluatorMode} setMode={setEvaluatorMode} search={search} setSearch={setSearch} scoreFilter={scoreFilter} setScoreFilter={setScoreFilter} onCreate={openEvaluatorCreate} onOpen={(item) => { setSelectedEvaluatorId(item.id); setEvaluatorScreen('detail'); }} onCopy={(item) => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(item, `${item.name}（自建）`)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} optimizations={state.evaluatorOptimizations.filter((item) => item.evaluatorId === evaluator.id)} onOpenOptimization={openOptimization} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(evaluator, `${evaluator.name}（自建）`)); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft(evaluatorDraftFrom(evaluator)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'optimization' && selectedOptimization && <EvaluatorOptimizationWorkbench experiment={selectedOptimization} onExperiments={(updater) => setState((current) => ({ ...current, evaluatorOptimizations: updater(current.evaluatorOptimizations) }))} onVersionCreated={(evaluatorId, version, prompt) => setState((current) => ({ ...current, evaluators: current.evaluators.map((item) => item.id === evaluatorId ? { ...item, version, versions: item.versions.includes(version) ? item.versions : [...item.versions, version], prompt, updatedAt: '2026-10-08 15:30' } : item) }))} onBack={() => setEvaluatorScreen('detail')} onNotify={notify} />}
@@ -892,11 +1126,11 @@ export default function EvaluationCenterPage() {
       {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} search={taskSearch} setSearch={setTaskSearch} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} task={state.tasks.find((item) => item.id === experiment.sourceTaskId)} humanLabels={state.humanLabels} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
-      {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
+      {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onAddCasesToDataset={(caseIds, target) => addTaskCasesToDataset(task, caseIds, target)} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'experiments' && experimentScreen === 'list' && <ExperimentList comparisons={state.comparisons} search={experimentSearch} setSearch={setExperimentSearch} onCreate={() => openComparisonPicker()} onOpen={openComparison} />}
       {module === 'experiments' && experimentScreen === 'detail' && comparison && <ComparisonDetail comparison={comparison} onBack={showList} />}
       {module === 'automation' && taskScreen === 'list' && <AutoEvaluationPanel tasks={state.tasks} agents={state.agents} evaluators={state.evaluators} onCreate={(item) => setState((current) => ({ ...current, tasks: [item, ...current.tasks] }))} onUpdate={(item) => setState((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === item.id ? item : task) }))} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onNotify={notify} />}
-      {module === 'automation' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} backLabel="返回自动化" onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
+      {module === 'automation' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} backLabel="返回自动化" onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onAddCasesToDataset={(caseIds, target) => addTaskCasesToDataset(task, caseIds, target)} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
       {module === 'traces' && traceScreen === 'list' && <TraceList traces={observationTraces} sessions={observationSessions} view={observationView} onViewChange={setObservationView} search={traceSearch} setSearch={setTraceSearch} onOpenTrace={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} onOpenSession={(item) => { setSelectedSessionId(item.id); setTraceScreen('detail'); }} onBackflow={openObservationBackflow} onFeedbackChange={updateObservationFeedback} />}
       {module === 'traces' && traceScreen === 'detail' && observationView === 'trace' && (caseObservationTrace ?? selectedTrace) && <TraceDetail key={(caseObservationTrace ?? selectedTrace)?.id} trace={caseObservationTrace ?? selectedTrace} onBack={showList} />}
       {module === 'traces' && traceScreen === 'detail' && observationView === 'session' && (caseObservationSession ?? selectedSession) && <SessionDetail key={(caseObservationSession ?? selectedSession)?.id} session={caseObservationSession ?? selectedSession} onBack={showList} />}
@@ -1102,10 +1336,11 @@ type CaseEditDraft = { id?: string; values: Record<string, string>; hasFile: boo
 type ImportPreview = { file: ParsedFile; mode: '追加数据' | '全量覆盖'; mappings: { sourceColumn: string; target: string; name: string }[] };
 type TraceImportDraft = { agentId: string; version: string; feedback: '全部' | '有反馈' | '无反馈'; search: string; mode: '追加数据' | '全量覆盖'; selected: string[] };
 
-function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUpdateDataset, onSubmitDataset }: {
-  dataset: Dataset; agents: AgentOption[]; entrySource: 'dataset' | 'task'; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void;
+function DatasetWorkspace({ dataset, datasets, agents, entrySource, onBack, onNotify, onUpdateDataset, onSubmitDataset, onAddCasesToDataset }: {
+  dataset: Dataset; datasets: Dataset[]; agents: AgentOption[]; entrySource: 'dataset' | 'task'; onBack: () => void; onNotify: (message: string, tone?: Toast['tone']) => void;
   onUpdateDataset: (id: string, updater: (dataset: Dataset) => Dataset) => void;
   onSubmitDataset: (id: string, source: 'dataset' | 'task') => void;
+  onAddCasesToDataset: (caseIds: string[], target: AddToDatasetTarget) => AddCasesToDatasetResult;
 }) {
   const [query, setQuery] = useState('');
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -1118,6 +1353,8 @@ function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUp
   const [addDataMode, setAddDataMode] = useState<AddDataMode | null>(null);
   const [manualFieldQuery, setManualFieldQuery] = useState('');
   const [activeManualFieldId, setActiveManualFieldId] = useState<string | null>(null);
+  const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
+  const [addToDatasetOpen, setAddToDatasetOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!exportMenuOpen && !versionDrawerOpen && !fieldMenuId) return;
@@ -1136,11 +1373,25 @@ function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUp
     const matched = !query || `${item.id} ${dataset.fields.map((field) => item.values[field.id] ?? '').join(' ')}`.toLowerCase().includes(query.toLowerCase());
     return matched;
   });
+  const filteredCaseIds = filteredCases.map((item) => item.id);
+  const selectedFilteredCount = filteredCaseIds.filter((caseId) => selectedCaseIds.includes(caseId)).length;
+  const allFilteredSelected = filteredCaseIds.length > 0 && selectedFilteredCount === filteredCaseIds.length;
+  const someFilteredSelected = selectedFilteredCount > 0 && !allFilteredSelected;
+  const selectedCases = dataset.cases.filter((item) => selectedCaseIds.includes(item.id));
+  const toggleCaseSelection = (caseId: string) => setSelectedCaseIds((current) => current.includes(caseId) ? current.filter((id) => id !== caseId) : [...current, caseId]);
+  const toggleAllFilteredCases = () => setSelectedCaseIds((current) => {
+    if (allFilteredSelected) {
+      const filteredIds = new Set(filteredCaseIds);
+      return current.filter((caseId) => !filteredIds.has(caseId));
+    }
+    return [...new Set([...current, ...filteredCaseIds])];
+  });
   const fieldBySemantic = (semantic: FieldSemantic) => dataset.fields.find((field) => field.semantic === semantic);
   const manualFields = dataset.fields.filter((field) => !manualFieldQuery || `${field.name} ${field.semantic}`.toLowerCase().includes(manualFieldQuery.toLowerCase()));
 
   const patchDraft = (fields: FieldDefinition[], cases: DatasetCase[], note = '草稿已更新。') => {
     const updatedAt = currentTimestamp();
+    setSelectedCaseIds([]);
     onUpdateDataset(dataset.id, (current) => {
       const draftId = current.draftVersionId || `${current.id}-draft-${current.versions.length + 1}`;
       const draftVersion = { id: draftId, label: '草稿', status: '草稿' as const, caseCount: cases.length, createdAt: updatedAt, createdBy: current.createdBy, note };
@@ -1347,7 +1598,7 @@ function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUp
     onNotify(`${label} 已按字段并集导出`);
   };
 
-  return <div className="eval-dataset-detail">
+  return <div className={`eval-dataset-detail${selectedCases.length ? ' has-bulk-actions' : ''}`}>
     <div className="eval-page-topline">
       <button type="button" className="eval-back-button" onClick={onBack}><ArrowLeft size={15} />{entrySource === 'task' ? '返回任务创建' : '返回评测集'}</button>
     </div>
@@ -1395,12 +1646,14 @@ function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUp
       <div className="eval-dataset-detail__table-wrap">
         <table className="eval-dataset-detail__table">
           <thead><tr>
+            <th className="is-select"><input type="checkbox" aria-label="全选当前筛选数据" checked={allFilteredSelected} ref={(element) => { if (element) element.indeterminate = someFilteredSelected; }} disabled={filteredCases.length === 0} onChange={toggleAllFilteredCases} /></th>
             <th className="is-id">ID</th>
             {dataset.fields.map((field) => <th key={field.id}><div className="eval-dataset-detail__column-head"><span title={`${field.name} · ${field.description}`}>{field.name}</span>{field.semantic === 'Trace' && <i className="eval-dataset-detail__trace">轨迹</i>}<div className="eval-column-menu-anchor"><button type="button" className="eval-column-menu-trigger" aria-label={`管理字段 ${field.name}`} onClick={() => setFieldMenuId((current) => current === field.id ? null : field.id)}><ChevronDown size={14} /></button>{fieldMenuId === field.id && <div className="eval-column-menu"><button type="button" onClick={() => { setFieldMenuId(null); openFieldEditor(field); }}><Settings2 size={14} />编辑</button><button type="button" onClick={() => deleteField(field.id)}><Trash2 size={14} />删除列</button></div>}</div></div></th>)}
             <th className="is-actions">操作</th>
           </tr></thead>
           <tbody>
-            {filteredCases.map((item) => <tr key={item.id}>
+            {filteredCases.map((item) => <tr key={item.id} className={selectedCaseIds.includes(item.id) ? 'is-case-selected' : ''}>
+              <td className="is-select"><input type="checkbox" aria-label={`选择 ${item.id}`} checked={selectedCaseIds.includes(item.id)} onChange={() => toggleCaseSelection(item.id)} /></td>
               <td className="is-id"><span className="eval-case-chip">#{item.id}</span></td>
               {dataset.fields.map((field) => <td key={field.id} title={item.values[field.id] || ''}>{item.values[field.id] || <em>未采集</em>}</td>)}
               <td className="is-actions">
@@ -1414,6 +1667,20 @@ function DatasetWorkspace({ dataset, agents, entrySource, onBack, onNotify, onUp
       </div>
       <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,.jsonl" hidden onChange={(event) => { void chooseImportFile(event.target.files?.[0]); event.target.value = ''; }} />
     </section>
+    {selectedCases.length > 0 && <div className="eval-case-bulk-bar" role="status" aria-live="polite">
+      <strong>已选 {selectedCases.length} 个</strong>
+      <span className="eval-case-bulk-bar__divider" aria-hidden="true" />
+      <button type="button" className="eval-case-bulk-bar__action" onClick={() => setAddToDatasetOpen(true)}><Database size={15} />加入评测集</button>
+      <span className="eval-case-bulk-bar__divider" aria-hidden="true" />
+      <button type="button" className="eval-case-bulk-bar__close" aria-label="清空已选 Case" title="清空选择" onClick={() => setSelectedCaseIds([])}><X size={16} /></button>
+    </div>}
+    {addToDatasetOpen && <AddToDatasetModal source={{ kind: 'dataset', sourceDataset: dataset, selectedCases }} datasets={datasets} onCancel={() => setAddToDatasetOpen(false)} onSubmit={(target) => {
+      const result = onAddCasesToDataset(selectedCases.map((item) => item.id), target);
+      if (!result.ok) return false;
+      setAddToDatasetOpen(false);
+      setSelectedCaseIds([]);
+      return true;
+    }} />}
 
     {fieldEditor && <div className="eval-overlay" onClick={() => setFieldEditor(null)}>
       <section className="eval-modal" onClick={(event) => event.stopPropagation()}>
@@ -3060,9 +3327,10 @@ function EvaluatorResultFilterControl({
   </div>;
 }
 
-function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回任务列表', onOpenCase, onCalibrate, onOptimizeEvaluator, onRetryCase, onNotify, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; tab: 'summary' | 'data' | 'optimize'; onTabChange: (tab: 'summary' | 'data' | 'optimize') => void; onBack: () => void; backLabel?: string; onOpenCase: (item: CaseResult) => void; onCalibrate: (item: CaseResult, evaluatorId: string) => void; onOptimizeEvaluator: (evaluatorId: string) => void; onRetryCase: (caseId: string) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onOptimize: (caseIds: string[], mode: OptimizationFollowUpMode, agentType: '万智' | '外部', sourceTaskId: string) => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
+function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回任务列表', onOpenCase, onCalibrate, onOptimizeEvaluator, onRetryCase, onNotify, onAddCasesToDataset, onOptimize, onCompare, onOpenExperiment }: { task: EvaluationTask; state: EvaluationState; tab: 'summary' | 'data' | 'optimize'; onTabChange: (tab: 'summary' | 'data' | 'optimize') => void; onBack: () => void; backLabel?: string; onOpenCase: (item: CaseResult) => void; onCalibrate: (item: CaseResult, evaluatorId: string) => void; onOptimizeEvaluator: (evaluatorId: string) => void; onRetryCase: (caseId: string) => void; onNotify: (message: string, tone?: Toast['tone']) => void; onAddCasesToDataset: (caseIds: string[], target: AddToDatasetTarget) => AddCasesToDatasetResult; onOptimize: (caseIds: string[], mode: OptimizationFollowUpMode, agentType: '万智' | '外部', sourceTaskId: string) => void; onCompare: () => void; onOpenExperiment: (item: OptimizeExperiment) => void }) {
   const [selectedBadCaseIds, setSelectedBadCaseIds] = useState<string[]>([]);
   const [optimizeModalOpen, setOptimizeModalOpen] = useState(false);
+  const [addToDatasetOpen, setAddToDatasetOpen] = useState(false);
   const [caseSearch, setCaseSearch] = useState('');
   const [caseStatusFilter, setCaseStatusFilter] = useState('');
   const [annotationFilter, setAnnotationFilter] = useState<HumanAnnotationFilter>('');
@@ -3177,6 +3445,7 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回
   const selectedFilteredCaseCount = filteredCaseIds.filter((caseId) => selectedBadCaseIds.includes(caseId)).length;
   const allFilteredCasesSelected = filteredCaseIds.length > 0 && selectedFilteredCaseCount === filteredCaseIds.length;
   const someFilteredCasesSelected = selectedFilteredCaseCount > 0 && !allFilteredCasesSelected;
+  const selectedResults = task.results.filter((item) => selectedBadCaseIds.includes(item.caseId));
   const toggleAllFilteredCases = () => setSelectedBadCaseIds((current) => {
     if (allFilteredCasesSelected) {
       const filteredIds = new Set(filteredCaseIds);
@@ -3201,7 +3470,7 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回
     </header>
     <nav className="eval-task-detail-tabs" aria-label="任务详情内容"><button type="button" className={tab === 'summary' ? 'is-active' : ''} onClick={() => onTabChange('summary')}>统计结论</button><button type="button" className={tab === 'data' ? 'is-active' : ''} onClick={() => onTabChange('data')}>数据明细</button><button type="button" className={tab === 'optimize' ? 'is-active' : ''} onClick={() => onTabChange('optimize')}>优化实验</button></nav>
     {tab === 'summary' && <TaskSummaryReport task={task} evaluatorRows={evaluatorRows} runtimeRows={runtimeRows} />}
-    {tab === 'data' && <section className="eval-task-data-detail">
+    {tab === 'data' && <section className={`eval-task-data-detail${selectedBadCaseIds.length ? ' has-bulk-actions' : ''}`}>
       <div className="eval-task-data-toolbar">
         <div className="eval-task-data-query">
           <SearchField className="eval-task-case-search" value={caseSearch} maxLength={10000} placeholder="搜索 Case ID 或内容" aria-label="检索 Case" onChange={(event) => setCaseSearch(event.target.value)} />
@@ -3233,7 +3502,7 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回
             const annotation = activeHumanLabel ? humanAnnotations[annotationKey] ?? item.humanAnnotations?.[activeHumanLabel.id] : undefined;
             const feedbackField = dataset?.fields.find((field) => field.semantic === 'User Feedback');
             const datasetCase = dataset?.cases.find((current) => current.id === item.caseId);
-            return <tr key={item.caseId} onClick={() => onOpenCase(item)}>
+            return <tr key={item.caseId} className={selectedBadCaseIds.includes(item.caseId) ? 'is-case-selected' : ''} onClick={() => onOpenCase(item)}>
               <td className="is-sticky-select"><input type="checkbox" aria-label={`选择 ${item.caseId}`} checked={selectedBadCaseIds.includes(item.caseId)} onChange={() => toggleBadCase(item.caseId)} onClick={(event) => event.stopPropagation()} /></td>
               <td className="is-sticky-status"><span className={`eval-case-run-status ${getCaseRunStatus(item) === '成功' ? 'is-success' : 'is-failure'}`} role="img" aria-label={getCaseRunStatus(item)} title={getCaseRunStatus(item)}>{getCaseRunStatus(item) === '成功' ? <CircleCheck size={16} /> : <CircleX size={16} />}</span></td>
               <td className="is-sticky-id"><strong className="eval-mono">{item.caseId}</strong></td>
@@ -3249,10 +3518,138 @@ function TaskDetail({ task, state, tab, onTabChange, onBack, backLabel = '返回
           })}{filteredResults.length === 0 && <tr className="eval-task-detail-empty"><td colSpan={dataTableColumnCount}><Search size={18} /><strong>{task.results.length ? '没有匹配的 Case' : '暂无 Case'}</strong><span>{task.results.length ? '调整关键词或筛选条件。' : '任务尚未产生评测数据。'}</span></td></tr>}</tbody>
         </table>
       </div>
+      {selectedBadCaseIds.length > 0 && <div className="eval-case-bulk-bar" role="status" aria-live="polite">
+        <strong>已选 {selectedBadCaseIds.length} 个</strong>
+        <span className="eval-case-bulk-bar__divider" aria-hidden="true" />
+        <button type="button" className="eval-case-bulk-bar__action" onClick={() => setAddToDatasetOpen(true)}><Database size={15} />加入评测集</button>
+        <span className="eval-case-bulk-bar__divider" aria-hidden="true" />
+        <button type="button" className="eval-case-bulk-bar__close" aria-label="清空已选 Case" title="清空选择" onClick={() => setSelectedBadCaseIds([])}><X size={16} /></button>
+      </div>}
     </section>}
     {tab === 'optimize' && (taskExperiments.length ? <div className="eval-table-wrap eval-experiment-table"><table className="eval-data-table"><thead><tr><th>优化任务</th><th>Agent 类型</th><th>优化后流程</th><th>Badcase</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{taskExperiments.map((item) => <tr key={item.id} onClick={() => onOpenExperiment(item)}><td><div className="eval-cell-title"><strong>{item.name}</strong><small>{item.id}</small></div></td><td>{item.agentType}</td><td>{item.followUpMode}</td><td>{item.selectedCaseCount}</td><td><Status label={item.status} /></td><td>{item.createdAt}</td><td><IconButton label="查看优化详情" onClick={() => onOpenExperiment(item)}><Eye size={15} /></IconButton></td></tr>)}</tbody></table></div> : <EmptyState title="暂无优化实验记录" description="在数据明细中勾选 Badcase 后发起优化。" />)}
     {optimizeModalOpen && <OptimizationStartModal task={task} selectedCount={selectedBadCaseIds.length} onCancel={() => setOptimizeModalOpen(false)} onStart={(mode) => { setOptimizeModalOpen(false); onOptimize(selectedBadCaseIds, mode, task.agentType ?? '万智', task.id); }} />}
+    {addToDatasetOpen && <AddToDatasetModal source={{ kind: 'task', task, sourceDataset: dataset, selectedResults }} datasets={state.datasets} onCancel={() => setAddToDatasetOpen(false)} onSubmit={(target) => {
+      const result = onAddCasesToDataset(selectedBadCaseIds, target);
+      if (!result.ok) return false;
+      setAddToDatasetOpen(false);
+      setSelectedBadCaseIds([]);
+      return true;
+    }} />}
     {annotationEditor && editingHumanLabel && <HumanAnnotationEditor caseId={annotationEditor.caseId} label={editingHumanLabel} value={humanAnnotations[`${annotationEditor.caseId}:${annotationEditor.labelId}`]} onCancel={() => setAnnotationEditor(null)} onSave={(annotation) => { setHumanAnnotations((current) => ({ ...current, [`${annotationEditor.caseId}:${annotationEditor.labelId}`]: annotation })); setAnnotationEditor(null); onNotify('人工标注已保存'); }} />}
+  </div>;
+}
+
+type AddToDatasetSource =
+  | { kind: 'task'; task: EvaluationTask; sourceDataset?: Dataset; selectedResults: CaseResult[] }
+  | { kind: 'dataset'; sourceDataset: Dataset; selectedCases: DatasetCase[] };
+
+function AddToDatasetModal({
+  source,
+  datasets,
+  onCancel,
+  onSubmit,
+}: {
+  source: AddToDatasetSource;
+  datasets: Dataset[];
+  onCancel: () => void;
+  onSubmit: (target: AddToDatasetTarget) => boolean;
+}) {
+  const selectedCount = source.kind === 'task' ? source.selectedResults.length : source.selectedCases.length;
+  const sourceDataset = source.kind === 'task' ? source.sourceDataset : source.sourceDataset;
+  const sourceName = source.kind === 'task' ? source.task.name : source.sourceDataset.name;
+  const sourceFields = source.kind === 'task' ? taskBackflowFields(source.task, datasets) : source.sourceDataset.fields;
+  const availableDatasets = source.kind === 'dataset'
+    ? datasets.filter((dataset) => dataset.id !== source.sourceDataset.id)
+    : datasets;
+  const [mode, setMode] = useState<'existing' | 'new'>('existing');
+  const [targetDatasetId, setTargetDatasetId] = useState('');
+  const [name, setName] = useState(`${sourceName} · ${source.kind === 'task' ? '回流数据' : '复制数据'}`);
+  const [description, setDescription] = useState(
+    source.kind === 'task'
+      ? `从评测任务「${sourceName}」回流所选数据。`
+      : `从评测集「${sourceName}」复制所选数据。`,
+  );
+  const targetDataset = availableDatasets.find((dataset) => dataset.id === targetDatasetId);
+  const previewTargetFields = mode === 'existing' ? targetDataset?.fields ?? [] : sourceFields;
+  const previewFields = previewTargetFields.slice(0, 4);
+  const previewRows = source.kind === 'task'
+    ? source.selectedResults.slice(0, 3).map((item) => ({
+      id: item.caseId,
+      values: mapTaskCaseToDatasetValues({ item, targetFields: previewTargetFields, sourceFields, sourceDataset }),
+    }))
+    : source.selectedCases.slice(0, 3).map((item) => ({
+      id: item.id,
+      values: mapDatasetCaseToDatasetValues({ item, targetFields: previewTargetFields, sourceFields }),
+    }));
+  const canSubmit = mode === 'existing' ? Boolean(targetDatasetId) : Boolean(name.trim());
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onCancel]);
+
+  const submit = () => {
+    if (!canSubmit) return;
+    if (mode === 'existing') onSubmit({ mode, datasetId: targetDatasetId });
+    else onSubmit({ mode, name, description });
+  };
+
+  return <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+    <section className="eval-modal eval-add-dataset-modal" role="dialog" aria-modal="true" aria-labelledby="eval-add-dataset-title">
+      <header className="eval-modal__header eval-add-dataset-modal__header">
+        <div className="eval-add-dataset-modal__title">
+          <span className="eval-add-dataset-modal__mark"><Plus size={21} /></span>
+          <div>
+            <h2 id="eval-add-dataset-title">加入评测集</h2>
+            <p>将所选 {selectedCount} 条明细加入评测集</p>
+          </div>
+        </div>
+        <IconButton label="关闭" onClick={onCancel}><X size={17} /></IconButton>
+      </header>
+      <div className="eval-modal__body eval-add-dataset-modal__body">
+        <div className="eval-add-dataset-tabs" role="tablist" aria-label="加入评测集方式">
+          <button type="button" role="tab" aria-selected={mode === 'existing'} className={mode === 'existing' ? 'is-active' : ''} onClick={() => setMode('existing')}><Database size={15} />选择已有评测集</button>
+          <button type="button" role="tab" aria-selected={mode === 'new'} className={mode === 'new' ? 'is-active' : ''} onClick={() => setMode('new')}><Plus size={15} />创建新评测集</button>
+        </div>
+
+        {mode === 'existing' ? <div className="eval-add-dataset-target-field">
+          <label>
+            <span>目标评测集 <b>*</b></span>
+            <SelectField aria-label="选择目标评测集" value={targetDatasetId} onChange={(event) => setTargetDatasetId(event.target.value)} placeholder="请选择目标评测集">
+              <option value="">请选择目标评测集</option>
+              {availableDatasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name} · {dataset.cases.length} 条 · {dataset.status}</option>)}
+            </SelectField>
+          </label>
+          {targetDataset ? <div className="eval-add-dataset-target-summary">
+            <span><Database size={15} /><strong>{targetDataset.name}</strong><Status label={targetDataset.status} /></span>
+            <span>当前 {targetDataset.cases.length} 条数据 · 将有 {selectedCount} 条追加到草稿</span>
+          </div> : availableDatasets.length === 0 ? <div className="eval-add-dataset-empty">{source.kind === 'dataset' ? '当前没有其他可选择的评测集，请创建新评测集。' : '当前没有可选择的评测集，请先创建新评测集。'}</div> : null}
+        </div> : <div className="eval-add-dataset-create-fields">
+          <label className="eval-field"><span>评测集名称 <b>*</b></span><input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} placeholder="填写评测集名称" /></label>
+          <label className="eval-field"><span>描述</span><textarea rows={3} maxLength={240} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="说明数据来源和使用场景" /></label>
+        </div>}
+
+        <div className="eval-add-dataset-preview-head">
+          <div><h3>数据预览</h3><p>{mode === 'existing' ? '按字段语义映射到目标评测集，未匹配字段保持为空。' : source.kind === 'task' ? '沿用当前任务的数据字段创建评测集草稿。' : '沿用当前评测集的数据字段创建新评测集草稿。'}</p></div>
+          <span>前 {previewRows.length} 条 · 共 {selectedCount} 条</span>
+        </div>
+        {previewFields.length ? <div className="eval-add-dataset-preview-wrap">
+          <table className="eval-add-dataset-preview">
+            <thead><tr><th>Case ID</th>{previewFields.map((fieldDefinition) => <th key={fieldDefinition.id}>{fieldDefinition.semantic === 'Custom' ? fieldDefinition.name : fieldDefinition.semantic}</th>)}</tr></thead>
+            <tbody>{previewRows.map((item) => {
+              return <tr key={item.id}><td><strong>{item.id}</strong></td>{previewFields.map((fieldDefinition) => <td key={fieldDefinition.id} title={item.values[fieldDefinition.id] || '未采集'}>{item.values[fieldDefinition.id] || '未采集'}</td>)}</tr>;
+            })}</tbody>
+          </table>
+        </div> : <div className="eval-add-dataset-preview-empty"><Database size={18} /><span>{mode === 'existing' ? '选择评测集后显示字段预览。' : source.kind === 'task' ? '当前任务没有可映射的数据字段。' : '当前评测集没有可映射的数据字段。'}</span></div>}
+      </div>
+      <footer className="eval-modal__footer eval-add-dataset-modal__footer">
+        <span>将加入 <strong>{selectedCount}</strong> 条</span>
+        <div><button type="button" className="eval-button eval-button--ghost" onClick={onCancel}>取消</button><button type="button" className="eval-button eval-button--primary" disabled={!canSubmit} onClick={submit}><Check size={15} />确认加入</button></div>
+      </footer>
+    </section>
   </div>;
 }
 

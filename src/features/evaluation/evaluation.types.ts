@@ -8,7 +8,7 @@ export type StatusTone = 'success' | 'warning' | 'info' | 'danger' | 'neutral';
 export type TaskStatus = '待启动' | '运行中' | '已暂停' | '已完成' | '部分失败' | '失败';
 export type ResultStatus = '通过' | '不通过' | '无法执行' | '证据不足' | '执行失败' | '待人工评估';
 export type DatasetStatus = '已提交' | '草稿';
-export type SourceType = '用户上传' | '智能生成' | '历史对话回流' | '手动添加';
+export type SourceType = '用户上传' | '智能生成' | '历史对话回流' | '手动添加' | '评测任务回流' | '评测集复制';
 export type FieldSemantic = 'Input' | 'File' | 'Expected Output' | 'Agent Output' | 'Trace' | 'Agent Configuration' | 'User Feedback' | 'Custom';
 
 export type FieldDefinition = {
