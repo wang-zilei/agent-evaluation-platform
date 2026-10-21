@@ -561,9 +561,63 @@
 .eval-trace-replay-filters .eval-field > .eval-select-trigger,
 .eval-trace-replay-filters .eval-field input { height: 42px; padding: 0 12px; border-radius: 8px; font-size: 13px; }
 .eval-trace-replay-date-range { grid-column: span 2; }
+.eval-history-select-all {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--eval-border);
+  border-radius: 8px;
+  background: #fafafa;
+}
+.eval-history-select-all > label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+.eval-history-select-all input {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  margin: 0;
+  accent-color: var(--eval-ink);
+}
+.eval-history-select-all > label > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.eval-history-select-all strong {
+  color: var(--eval-ink);
+  font-size: 11px;
+}
+.eval-history-select-all small {
+  color: var(--eval-muted);
+  font-size: 9px;
+}
+.eval-history-select-all > span {
+  flex: 0 0 auto;
+  color: var(--eval-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.eval-history-select-all > span.is-active {
+  color: var(--eval-violet-dark);
+  font-weight: 650;
+}
 @media (max-width: 1080px) {
   .eval-trace-replay-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .eval-trace-replay-date-range { grid-column: span 1; }
+  .eval-history-select-all {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
 }
 .eval-history-list { display: flex; flex-direction: column; gap: 8px; }
 .eval-history-item { border: 1px solid var(--eval-border); border-radius: 9px; background: #fff; overflow: hidden; }
