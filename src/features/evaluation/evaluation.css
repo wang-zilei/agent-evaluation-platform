@@ -4256,7 +4256,28 @@
 }
 
 /* Dataset overview and add-data drawer */
-.eval-dataset-list-toolbar .eval-create-menu-wrap { margin-left: 0; }
+.eval-dataset-list-toolbar .eval-create-menu-wrap {
+  width: max-content;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.eval-dataset-list-toolbar .eval-create-trigger {
+  width: auto;
+  min-width: 146px;
+}
+
+@media (max-width: 680px) {
+  .eval-dataset-list-toolbar .eval-create-menu-wrap {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .eval-dataset-list-toolbar .eval-create-trigger {
+    width: 100%;
+  }
+}
+
 .eval-dataset-tag-filter {
   height: 32px;
   display: inline-flex;

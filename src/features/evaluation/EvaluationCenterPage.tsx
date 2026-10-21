@@ -1202,7 +1202,6 @@ function DatasetList({ datasets, search, setSearch, onCreate, onOpen, onDelete, 
       <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、ID、描述或标签" />
       <label className="eval-dataset-tag-filter"><Tag size={14} /><SelectField aria-label="按标签筛选评测集" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option>全部标签</option>{tags.map((tag) => <option key={tag}>{tag}</option>)}</SelectField></label>
       <label className="eval-task-list-status eval-dataset-status-filter"><span>状态</span><SelectField aria-label="按状态筛选评测集" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>全部状态</option><option>已提交</option><option>草稿</option></SelectField></label>
-      <span className="eval-toolbar-count">{filtered.length} 个评测集</span>
       <CreateMenu onCreate={onCreate} />
     </div>
     <section className="eval-surface table-surface eval-dataset-list-surface">
