@@ -2372,7 +2372,7 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
           <td><input type="radio" name="comparison-control-task" checked={isControl} disabled={lockedControl && !isControl} onChange={() => onSetControl?.(task.id)} aria-label={`设为对照组 ${task.name}`} /></td>
           <td><input type="checkbox" checked={isExperiment} disabled={isControl} onChange={() => onToggleExperiment?.(task.id)} aria-label={`选择实验组 ${task.name}`} /></td>
         </>}
-        <td><div className="eval-cell-title eval-task-list-title"><strong>{task.name}</strong><small>{task.description}</small></div></td>
+        <td><div className="eval-cell-title eval-task-list-title"><strong>{task.name}</strong></div></td>
         <td>{task.taskType ?? '普通评测'}</td>
         <td><Status label={task.status} /></td>
         <td><div className="eval-task-entity"><div className="eval-task-entity__content"><div className="eval-task-entity__line"><strong>{task.agent}</strong><span className="eval-task-entity__version">{task.agentVersion}</span></div></div></div></td>

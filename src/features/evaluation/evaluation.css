@@ -4999,9 +4999,8 @@
   font-size: 13px;
   line-height: 1.55;
 }
-.eval-task-list-title { width: 340px; max-width: 340px; }
+.eval-task-list-title { width: 340px; max-width: 340px; gap: 0; }
 .eval-task-list-title strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.eval-task-list-title small { max-width: 340px; white-space: nowrap; }
 .eval-task-entity {
   min-width: 0;
   display: flex;

@@ -206,13 +206,13 @@ const GROUPS: Array<{ id: AccessGroup; label: string; count: number }> = [
   { id: 'custom', label: '自研 Agent', count: CUSTOM_METHODS.length },
 ];
 
-const FRAMEWORK_PROTOCOLS: Array<{ id: Protocol; label: string; note: string }> = [
-  { id: 'otel', label: 'OpenTelemetry', note: '统一通过 OpenTelemetry 上报' },
+const FRAMEWORK_PROTOCOLS: Array<{ id: Protocol; label: string }> = [
+  { id: 'otel', label: 'OpenTelemetry' },
 ];
 
-const CUSTOM_PROTOCOLS: Array<{ id: Protocol; label: string; note: string }> = [
-  { id: 'manual', label: '手动埋点', note: '研发在关键语义边界创建 Span' },
-  { id: 'probe', label: '探针扩展', note: '通过探针或扩展自动采集关键节点' },
+const CUSTOM_PROTOCOLS: Array<{ id: Protocol; label: string }> = [
+  { id: 'manual', label: '手动埋点' },
+  { id: 'probe', label: '探针扩展' },
 ];
 
 function ItemIcon({ item }: { item: AccessItem }) {
@@ -277,7 +277,7 @@ export default function AccessCenterPage() {
       <aside className="ac-filter-rail">
         <section>
           <h3>接入协议</h3>
-          <div className="ac-radio-list">{availableProtocols.map((item) => <label key={item.id}><input type="radio" name="protocol" checked={protocol === item.id} onChange={() => setProtocol(item.id)} /><span><strong>{item.label}</strong><small>{item.note}</small></span></label>)}</div>
+          <div className="ac-radio-list">{availableProtocols.map((item) => <label key={item.id}><input type="radio" name="protocol" checked={protocol === item.id} onChange={() => setProtocol(item.id)} /><span><strong>{item.label}</strong></span></label>)}</div>
         </section>
         <section>
           <h3>开发语言</h3>
@@ -297,7 +297,7 @@ export default function AccessCenterPage() {
         <header className="ac-detail-head">
           <div className="ac-detail-title">
             <ItemIcon item={selected} />
-            <div><span className="ac-eyebrow">{group === 'frameworks' ? 'FRAMEWORK ONBOARDING' : 'CUSTOM AGENT ONBOARDING'}</span><h2>{selected.name}</h2></div>
+            <div><h2>{selected.name}</h2></div>
           </div>
         </header>
 
