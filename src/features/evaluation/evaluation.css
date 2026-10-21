@@ -1770,11 +1770,11 @@
 /* ── Current refinement: compact dataset entry, evaluator cards and detail view ── */
 .eval-create-menu-wrap { width: max-content; min-width: 232px; }
 .eval-create-trigger { width: 100%; }
-.eval-create-menu { width: 100%; min-width: 0; padding: 8px; }
-.eval-create-menu button { min-height: 56px; padding: 8px 10px; gap: 10px; border-radius: 8px; }
+.eval-create-menu { width: max-content; min-width: 184px; max-width: calc(100vw - 32px); padding: 8px; }
+.eval-create-menu button { grid-template-columns: 36px minmax(0, 1fr) 16px; min-height: 52px; padding: 8px 10px; gap: 10px; border-radius: 8px; }
 .eval-create-menu button + button { margin-top: 3px; }
 .eval-create-menu button > span:nth-child(2) { gap: 4px; }
-.eval-create-menu strong { font-size: 14px; line-height: 1.2; }
+.eval-create-menu strong { font-size: 14px; line-height: 1.2; white-space: nowrap; }
 .eval-create-menu small { font-size: 11px; line-height: 1.25; }
 .eval-menu-icon { width: 36px; height: 36px; border-radius: 9px; }
 .eval-create-menu button > svg:last-child { color: var(--eval-muted); }

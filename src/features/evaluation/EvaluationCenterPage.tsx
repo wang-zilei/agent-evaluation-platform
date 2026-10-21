@@ -1161,13 +1161,13 @@ export default function EvaluationCenterPage() {
 function CreateMenu({ onCreate }: { onCreate: (mode: DatasetCreateMode) => void }) {
   const [open, setOpen] = useState(false);
   const items = [
-    { mode: '用户上传' as const, label: '上传文件', note: 'CSV / XLSX / JSONL', icon: <Upload size={17} /> },
-    { mode: '智能生成' as const, label: '智能生成', note: '按场景生成草稿', icon: <Sparkles size={17} /> },
-    { mode: '历史对话回流' as const, label: '轨迹回流', note: '筛选真实对话', icon: <History size={17} /> },
+    { mode: '用户上传' as const, label: '上传文件', icon: <Upload size={17} /> },
+    { mode: '智能生成' as const, label: '智能生成', icon: <Sparkles size={17} /> },
+    { mode: '历史对话回流' as const, label: '轨迹回流', icon: <History size={17} /> },
   ];
   return <div className="eval-create-menu-wrap">
     <button type="button" className="eval-button eval-button--primary eval-create-trigger" onClick={() => setOpen((current) => !current)}><Plus size={16} />新建评测集<ChevronDown size={14} className={open ? 'is-open' : ''} /></button>
-    {open && <div className="eval-create-menu">{items.map((item) => <button type="button" key={item.mode} onClick={() => { setOpen(false); onCreate(item.mode); }}><span className="eval-menu-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.note}</small></span><ChevronRight size={14} /></button>)}</div>}
+    {open && <div className="eval-create-menu">{items.map((item) => <button type="button" key={item.mode} onClick={() => { setOpen(false); onCreate(item.mode); }}><span className="eval-menu-icon">{item.icon}</span><span><strong>{item.label}</strong></span><ChevronRight size={14} /></button>)}</div>}
   </div>;
 }
 
