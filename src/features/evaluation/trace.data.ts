@@ -3,6 +3,8 @@ import { financialComplianceObservedTraces } from './financial-compliance.mock';
 import { queryAgentObservedTraces } from './query-agent.mock';
 import type { ObservedSession, ObservedTrace } from './trace.types';
 
+export type ObservationFeedbackOverrides = Record<string, string | null>;
+
 const realObservedTraces = data as ObservedTrace[];
 const MOCK_TRACE_METADATA: Record<string, Pick<ObservedTrace, 'agent' | 'duration' | 'feedback'>> = {
   turn1: { agent: '行业研究 Agent', duration: 126_000, feedback: '有帮助' },
@@ -30,6 +32,17 @@ export const observedTraces: ObservedTrace[] = [
   const timeDelta = Date.parse(right.occurredAt ?? '') - Date.parse(left.occurredAt ?? '');
   return Number.isNaN(timeDelta) ? right.turn - left.turn : timeDelta;
 });
+
+export function applyObservationFeedbackOverrides<T extends { id: string; feedback: string | null }>(
+  records: T[],
+  overrides: ObservationFeedbackOverrides,
+): T[] {
+  return records.map((record) => {
+    if (!Object.prototype.hasOwnProperty.call(overrides, record.id)) return record;
+    const feedback = overrides[record.id]?.trim() || null;
+    return { ...record, feedback };
+  });
+}
 
 const sumTokens = (values: Array<number | null>) => {
   const collected = values.filter((value): value is number => value !== null);

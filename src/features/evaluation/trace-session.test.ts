@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupObservedSessions, observedSessions, observedTraces } from './trace.data';
+import { applyObservationFeedbackOverrides, groupObservedSessions, observedSessions, observedTraces } from './trace.data';
 
 describe('observation session grouping', () => {
   it('groups the three observed turns into one ordered session', () => {
@@ -38,5 +38,26 @@ describe('observation session grouping', () => {
     expect(standalone).toHaveLength(1);
     expect(standalone[0].id).toBe('standalone');
     expect(standalone[0].turns).toHaveLength(1);
+  });
+
+  it('applies editable feedback without mutating the source trace', () => {
+    const emptyTrace = observedTraces.find((trace) => trace.feedback === null);
+    expect(emptyTrace).toBeDefined();
+
+    const updated = applyObservationFeedbackOverrides(observedTraces, { [emptyTrace!.id]: '  补充来源核验  ' });
+    expect(updated.find((trace) => trace.id === emptyTrace!.id)?.feedback).toBe('补充来源核验');
+    expect(observedTraces.find((trace) => trace.id === emptyTrace!.id)?.feedback).toBeNull();
+
+    const cleared = applyObservationFeedbackOverrides(updated, { [emptyTrace!.id]: '   ' });
+    expect(cleared.find((trace) => trace.id === emptyTrace!.id)?.feedback).toBeNull();
+  });
+
+  it('refreshes the session feedback rollup after a trace feedback edit', () => {
+    const target = observedTraces.find((trace) => trace.turn === 2 && trace.sessionId);
+    expect(target).toBeDefined();
+
+    const updated = applyObservationFeedbackOverrides(observedTraces, { [target!.id]: '来源已复核' });
+    const session = groupObservedSessions(updated).find((item) => item.id === target!.sessionId);
+    expect(session?.feedback).toContain('来源已复核');
   });
 });

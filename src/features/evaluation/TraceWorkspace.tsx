@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Clock3, Coins, Cpu, Footprints, History, Layers3, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Check, Clock3, Coins, Cpu, Footprints, History, Layers3, PencilLine, Wrench, X, type LucideIcon } from 'lucide-react';
 import { SearchField, SelectField } from './eval-ui';
 import type { ObservedSession, ObservedTrace, TraceEvent } from './trace.types';
 
@@ -103,13 +103,22 @@ type TraceListProps = {
   onOpenTrace: (trace: ObservedTrace) => void;
   onOpenSession: (session: ObservedSession) => void;
   onBackflow: (selection: ObservationBackflowSelection) => void;
+  onFeedbackChange: (view: ObservationView, id: string, feedback: string | null) => void;
 };
 
-export function TraceList({ traces, sessions, view, onViewChange, search, setSearch, onOpenTrace, onOpenSession, onBackflow }: TraceListProps) {
+type FeedbackEditorState = {
+  key: string;
+  view: ObservationView;
+  id: string;
+  value: string;
+};
+
+export function TraceList({ traces, sessions, view, onViewChange, search, setSearch, onOpenTrace, onOpenSession, onBackflow, onFeedbackChange }: TraceListProps) {
   const [agentFilter, setAgentFilter] = useState('全部');
   const [timeFilter, setTimeFilter] = useState('全部');
   const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
+  const [feedbackEditor, setFeedbackEditor] = useState<FeedbackEditorState | null>(null);
   const agents = useMemo(() => ['全部', ...[...new Set(traces.map((trace) => trace.agent ?? '未采集'))]], [traces]);
   const filterNow = useMemo(() => {
     const timestamps = traces.map((trace) => Date.parse(trace.occurredAt ?? '')).filter((value) => Number.isFinite(value));
@@ -160,6 +169,19 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
       sessions: view === 'session' ? sessions.filter((session) => selectedSessionIds.includes(session.id)) : [],
     });
   };
+  const openFeedbackEditor = (editorView: ObservationView, id: string, value: string | null) => {
+    setFeedbackEditor({
+      key: `${editorView}:${id}`,
+      view: editorView,
+      id,
+      value: value ?? '',
+    });
+  };
+  const saveFeedback = () => {
+    if (!feedbackEditor) return;
+    onFeedbackChange(feedbackEditor.view, feedbackEditor.id, feedbackEditor.value.trim() || null);
+    setFeedbackEditor(null);
+  };
 
   return <div className="eval-list-page eval-trace-page">
     <div className="eval-observation-view-row">
@@ -182,7 +204,18 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
           <td className="is-clip" title={trace.input}>{trace.input || '未采集'}</td>
           <td className="is-clip" title={trace.output}>{trace.output || '未采集'}</td>
           <td className="is-nowrap">{formatDuration(trace.duration)}</td>
-          <td className="is-nowrap">{formatValue(trace.feedback)}</td>
+          <td className="is-feedback" title={trace.feedback ?? undefined}>
+            <ObservationFeedbackCell
+              value={trace.feedback}
+              rowLabel={trace.traceId ?? trace.id}
+              editing={feedbackEditor?.key === `trace:${trace.id}`}
+              draft={feedbackEditor?.key === `trace:${trace.id}` ? feedbackEditor.value : ''}
+              onStart={() => openFeedbackEditor('trace', trace.id, trace.feedback)}
+              onChange={(value) => setFeedbackEditor((current) => current ? { ...current, value } : current)}
+              onSave={saveFeedback}
+              onCancel={() => setFeedbackEditor(null)}
+            />
+          </td>
           <td className="is-nowrap">{formatNumber(trace.inputTokens)}</td>
           <td className="is-nowrap">{formatNumber(trace.outputTokens)}</td>
         </tr>)}</tbody>
@@ -199,7 +232,18 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
           <td className="is-nowrap">{session.turns.length}</td>
           <td className="is-clip" title={session.turns[0]?.input}>{session.turns[0]?.input || '未采集'}</td>
           <td className="is-clip" title={session.turns.at(-1)?.output}>{session.turns.at(-1)?.output || '未采集'}</td>
-          <td>{formatValue(session.feedback)}</td>
+          <td className="is-feedback" title={session.feedback ?? undefined}>
+            <ObservationFeedbackCell
+              value={session.feedback}
+              rowLabel={session.sessionId ?? session.id}
+              editing={feedbackEditor?.key === `session:${session.id}`}
+              draft={feedbackEditor?.key === `session:${session.id}` ? feedbackEditor.value : ''}
+              onStart={() => openFeedbackEditor('session', session.id, session.feedback)}
+              onChange={(value) => setFeedbackEditor((current) => current ? { ...current, value } : current)}
+              onSave={saveFeedback}
+              onCancel={() => setFeedbackEditor(null)}
+            />
+          </td>
           <td className="is-nowrap">{formatNumber(session.inputTokens)}</td>
           <td className="is-nowrap">{formatNumber(session.outputTokens)}</td>
         </tr>)}</tbody>
@@ -207,6 +251,58 @@ export function TraceList({ traces, sessions, view, onViewChange, search, setSea
     </section>}
 
     {(view === 'trace' ? filteredTraces : filteredSessions).length === 0 && <p className="eval-trace-note">没有匹配的 {view === 'trace' ? 'Trace' : 'Session'}。</p>}
+  </div>;
+}
+
+function ObservationFeedbackCell({
+  value,
+  rowLabel,
+  editing,
+  draft,
+  onStart,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  value: string | null;
+  rowLabel: string;
+  editing: boolean;
+  draft: string;
+  onStart: () => void;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const currentValue = value?.trim() ?? '';
+  const unchanged = draft.trim() === currentValue;
+
+  return <div
+    className="eval-obs-feedback"
+    onClick={(event) => event.stopPropagation()}
+    onKeyDown={(event) => event.stopPropagation()}
+  >
+    {editing ? <form className="eval-obs-feedback__editor" onSubmit={(event) => { event.preventDefault(); if (!unchanged) onSave(); }}>
+      <input
+        autoFocus
+        value={draft}
+        maxLength={120}
+        aria-label={`编辑 ${rowLabel} 的 Feedback`}
+        placeholder="输入标注"
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Escape') onCancel(); }}
+      />
+      <button type="submit" className="eval-obs-feedback__action is-save" aria-label={`保存 ${rowLabel} 的 Feedback`} title="保存" disabled={unchanged}><Check size={14} /></button>
+      <button type="button" className="eval-obs-feedback__action" aria-label={`取消编辑 ${rowLabel} 的 Feedback`} title="取消" onClick={onCancel}><X size={14} /></button>
+    </form> : <button
+      type="button"
+      className={`eval-obs-feedback__display${currentValue ? '' : ' is-empty'}`}
+      aria-label={currentValue ? `编辑 ${rowLabel} 的 Feedback` : `为 ${rowLabel} 添加 Feedback 标注`}
+      title={currentValue || '添加标注'}
+      onClick={onStart}
+    >
+      <span>{currentValue || '添加标注'}</span>
+      <PencilLine size={14} />
+    </button>}
   </div>;
 }
 

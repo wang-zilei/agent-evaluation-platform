@@ -22,7 +22,7 @@ import {
   createQueryAgentResults,
   isQueryAgentDataset,
 } from './query-agent.mock';
-import { observedSessions, observedTraces } from './trace.data';
+import { applyObservationFeedbackOverrides, groupObservedSessions, observedSessions, observedTraces, type ObservationFeedbackOverrides } from './trace.data';
 import { SessionDetail, TraceDetail, TraceList, type ObservationBackflowSelection, type ObservationView } from './TraceWorkspace';
 import { AutoEvaluationPanel } from './AutoEvaluation';
 import { EvaluatorCalibrationModal, EvaluatorOptimizationList, EvaluatorOptimizationStartModal, EvaluatorOptimizationWorkbench } from './EvaluatorOptimization';
@@ -53,6 +53,7 @@ type ObservationHistorySource = { conversations: HistoryConversation[]; agents: 
 type TaskCreateStep = 1 | 2 | 3 | 4;
 type TraceScreen = 'list' | 'detail';
 type CaseObservationView = 'trace' | 'session';
+type ObservationFeedbackOverrideState = { trace: ObservationFeedbackOverrides; session: ObservationFeedbackOverrides };
 type HumanAnnotationFilter = '' | '已标注' | '未标注';
 type EvaluatorResultFilter = '通过' | '不通过';
 type OptimizationDetailTab = 'report' | 'metrics' | 'details';
@@ -366,6 +367,7 @@ export default function EvaluationCenterPage() {
   const [evaluatorScreen, setEvaluatorScreen] = useState<EvaluatorScreen>('list');
   const [traceScreen, setTraceScreen] = useState<TraceScreen>('list');
   const [observationView, setObservationView] = useState<ObservationView>('trace');
+  const [observationFeedbackOverrides, setObservationFeedbackOverrides] = useState<ObservationFeedbackOverrideState>({ trace: {}, session: {} });
   const [evaluatorMode, setEvaluatorMode] = useState<EvaluatorMode>('preset');
   const [evaluatorKind, setEvaluatorKind] = useState<EvaluatorKind>('代码评估');
   const [datasetDraft, setDatasetDraft] = useState<DatasetDraft>(() => makeDatasetDraft(INITIAL_EVALUATION_STATE));
@@ -393,6 +395,15 @@ export default function EvaluationCenterPage() {
   const [calibrationTarget, setCalibrationTarget] = useState<{ taskId: string; caseId: string; evaluatorId: string } | null>(null);
   const [optimizationStart, setOptimizationStart] = useState<{ evaluatorId: string; version: string } | null>(null);
   const notify = (message: string, tone: Toast['tone'] = 'success') => { const id = toastId + 1; setToastId(id); setToast({ id, message, tone }); window.setTimeout(() => setToast((current) => current?.id === id ? null : current), 2600); };
+  const observationTraces = useMemo(() => applyObservationFeedbackOverrides(observedTraces, observationFeedbackOverrides.trace), [observationFeedbackOverrides.trace]);
+  const observationSessions = useMemo(() => applyObservationFeedbackOverrides(groupObservedSessions(observationTraces), observationFeedbackOverrides.session), [observationFeedbackOverrides.session, observationTraces]);
+  const updateObservationFeedback = (view: ObservationView, id: string, feedback: string | null) => {
+    setObservationFeedbackOverrides((current) => ({
+      ...current,
+      [view]: { ...current[view], [id]: feedback },
+    }));
+    notify(feedback ? 'Feedback 已保存' : 'Feedback 标注已移除');
+  };
   const showList = () => { if (module === 'datasets') { setDatasetScreen('list'); setDatasetEntryFromTask(false); } if (module === 'evaluators') setEvaluatorScreen('list'); if (module === 'tasks' || module === 'automation') setTaskScreen('list'); if (module === 'experiments') setExperimentScreen('list'); if (module === 'traces') { setTraceScreen('list'); setCaseObservation(null); } };
   const openDatasetCreate = (mode: DatasetCreateMode) => {
     setTaskReturn(module === 'tasks' && taskScreen === 'create');
@@ -816,13 +827,13 @@ export default function EvaluationCenterPage() {
   const experiment = state.experiments.find((item) => item.id === selectedExperimentId) ?? state.experiments[0];
   const comparison = state.comparisons.find((item) => item.id === selectedComparisonId) ?? state.comparisons[0];
   const evaluator = state.evaluators.find((item) => item.id === selectedEvaluatorId) ?? state.evaluators[0];
-  const selectedSession = observedSessions.find((item) => item.id === selectedSessionId) ?? observedSessions[0];
+  const selectedSession = observationSessions.find((item) => item.id === selectedSessionId) ?? observationSessions[0];
   const calibrationTask = state.tasks.find((item) => item.id === calibrationTarget?.taskId);
   const calibrationCase = calibrationTask?.results.find((item) => item.caseId === calibrationTarget?.caseId);
   const calibrationResult = calibrationCase?.evaluatorResults.find((item) => item.evaluatorId === calibrationTarget?.evaluatorId);
   const calibrationEvaluator = state.evaluators.find((item) => item.id === calibrationTarget?.evaluatorId);
   const optimizationStartEvaluator = state.evaluators.find((item) => item.id === optimizationStart?.evaluatorId);
-  const selectedTrace = observedTraces.find((item) => item.id === selectedTraceId) ?? observedTraces[0];
+  const selectedTrace = observationTraces.find((item) => item.id === selectedTraceId) ?? observationTraces[0];
   const casePreviewTask = casePreview ? state.tasks.find((item) => item.id === casePreview.taskId) : undefined;
   const caseObservationTrace = caseObservation ? resolveCaseObservationTrace(caseObservation.item, caseObservation.task) : null;
   const caseObservationSession = caseObservation && caseObservationTrace ? resolveCaseObservationSession(caseObservation.item, caseObservation.task, caseObservationTrace) : null;
@@ -865,7 +876,7 @@ export default function EvaluationCenterPage() {
       <div className="eval-sidebar-footer"><Pill>本地 Mock</Pill></div>
     </aside>
     <div className="evaluation-main">
-      <header className="eval-app-header"><div className="eval-app-title"><h1>{(module === 'tasks' || module === 'automation') && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'experiments' && experimentScreen === 'detail' ? '对比实验' : { overview: '总览', access: '应用接入', traces: '观测', tasks: '评测任务', experiments: '实验', datasets: '评测集', evaluators: '评估器', automation: '自动化' }[module]}</h1></div>{module !== 'automation' && <div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div>}</header>
+      <header className="eval-app-header"><div className="eval-app-title"><h1>{(module === 'tasks' || module === 'automation') && taskScreen === 'detail' ? taskDetailTab === 'data' ? '数据明细' : taskDetailTab === 'optimize' ? '优化实验' : '统计结论' : module === 'experiments' && experimentScreen === 'detail' ? '对比实验' : { overview: '总览', access: '应用接入', traces: '观测', tasks: '评测任务', experiments: '实验', datasets: '评测集', evaluators: '评估器', automation: '自动化' }[module]}</h1></div>{module !== 'automation' && <div className="eval-app-actions"><IconButton label="恢复初始数据" onClick={() => { setState(cloneEvaluationState()); setObservationFeedbackOverrides({ trace: {}, session: {} }); notify('已恢复初始 Mock 数据'); }}><RefreshCw size={16} /></IconButton></div>}</header>
       <main className="eval-content">
       {module === 'overview' && <OverviewPage onOpenTrace={() => selectModule('traces')} onOpenTasks={() => selectModule('tasks')} />}
       {module === 'access' && <AccessCenterPage />}
@@ -886,7 +897,7 @@ export default function EvaluationCenterPage() {
       {module === 'experiments' && experimentScreen === 'detail' && comparison && <ComparisonDetail comparison={comparison} onBack={showList} />}
       {module === 'automation' && taskScreen === 'list' && <AutoEvaluationPanel tasks={state.tasks} agents={state.agents} evaluators={state.evaluators} onCreate={(item) => setState((current) => ({ ...current, tasks: [item, ...current.tasks] }))} onUpdate={(item) => setState((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === item.id ? item : task) }))} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onNotify={notify} />}
       {module === 'automation' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} backLabel="返回自动化" onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
-      {module === 'traces' && traceScreen === 'list' && <TraceList traces={observedTraces} sessions={observedSessions} view={observationView} onViewChange={setObservationView} search={traceSearch} setSearch={setTraceSearch} onOpenTrace={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} onOpenSession={(item) => { setSelectedSessionId(item.id); setTraceScreen('detail'); }} onBackflow={openObservationBackflow} />}
+      {module === 'traces' && traceScreen === 'list' && <TraceList traces={observationTraces} sessions={observationSessions} view={observationView} onViewChange={setObservationView} search={traceSearch} setSearch={setTraceSearch} onOpenTrace={(item) => { setSelectedTraceId(item.id); setTraceScreen('detail'); }} onOpenSession={(item) => { setSelectedSessionId(item.id); setTraceScreen('detail'); }} onBackflow={openObservationBackflow} onFeedbackChange={updateObservationFeedback} />}
       {module === 'traces' && traceScreen === 'detail' && observationView === 'trace' && (caseObservationTrace ?? selectedTrace) && <TraceDetail key={(caseObservationTrace ?? selectedTrace)?.id} trace={caseObservationTrace ?? selectedTrace} onBack={showList} />}
       {module === 'traces' && traceScreen === 'detail' && observationView === 'session' && (caseObservationSession ?? selectedSession) && <SessionDetail key={(caseObservationSession ?? selectedSession)?.id} session={caseObservationSession ?? selectedSession} onBack={showList} />}
       </main>
