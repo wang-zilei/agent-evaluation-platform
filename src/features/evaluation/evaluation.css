@@ -552,6 +552,19 @@
 .eval-preview-strip span { color: var(--eval-muted); font-size: 10px; }
 .eval-preview-strip > .eval-pill { margin-left: auto; }
 .eval-history-filterbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.eval-create-single--compact .eval-create-section--trace-replay { margin-top: 22px; padding-top: 18px; }
+.eval-trace-replay-status { min-height: 24px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 12px; color: var(--eval-muted); font-size: 11px; }
+.eval-trace-replay-source { margin-right: auto; }
+.eval-trace-replay-filters { grid-template-columns: minmax(180px, 1.25fr) minmax(120px, .7fr) minmax(150px, .8fr) minmax(180px, 1fr); align-items: start; gap: 16px 14px; }
+.eval-trace-replay-filters .eval-field { gap: 8px; font-size: 12px; }
+.eval-trace-replay-filters .eval-field > span { color: var(--eval-ink); font-size: 12px; }
+.eval-trace-replay-filters .eval-field > .eval-select-trigger,
+.eval-trace-replay-filters .eval-field input { height: 42px; padding: 0 12px; border-radius: 8px; font-size: 13px; }
+.eval-trace-replay-date-range { grid-column: span 2; }
+@media (max-width: 1080px) {
+  .eval-trace-replay-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eval-trace-replay-date-range { grid-column: span 1; }
+}
 .eval-history-list { display: flex; flex-direction: column; gap: 8px; }
 .eval-history-item { border: 1px solid var(--eval-border); border-radius: 9px; background: #fff; overflow: hidden; }
 .eval-history-item.is-selected { border-color: #bdbfe9; background: #fcfcff; }
@@ -886,6 +899,8 @@
   .eval-create-mode-tabs button { border-right: 0; border-bottom: 1px solid var(--eval-border); }
   .eval-create-mode-tabs button:last-child { border-bottom: 0; }
   .eval-form-grid, .eval-history-filterbar, .eval-generate-options, .eval-agent-grid, .eval-task-evaluator-grid { grid-template-columns: 1fr; }
+  .eval-trace-replay-status { align-items: flex-start; flex-wrap: wrap; }
+  .eval-trace-replay-source { width: 100%; margin-right: 0; }
   .eval-field-mapping { overflow-x: auto; }
   .eval-field-mapping__head, .eval-field-mapping__row { min-width: 700px; }
   .eval-history-item__head { grid-template-columns: 28px 18px minmax(0, 1fr); }
