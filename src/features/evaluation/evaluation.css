@@ -7263,6 +7263,116 @@
   }
 }
 
+/* Task list actions and delete confirmation */
+.eval-task-list-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.eval-task-delete-modal {
+  width: min(480px, 100%);
+}
+
+.eval-task-delete-modal__title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.eval-task-delete-modal__title > span {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  flex: 0 0 40px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--eval-red);
+  background: var(--eval-red-soft);
+}
+
+.eval-task-delete-modal__title > div {
+  min-width: 0;
+}
+
+.eval-task-delete-modal__title h2 {
+  margin: 0;
+  color: var(--eval-ink);
+  font-size: 17px;
+}
+
+.eval-task-delete-modal__title p {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--eval-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eval-task-delete-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.eval-task-delete-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid #f0cbc8;
+  border-radius: 8px;
+  color: var(--eval-red);
+  background: var(--eval-red-soft);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.eval-task-delete-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.eval-task-delete-impact {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--eval-border);
+  border-radius: 8px;
+}
+
+.eval-task-delete-impact > span {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid #f0f0f2;
+  color: var(--eval-text);
+  background: #fff;
+  font-size: 11px;
+}
+
+.eval-task-delete-impact > span:last-child {
+  border-bottom: 0;
+}
+
+.eval-task-delete-impact > span > svg {
+  color: var(--eval-red);
+}
+
+.eval-task-delete-impact > span.is-preserved {
+  color: var(--eval-muted);
+  background: #fafafa;
+}
+
+.eval-task-delete-impact > span.is-preserved > svg {
+  color: var(--eval-green);
+}
+
 /* Task case selection and review-dataset backflow */
 .eval-dataset-detail.has-bulk-actions {
   padding-bottom: 78px;

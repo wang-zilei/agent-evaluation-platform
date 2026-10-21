@@ -27,6 +27,7 @@ import { SessionDetail, TraceDetail, TraceList, type ObservationBackflowSelectio
 import { AutoEvaluationPanel } from './AutoEvaluation';
 import { EvaluatorCalibrationModal, EvaluatorOptimizationList, EvaluatorOptimizationStartModal, EvaluatorOptimizationWorkbench } from './EvaluatorOptimization';
 import { SearchField, SelectField } from './eval-ui';
+import { removeEvaluationTask } from './task-delete';
 import {
   buildDatasetCasesFromCases,
   buildDatasetCasesFromResults,
@@ -593,6 +594,19 @@ export default function EvaluationCenterPage() {
     notify(`评测集「${target.name}」已删除`);
   };
 
+  const deleteTask = (id: string) => {
+    const target = state.tasks.find((item) => item.id === id);
+    if (!target) return;
+    const nextTasks = state.tasks.filter((item) => item.id !== id);
+    const nextExperiments = state.experiments.filter((item) => item.sourceTaskId !== id);
+    const nextComparisons = state.comparisons.filter((item) => item.controlTaskId !== id && !item.experimentTaskIds.includes(id));
+    setState((current) => removeEvaluationTask(current, id));
+    if (selectedTaskId === id) setSelectedTaskId(nextTasks[0]?.id ?? '');
+    if (!nextExperiments.some((item) => item.id === selectedExperimentId)) setSelectedExperimentId(nextExperiments[0]?.id ?? '');
+    if (!nextComparisons.some((item) => item.id === selectedComparisonId)) setSelectedComparisonId(nextComparisons[0]?.id ?? '');
+    notify(`评测任务「${target.name}」已删除，关联实验记录已同步清理`);
+  };
+
   const addTaskCasesToDataset = (
     task: EvaluationTask,
     caseIds: string[],
@@ -1123,7 +1137,7 @@ export default function EvaluationCenterPage() {
       {module === 'evaluators' && evaluatorScreen === 'detail' && evaluator && <EvaluatorDetail evaluator={evaluator} optimizations={state.evaluatorOptimizations.filter((item) => item.evaluatorId === evaluator.id)} onOpenOptimization={openOptimization} onBack={showList} onCopy={() => { setEditingEvaluatorId(null); setEvaluatorDraft(evaluatorDraftFrom(evaluator, `${evaluator.name}（自建）`)); setEvaluatorScreen('create'); }} onEdit={() => { setEditingEvaluatorId(evaluator.id); setEvaluatorDraft(evaluatorDraftFrom(evaluator)); setEvaluatorScreen('create'); }} />}
       {module === 'evaluators' && evaluatorScreen === 'optimization' && selectedOptimization && <EvaluatorOptimizationWorkbench experiment={selectedOptimization} onExperiments={(updater) => setState((current) => ({ ...current, evaluatorOptimizations: updater(current.evaluatorOptimizations) }))} onVersionCreated={(evaluatorId, version, prompt) => setState((current) => ({ ...current, evaluators: current.evaluators.map((item) => item.id === evaluatorId ? { ...item, version, versions: item.versions.includes(version) ? item.versions : [...item.versions, version], prompt, updatedAt: '2026-10-08 15:30' } : item) }))} onBack={() => setEvaluatorScreen('detail')} onNotify={notify} />}
       {module === 'evaluators' && evaluatorScreen === 'create' && (evaluatorKind === '人工评估' ? <HumanEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : evaluatorKind === '代码评估' ? <CodeEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : evaluatorKind === 'Agent 评估器' ? <AgentEvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} /> : <EvaluatorEditor editing={editingEvaluatorId !== null} draft={evaluatorDraft} setDraft={setEvaluatorDraft} onBack={showList} onCreate={() => createEvaluator(evaluatorDraft)} />)}
-      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} search={taskSearch} setSearch={setTaskSearch} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} />}
+      {module === 'tasks' && taskScreen === 'list' && <TaskList tasks={state.tasks} datasets={state.datasets} evaluators={state.evaluators} search={taskSearch} setSearch={setTaskSearch} onCreate={openTaskCreate} onOpen={(item) => { setSelectedTaskId(item.id); setTaskDetailTab('summary'); setTaskScreen('detail'); }} onDelete={(item) => deleteTask(item.id)} />}
       {module === 'tasks' && taskScreen === 'create' && <TaskCreateWorkspace state={state} config={taskDraft} setConfig={setTaskDraft} onBack={showList} onCreate={createTask} onCreateDataset={openDatasetCreate} />}
       {module === 'tasks' && taskScreen === 'experiment' && experiment && <OptimizationDetail experiment={experiment} task={state.tasks.find((item) => item.id === experiment.sourceTaskId)} humanLabels={state.humanLabels} comparison={state.comparisons.find((item) => item.id === experiment.result.comparisonId)} onBack={showList} onNotify={notify} onViewComparison={(item) => openComparison(item)} />}
       {module === 'tasks' && taskScreen === 'detail' && task && <TaskDetail key={task.id} task={task} state={state} tab={taskDetailTab} onTabChange={setTaskDetailTab} onBack={showList} onOpenCase={(item) => setCasePreview({ item, taskId: task.id })} onCalibrate={(item, evaluatorId) => setCalibrationTarget({ taskId: task.id, caseId: item.caseId, evaluatorId })} onOptimizeEvaluator={(evaluatorId) => setOptimizationStart({ evaluatorId, version: task.evaluatorVersions?.[evaluatorId] ?? state.evaluators.find((item) => item.id === evaluatorId)?.version ?? '0.1.0' })} onRetryCase={(caseId) => retryCase(task.id, caseId)} onNotify={notify} onAddCasesToDataset={(caseIds, target) => addTaskCasesToDataset(task, caseIds, target)} onOptimize={startOptimization} onCompare={() => openComparisonPicker(task.id)} onOpenExperiment={(item) => { setSelectedExperimentId(item.id); setTaskScreen('experiment'); }} />}
@@ -2319,7 +2333,7 @@ function CodeEvaluatorEditor({ draft, setDraft, editing = false, onBack, onCreat
   </div>;
 }
 
-function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = false, controlTaskId = '', lockedControl = false, experimentTaskIds = [], onOpen, onSetControl, onToggleExperiment }: {
+function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = false, controlTaskId = '', lockedControl = false, experimentTaskIds = [], onOpen, onDelete, onSetControl, onToggleExperiment }: {
   tasks: EvaluationTask[];
   datasets: Dataset[];
   evaluators?: Evaluator[];
@@ -2328,6 +2342,7 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
   lockedControl?: boolean;
   experimentTaskIds?: string[];
   onOpen?: (task: EvaluationTask) => void;
+  onDelete?: (task: EvaluationTask) => void;
   onSetControl?: (id: string) => void;
   onToggleExperiment?: (id: string) => void;
 }) {
@@ -2350,14 +2365,18 @@ function EvaluationTaskTable({ tasks, datasets, evaluators = [], selectable = fa
         <td><div className="eval-task-entity"><div className="eval-task-entity__content"><div className="eval-task-entity__line"><strong>{datasetName(task)}</strong><span className="eval-task-entity__version">{task.taskType === '自动化' ? task.automation?.objectType : task.datasetVersion}</span></div></div></div></td>
         <td><div className="eval-cell-pills">{evaluatorNames(task).map((name) => <span key={name}>{name}</span>)}</div></td>
         <td>{task.createdAt.slice(0, 10)}</td>
-        <td><IconButton label="打开任务" onClick={(event) => { event.stopPropagation(); onOpen?.(task); }}><Eye size={15} /></IconButton></td>
+        <td><div className="eval-task-list-row-actions">
+          <button type="button" className="eval-icon-button" aria-label={`打开 ${task.name}`} title="查看" onClick={(event) => { event.stopPropagation(); onOpen?.(task); }}><Eye size={15} /></button>
+          {onDelete && <button type="button" className="eval-icon-button eval-icon-button--danger" aria-label={`删除 ${task.name}`} title="删除" onClick={(event) => { event.stopPropagation(); onDelete(task); }}><Trash2 size={15} /></button>}
+        </div></td>
       </tr>;
     })}</tbody>
   </table>;
 }
 
-function TaskList({ tasks, datasets, evaluators, search, setSearch, onCreate, onOpen }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; search: string; setSearch: (value: string) => void; onCreate: () => void; onOpen: (task: EvaluationTask) => void }) {
+function TaskList({ tasks, datasets, evaluators, search, setSearch, onCreate, onOpen, onDelete }: { tasks: EvaluationTask[]; datasets: Dataset[]; evaluators: Evaluator[]; search: string; setSearch: (value: string) => void; onCreate: () => void; onOpen: (task: EvaluationTask) => void; onDelete: (task: EvaluationTask) => void }) {
   const [taskStatusFilter, setTaskStatusFilter] = useState('全部状态');
+  const [deleteTarget, setDeleteTarget] = useState<EvaluationTask | null>(null);
   const filtered = tasks.filter((task) => {
     const searchMatched = !search || `${task.name} ${task.agent} ${task.taskType ?? '普通评测'}`.toLowerCase().includes(search.toLowerCase());
     const statusMatched = taskStatusFilter === '全部状态' || task.status === taskStatusFilter;
@@ -2370,9 +2389,33 @@ function TaskList({ tasks, datasets, evaluators, search, setSearch, onCreate, on
       <button type="button" className="eval-button eval-button--primary eval-task-list-create" onClick={onCreate}><Plus size={16} />新建评测任务</button>
     </div>
     <section className="eval-surface table-surface eval-task-list-surface">
-      <EvaluationTaskTable tasks={filtered} datasets={datasets} evaluators={evaluators} onOpen={onOpen} />
+      <EvaluationTaskTable tasks={filtered} datasets={datasets} evaluators={evaluators} onOpen={onOpen} onDelete={setDeleteTarget} />
     </section>
     {filtered.length === 0 && <EmptyState title="没有匹配的评测任务" description="调整搜索关键词或任务状态。" />}
+    {deleteTarget && <div className="eval-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteTarget(null); }}>
+      <section className="eval-modal eval-task-delete-modal" role="dialog" aria-modal="true" aria-labelledby="eval-task-delete-title">
+        <header className="eval-modal__header">
+          <div className="eval-task-delete-modal__title">
+            <span><Trash2 size={18} /></span>
+            <div><h2 id="eval-task-delete-title">删除评测任务</h2><p>{deleteTarget.name}</p></div>
+          </div>
+          <IconButton label="关闭删除任务弹窗" onClick={() => setDeleteTarget(null)}><X size={16} /></IconButton>
+        </header>
+        <div className="eval-modal__body eval-task-delete-modal__body">
+          <div className="eval-task-delete-warning"><CircleAlert size={18} /><span>删除后不可恢复，相关实验记录会同步清理。</span></div>
+          <div className="eval-task-delete-impact">
+            <span><Check size={14} />删除任务和运行结果</span>
+            <span><Check size={14} />删除基于该任务创建的优化实验</span>
+            <span><Check size={14} />删除引用该任务的对比实验</span>
+            <span className="is-preserved"><Minus size={14} />保留评测集、评估器和观测数据</span>
+          </div>
+        </div>
+        <footer className="eval-modal__footer">
+          <button type="button" className="eval-button eval-button--ghost" onClick={() => setDeleteTarget(null)}>取消</button>
+          <button type="button" className="eval-button eval-button--danger" onClick={() => { onDelete(deleteTarget); setDeleteTarget(null); }}><Trash2 size={14} />确认删除</button>
+        </footer>
+      </section>
+    </div>}
   </div>;
 }
 
