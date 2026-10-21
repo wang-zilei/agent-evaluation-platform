@@ -1258,7 +1258,6 @@ function DatasetUploadPage({ draft, setDraft, onBack, onCreate, onNotify }: { dr
       <div className="eval-form-grid eval-dataset-basic-fields">
         <label className="eval-field"><span>评测集名称 <b>*</b></span><input maxLength={50} value={draft.name} placeholder="例如：退款客服回归问题集" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
         <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明这份数据用于验证什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
-        <label className="eval-field"><span>标签</span><input maxLength={80} value={draft.tags} placeholder="例如：售后, 回归, Badcase" onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} /><small>多个标签用逗号分隔，用于评测集列表筛选。</small></label>
       </div>
       <div className="eval-create-section">
         <div className="eval-create-section__head"><div><span className="eval-eyebrow">IMPORT DATA</span><h4>文件上传</h4><p>支持 CSV、XLS、XLSX、JSONL；字段名称与语义可在下方编辑。</p></div><button type="button" className="eval-button eval-button--ghost" onClick={() => onNotify('模板下载在本地 Mock 中仅展示入口')}><Download size={14} />下载模板</button></div>
@@ -1282,7 +1281,6 @@ function DatasetGeneratePage({ draft, setDraft, agents, onBack, onCreate }: { dr
       <div className="eval-form-grid eval-dataset-basic-fields">
         <label className="eval-field"><span>评测集名称 <b>*</b></span><input maxLength={50} value={draft.name} placeholder="例如：退款场景生成问题集" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
         <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明这份数据用于验证什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
-        <label className="eval-field"><span>标签</span><input maxLength={80} value={draft.tags} placeholder="例如：售后, 回归, Badcase" onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} /><small>多个标签用逗号分隔，用于评测集列表筛选。</small></label>
       </div>
       <div className="eval-create-section">
         <div className="eval-form-grid"><label className="eval-field"><span>Agent <b>*</b></span><SelectField value={draft.generateAgentId} onChange={(event) => { const agent = agents.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current, generateAgentId: event.target.value, generateVersion: agent?.versions[0] ?? '' })); }}>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</SelectField></label><label className="eval-field"><span>版本 <b>*</b></span><SelectField value={draft.generateVersion} disabled={!draft.generateAgentId} onChange={(event) => setDraft((current) => ({ ...current, generateVersion: event.target.value }))}>{(selectedAgent?.versions ?? []).map((version) => <option key={version}>{version}</option>)}</SelectField></label></div>
@@ -1331,7 +1329,6 @@ function DatasetHistoryPage({ draft, setDraft, agents, historySource, historyAnc
       <div className="eval-form-grid eval-dataset-basic-fields">
         <label className="eval-field"><span>评测集名称 <b>*</b></span><input maxLength={50} value={draft.name} placeholder="例如：历史会话回流集" onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><small>{draft.name.length}/50</small></label>
         <label className="eval-field"><span>描述</span><textarea maxLength={200} rows={2} value={draft.description} placeholder="说明这份数据用于验证什么" onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /><small>{draft.description.length}/200</small></label>
-        <label className="eval-field"><span>标签</span><input maxLength={80} value={draft.tags} placeholder="例如：售后, 回归, Badcase" onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} /><small>多个标签用逗号分隔，用于评测集列表筛选。</small></label>
       </div>
       <div className="eval-create-section eval-create-section--trace-replay">
         <div className="eval-trace-replay-status">{fromObservation && <span className="eval-trace-replay-source">已从观测列表带入 {selectedHistoryCount} 条记录，可继续调整。</span>}<Pill tone="green">{selectedHistoryCount} 个对话已选</Pill></div>
