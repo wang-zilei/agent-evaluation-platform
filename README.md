@@ -2,6 +2,11 @@
 
 从万智 Studio 原型中拆出的独立评测平台。评测中心不再是万智内部模块，而是一个可独立运行的平台页面。
 
+## 在线入口
+
+- 静态原型：https://wang-zilei.github.io/agent-evaluation-platform/
+- 企业 GitLab：https://code.lingyiwanwu.net/wangzilei/agent-evaluation-platform
+
 ## 来源
 
 - 原仓库：`/Users/admin/Documents/高保真原型/wanzhi_platform_production`
@@ -57,4 +62,4 @@ src/
 
 - 仍为可点击的产品原型，数据全部来自 `evaluation.mock.ts`，没有真实后端接口。
 - 已用 Mock 展示万智和外部 Agent 来源；尚未接入真实注册、账号权限或 Langfuse 轨迹读取。
-- 未推送远端。本仓库为本地 Git 仓库。
+- 企业 GitLab 的 Pages 域名仍为实例占位配置，静态发布产物通过 GitHub Pages 提供访问。
