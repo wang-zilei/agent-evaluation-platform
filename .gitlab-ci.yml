@@ -3,10 +3,11 @@ stages:
 
 pages:
   stage: deploy
-  image: node:22-alpine
   tags:
-    - general-runner
+    - general-runner-shell
   script:
+    - node --version
+    - npm --version
     - npm ci
     - npm run build
     - mv dist public
