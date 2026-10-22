@@ -101,11 +101,13 @@ function MetricMenu({ selected, onSelect }: { selected: MetricKey; onSelect: (ke
 function TimeSeriesPanel({
   metric,
   scope,
+  timeRange,
   onScopeChange,
   onMetricChange,
 }: {
   metric: Metric;
   scope: Scope;
+  timeRange: TimeRange;
   onScopeChange: (scope: Scope) => void;
   onMetricChange: (key: MetricKey) => void;
 }) {
@@ -115,10 +117,25 @@ function TimeSeriesPanel({
     const phase = 3.3;
     return metric.series.map((value, index) => value * factor * (1 + Math.sin(index * 0.48 + phase) * 0.08));
   }, [metric, scope]);
-  const min = Math.min(...scopedSeries) * 0.91;
-  const max = Math.max(...scopedSeries) * 1.03;
+  const min = Math.min(...scopedSeries);
+  const max = Math.max(...scopedSeries);
+  const chartRange = Math.max(1, max - min);
   const total = scopedSeries.reduce((sum, value) => sum + value, 0);
   const displayTotal = scope === '总计' ? metric.value : formatChartValue(metric, total / 31);
+  const axisValues = [max, (max + min) / 2, min].map((value) => formatChartValue(metric, value));
+  const axisTimes = useMemo(() => {
+    const start = timeRange.start.getTime();
+    const end = timeRange.end.getTime();
+    const span = Math.max(1, end - start);
+    const formatter = span <= 6 * 60 * 60 * 1000
+      ? new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : span <= 8 * 24 * 60 * 60 * 1000
+        ? new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+        : span <= 366 * 24 * 60 * 60 * 1000
+          ? new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' })
+          : new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    return [0, 0.25, 0.5, 0.75, 1].map((ratio) => formatter.format(new Date(start + span * ratio)));
+  }, [timeRange]);
   return <section className="ov-time-panel" style={{ '--metric-color': metric.color } as CSSProperties}>
     <header className="ov-time-panel__header">
       <div className="ov-time-panel__summary">
@@ -130,16 +147,24 @@ function TimeSeriesPanel({
         {(['总计', '按 Agent'] as Scope[]).map((item) => <button type="button" role="tab" aria-selected={scope === item} className={scope === item ? 'is-active' : ''} key={item} onClick={() => onScopeChange(item)}>{item}</button>)}
       </div>
     </header>
-    <div className="ov-time-chart" aria-label={`${metric.label}近 24 小时时序柱状图`}>
-      <div className="ov-time-grid" aria-hidden="true"><i /><i /><i /><i /></div>
-      <div className="ov-time-bars">
-        {scopedSeries.map((value, index) => {
-          const height = 12 + ((value - min) / Math.max(1, max - min)) * 82;
-          return <i key={`${scope}-${index}`} style={{ height: `${height}%`, background: metric.color }} title={`${index + 1} · ${formatChartValue(metric, value)}`} />;
-        })}
+    <div className="ov-time-chart-frame">
+      <div className="ov-time-y-axis" aria-hidden="true">{axisValues.map((value, index) => <span key={`${value}-${index}`}>{value}</span>)}</div>
+      <div className="ov-time-chart" role="img" aria-label={`${metric.label}近 24 小时时序柱状图`}>
+        <div className="ov-time-plot">
+          <div className="ov-time-grid" aria-hidden="true"><i /><i /><i /><i /></div>
+          <div className="ov-time-bars">
+            {scopedSeries.map((value, index) => {
+              const height = 14 + ((value - min) / chartRange) * 82;
+              return <span className={`ov-time-bar${index === scopedSeries.length - 1 ? ' is-current' : ''}`} key={`${scope}-${index}`} title={`${index + 1} · ${formatChartValue(metric, value)}`}>
+                <i style={{ height: `${height}%` }} />
+              </span>;
+            })}
+          </div>
+        </div>
+        <div className="ov-time-x-axis" aria-hidden="true">{axisTimes.map((value, index) => <span key={`${value}-${index}`}>{value}</span>)}</div>
       </div>
     </div>
-    <footer className="ov-time-panel__footer"><span><i style={{ background: metric.color }} />{metric.label} · {displayTotal}</span><span>近 24 小时 · 31 个数据点</span></footer>
+    <footer className="ov-time-panel__footer"><span><i style={{ background: metric.color }} />{metric.label} · {displayTotal}</span></footer>
   </section>;
 }
 
@@ -233,7 +258,7 @@ export default function OverviewPage({
       <div className="ov-metric-strip">{METRICS.map((item) => <MetricCard key={item.key} metric={item} selected={item.key === selectedMetric} onSelect={() => setSelectedMetric(item.key)} />)}</div>
     </section>
 
-    <TimeSeriesPanel metric={metric} scope={scope} onScopeChange={setScope} onMetricChange={setSelectedMetric} />
+    <TimeSeriesPanel metric={metric} scope={scope} timeRange={timeRange} onScopeChange={setScope} onMetricChange={setSelectedMetric} />
     <p className="ov-chart-caption"><Clock3 size={13} />{timePreset === '1d' ? '近 24 小时' : timePreset === '7d' ? '近 7 天' : timePreset === '30d' ? '近 30 天' : selectedTimePreset.label}，按小时聚合，柱高表示所选指标的时序变化。</p>
 
     <section className="ov-module ov-task-module" style={{ '--module-accent': '#a477c7' } as CSSProperties}>

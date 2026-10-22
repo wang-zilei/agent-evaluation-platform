@@ -200,7 +200,7 @@
 }
 
 .ov-metric-strip-wrap {
-  padding: 9px 0 7px;
+  padding: 8px 0 10px;
   overflow-x: auto;
 }
 
@@ -208,52 +208,75 @@
   min-width: 1080px;
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 2px;
-  padding: 7px;
-  border-radius: 12px;
-  background: #f6f6f8;
+  overflow: hidden;
+  border: 1px solid var(--eval-border);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 3px 14px rgba(24, 24, 27, .035);
 }
 
 .ov-metric-card {
   position: relative;
   min-width: 0;
-  min-height: 132px;
+  min-height: 136px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 7px;
-  padding: 16px 17px 12px;
+  gap: 6px;
+  padding: 15px 17px 12px;
   overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 11px;
+  border: 0;
+  border-right: 1px solid var(--eval-border);
+  border-radius: 0;
   color: var(--eval-text);
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background .2s ease, border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  transition: background .2s ease, box-shadow .2s ease;
 }
 
+.ov-metric-card:last-child { border-right: 0; }
+
 .ov-metric-card:hover {
-  background: rgba(255, 255, 255, .66);
+  background: #fafafa;
 }
 
 .ov-metric-card.is-selected {
-  border-color: #a7dff4;
-  background: #fff;
-  box-shadow: 0 8px 24px rgba(24, 24, 27, .09);
-  transform: translateY(-6px);
+  background: color-mix(in srgb, var(--metric-color) 7%, #fff);
+  box-shadow: inset 0 3px 0 var(--metric-color), inset 0 0 0 1px color-mix(in srgb, var(--metric-color) 22%, transparent);
+}
+
+.ov-metric-card:focus-visible {
+  z-index: 1;
+  outline: 2px solid color-mix(in srgb, var(--metric-color) 55%, transparent);
+  outline-offset: -3px;
 }
 
 .ov-metric-card__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--eval-muted);
   font-size: 11px;
 }
+
+.ov-metric-card__label::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--metric-color) 56%, #d7d7dd);
+}
+
+.ov-metric-card.is-selected .ov-metric-card__label::before { background: var(--metric-color); }
 
 .ov-metric-card > strong {
   color: var(--eval-ink);
   font-size: 25px;
   line-height: 1.12;
   letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .ov-metric-card__delta {
@@ -273,7 +296,7 @@
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  color: #c4c0ee;
+  color: color-mix(in srgb, var(--metric-color) 34%, #dedee4);
 }
 
 .ov-metric-card__spark i {
@@ -283,13 +306,14 @@
   background: currentColor;
 }
 
-.ov-metric-card.is-selected .ov-metric-card__spark { color: #64b8ad; }
+.ov-metric-card.is-selected .ov-metric-card__spark { color: color-mix(in srgb, var(--metric-color) 82%, #8b8b95); }
 
 .ov-time-panel {
   overflow: hidden;
-  border: 1px solid #cce9f5;
+  border: 1px solid var(--eval-border-strong);
   border-radius: 10px;
   background: #fff;
+  box-shadow: 0 4px 18px rgba(24, 24, 27, .03);
 }
 
 .ov-time-panel__header {
@@ -299,6 +323,8 @@
   justify-content: space-between;
   gap: 18px;
   padding: 13px 18px 11px;
+  border-bottom: 1px solid var(--eval-border);
+  background: linear-gradient(90deg, #fbfcfc 0%, #fff 58%);
 }
 
 .ov-time-panel__summary {
@@ -367,17 +393,14 @@
 .ov-metric-menu__panel button svg { color: var(--eval-ink); }
 
 .ov-time-total {
-  min-height: 28px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px;
-  border: 1px solid #ededf0;
-  border-radius: 6px;
-  color: var(--eval-text);
-  background: #fafafa;
-  font-size: 11px;
-  font-weight: 650;
+  color: var(--eval-ink);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .ov-time-total i,
@@ -417,11 +440,32 @@
   font-weight: 700;
 }
 
+.ov-time-chart-frame {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  margin: 0 18px;
+}
+
+.ov-time-y-axis {
+  height: 270px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 5px 9px 3px 0;
+  color: var(--eval-muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .ov-time-chart {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.ov-time-plot {
   position: relative;
   height: 270px;
-  margin: 0 18px;
-  overflow: hidden;
 }
 
 .ov-time-grid {
@@ -439,29 +483,83 @@
 
 .ov-time-bars {
   position: absolute;
-  inset: 12px 0 0;
+  inset: 10px 0 6px;
   display: grid;
   grid-template-columns: repeat(31, minmax(0, 1fr));
   align-items: end;
-  gap: 5px;
+  gap: 6px;
 }
 
-.ov-time-bars > i {
+.ov-time-bar {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ov-time-bar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: #f0f2f2;
+  transform: translateX(-50%);
+}
+
+.ov-time-bar i {
+  position: relative;
+  z-index: 1;
+  width: 7px;
   min-width: 4px;
   display: block;
-  border-radius: 4px 4px 1px 1px;
-  opacity: .88;
+  border-radius: 5px 5px 2px 2px;
+  background: color-mix(in srgb, var(--metric-color) 64%, #fff);
+  opacity: .74;
+  transition: opacity .16s ease, width .16s ease;
 }
 
-.ov-time-bars > i:hover { opacity: 1; }
+.ov-time-bar i::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--metric-color);
+  transform: translateX(-50%);
+}
+
+.ov-time-bar:hover i,
+.ov-time-bar.is-current i {
+  width: 8px;
+  opacity: 1;
+}
+
+.ov-time-bar.is-current i { background: var(--metric-color); }
+
+.ov-time-x-axis {
+  min-height: 24px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 1px 0;
+  color: var(--eval-muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .ov-time-panel__footer {
   min-height: 42px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
-  padding: 0 18px 10px;
+  padding: 4px 18px 10px;
   color: var(--eval-muted);
   font-size: 9px;
 }
@@ -663,8 +761,11 @@
   .ov-time-picker__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ov-time-picker__custom { grid-template-columns: 1fr; }
   .ov-time-panel__header { align-items: flex-start; flex-direction: column; }
-  .ov-time-chart { height: 220px; overflow-x: auto; }
-  .ov-time-bars { min-width: 800px; }
+  .ov-time-chart-frame { grid-template-columns: 38px minmax(0, 1fr); margin: 0 12px; }
+  .ov-time-y-axis { height: 220px; padding-right: 7px; }
+  .ov-time-plot,
+  .ov-time-x-axis { min-width: 800px; }
+  .ov-time-plot { height: 220px; }
   .ov-task-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ov-task-stats > div:last-child { grid-column: 1 / -1; }
 }
