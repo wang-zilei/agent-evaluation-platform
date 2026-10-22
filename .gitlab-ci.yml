@@ -4,6 +4,8 @@ stages:
 pages:
   stage: deploy
   image: node:22-alpine
+  tags:
+    - general-runner
   script:
     - npm ci
     - npm run build
