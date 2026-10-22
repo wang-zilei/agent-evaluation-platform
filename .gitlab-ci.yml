@@ -12,6 +12,7 @@ pages:
     - npm run build
     - mv dist public
     - cp public/index.html public/404.html
+    - printf '%s\n' "$CI_PAGES_URL" > public/pages-url.txt
   artifacts:
     paths:
       - public
